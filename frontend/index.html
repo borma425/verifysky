@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Security Verification</title>
+
+  <!-- Cloudflare Turnstile (loaded async, invisible mode) -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+
+  <style>
+    /* ======================================================
+       Edge Shield — Challenge Page Styles
+       Dark premium design with glassmorphism accents.
+       ====================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #050a14;
+      --bg-secondary: #0c1220;
+      --bg-card: rgba(15, 23, 42, 0.85);
+      --bg-card-border: rgba(56, 97, 251, 0.12);
+      --text-primary: #e2e8f0;
+      --text-secondary: #8892a8;
+      --text-muted: #4a5568;
+      --accent: #3b82f6;
+      --accent-bright: #60a5fa;
+      --accent-glow: rgba(59, 130, 246, 0.15);
+      --success: #22c55e;
+      --success-glow: rgba(34, 197, 94, 0.3);
+      --error: #ef4444;
+      --error-glow: rgba(239, 68, 68, 0.2);
+      --border: rgba(255, 255, 255, 0.06);
+      --slider-bg: #111827;
+      --slider-track-bg: rgba(30, 41, 59, 0.8);
+      --slider-handle: linear-gradient(135deg, #3b82f6, #2563eb);
+      --slider-fill: linear-gradient(90deg, rgba(59, 130, 246, 0.6), rgba(59, 130, 246, 0.2));
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      overflow: hidden;
+    }
+
+    /* Animated background grid */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background:
+        linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px),
+        linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Ambient glow orbs */
+    body::after {
+      content: '';
+      position: fixed;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.08), transparent 70%);
+      top: -150px;
+      right: -100px;
+      pointer-events: none;
+      z-index: 0;
+      animation: float 8s ease-in-out infinite alternate;
+    }
+
+    @keyframes float {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(-30px, 30px) scale(1.1); }
+    }
+
+    /* ---- Card Container ---- */
+    .shield-container {
+      position: relative;
+      z-index: 1;
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--bg-card-border);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      max-width: 420px;
+      width: 100%;
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.02),
+        0 0 80px rgba(59, 130, 246, 0.06),
+        0 30px 60px rgba(0, 0, 0, 0.5);
+      animation: cardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(30px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ---- Header ---- */
+    .shield-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .shield-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1.25rem;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+      box-shadow: 0 8px 32px rgba(59, 130, 246, 0.25);
+      animation: iconPulse 2s ease-in-out infinite alternate;
+    }
+
+    @keyframes iconPulse {
+      0% { box-shadow: 0 8px 32px rgba(59, 130, 246, 0.2); }
+      100% { box-shadow: 0 8px 48px rgba(59, 130, 246, 0.35); }
+    }
+
+    .shield-header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.01em;
+      background: linear-gradient(135deg, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .shield-header p {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ---- Slider ---- */
+    .slider-container {
+      position: relative;
+      width: 300px;
+      height: 52px;
+      margin: 1.5rem auto;
+      background: var(--slider-track-bg);
+      border-radius: 26px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      cursor: default;
+    }
+
+    .slider-track {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      background: var(--slider-fill);
+      border-radius: 26px 0 0 26px;
+      width: 0;
+      transition: none;
+    }
+
+    .slider-handle {
+      position: absolute;
+      top: 4px;
+      left: 0;
+      width: 44px;
+      height: 44px;
+      background: var(--slider-handle);
+      border-radius: 50%;
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow:
+        0 2px 8px rgba(59, 130, 246, 0.4),
+        0 0 0 3px rgba(59, 130, 246, 0.1);
+      z-index: 10;
+      transition: box-shadow 0.2s ease, background 0.3s ease;
+    }
+
+    .slider-handle:hover {
+      box-shadow:
+        0 2px 16px rgba(59, 130, 246, 0.5),
+        0 0 0 4px rgba(59, 130, 246, 0.15);
+    }
+
+    .slider-handle:active {
+      cursor: grabbing;
+      box-shadow:
+        0 2px 24px rgba(59, 130, 246, 0.6),
+        0 0 0 6px rgba(59, 130, 246, 0.2);
+    }
+
+    .slider-handle svg {
+      width: 18px;
+      height: 18px;
+      fill: white;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+    }
+
+    .slider-label {
+      position: absolute;
+      top: 50%;
+      left: 55%;
+      transform: translate(-50%, -50%);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      pointer-events: none;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: opacity 0.2s ease;
+    }
+
+    /* ---- Timer Bar ---- */
+    .timer-bar {
+      width: 100%;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 2px;
+      margin-top: 1rem;
+      overflow: hidden;
+    }
+
+    .timer-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+      border-radius: 2px;
+      width: 100%;
+      transition: width var(--challenge-ttl, 60s) linear;
+    }
+
+    .timer-fill.active { width: 0%; }
+
+    /* ---- Status Bar ---- */
+    .status-bar {
+      text-align: center;
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      min-height: 1.4em;
+      font-weight: 500;
+      transition: color 0.3s ease;
+    }
+
+    .status-bar.success { color: var(--success); }
+    .status-bar.error { color: var(--error); }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .status-bar.loading { animation: pulse 1.5s ease-in-out infinite; }
+
+    /* ---- Turnstile Widget ---- */
+    .turnstile-wrapper {
+      display: flex;
+      justify-content: center;
+      margin-top: 1.25rem;
+    }
+
+    /* ---- Footer ---- */
+    .shield-footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .shield-footer p {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+
+    .shield-footer .dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: dotPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 440px) {
+      .shield-container { padding: 2rem 1.5rem; border-radius: 16px; }
+      .slider-container { width: 260px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shield-container">
+    <div class="shield-header">
+      <div class="shield-icon">🛡️</div>
+      <h1>Security Verification</h1>
+      <p>Slide to verify you are human</p>
+    </div>
+
+    <div class="slider-container" id="sliderContainer">
+      <div class="slider-track" id="sliderTrack"></div>
+      <div class="slider-handle" id="sliderHandle">
+        <svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+      </div>
+      <div class="slider-label" id="sliderLabel">Slide →</div>
+    </div>
+
+    <div class="timer-bar"><div class="timer-fill" id="timerFill"></div></div>
+    <div class="status-bar" id="statusBar"></div>
+
+    <div class="turnstile-wrapper">
+      <div class="cf-turnstile"
+           data-sitekey="{{TURNSTILE_SITE_KEY}}"
+           data-callback="onTurnstileSuccess"
+           data-theme="dark"
+           data-size="compact">
+      </div>
+    </div>
+
+    <div class="shield-footer">
+      <p><span class="dot"></span> Protected by Edge Shield</p>
+    </div>
+  </div>
+
+  <!-- Challenge metadata (injected by Worker) -->
+  <script>
+    window.__ES_CHALLENGE = {
+      nonce: "{{NONCE}}",
+      submitPath: "{{SUBMIT_PATH}}",
+      signature: "{{SIGNATURE}}",
+      issuedAt: {{ISSUED_AT}},
+      expiresAt: {{EXPIRES_AT}},
+      trackWidth: {{TRACK_WIDTH}}
+    };
+  </script>
+
+  <!-- Obfuscated slider + fingerprint engine -->
+  <script>{{SLIDER_SCRIPT}}</script>
+</body>
+</html>
