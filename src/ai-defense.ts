@@ -28,7 +28,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 /** Minimum interval between AI analysis runs (seconds) */
-const AI_COOLDOWN_SECONDS = 60;
+const AI_COOLDOWN_SECONDS = 300;
 
 /** KV key for tracking the last AI analysis timestamp */
 const AI_LAST_RUN_KEY = "ai:last_run";
@@ -40,13 +40,16 @@ const LOG_WINDOW_MINUTES = 15;
 const MAX_LOGS_PER_BATCH = 200;
 
 /** Minimum number of security events before triggering AI analysis */
-const MIN_EVENTS_THRESHOLD = 5;
+const MIN_EVENTS_THRESHOLD = 12;
+const MIN_UNIQUE_IPS_THRESHOLD = 8;
+const MIN_SEVERE_EVENTS_THRESHOLD = 6;
 
 /** OpenRouter API endpoint */
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /** Cloudflare API base URL */
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
+const ES_DISABLE_WAF_VALUES = new Set(["1", "true", "on", "yes"]);
 
 // ---------------------------------------------------------------------------
 // Public: Main Trigger (called from index.ts via ctx.waitUntil)
@@ -65,28 +68,90 @@ export async function triggerAIDefense(
   meta: RequestMeta
 ): Promise<void> {
   try {
+    await logAIDefenseEvent(env, meta, "pipeline_start", "AI defense trigger received");
+
     // --- Rate limit: prevent running more than once per cooldown period ---
     const shouldRun = await acquireAILock(env);
-    if (!shouldRun) return;
+    if (!shouldRun) {
+      await logAIDefenseEvent(env, meta, "lock_skip", "Cooldown lock active or KV unavailable");
+      return;
+    }
+    await logAIDefenseEvent(env, meta, "lock_acquired", "AI cooldown lock acquired");
 
     // --- Fetch recent security logs from D1 ---
     const logs = await fetchRecentLogs(env);
-    if (logs.length < MIN_EVENTS_THRESHOLD) return;
+    if (logs.length < MIN_EVENTS_THRESHOLD) {
+      await logAIDefenseEvent(
+        env,
+        meta,
+        "insufficient_events",
+        `Only ${logs.length} events in ${LOG_WINDOW_MINUTES}m window`
+      );
+      return;
+    }
+    await logAIDefenseEvent(env, meta, "logs_loaded", `Loaded ${logs.length} events`);
 
     // --- Aggregate statistics for the AI prompt ---
     const stats = aggregateLogStats(logs);
+    await logAIDefenseEvent(
+      env,
+      meta,
+      "stats_ready",
+      `failRate=${(stats.failureRate * 100).toFixed(1)}%, uniqueIPs=${stats.uniqueIPs.length}, uniqueASNs=${stats.uniqueASNs.length}`
+    );
+
+    if (!shouldQueryOpenRouter(stats)) {
+      await logAIDefenseEvent(
+        env,
+        meta,
+        "openrouter_skip",
+        "Traffic pattern below high-threat threshold; skipped to save tokens"
+      );
+      return;
+    }
 
     // --- Query OpenRouter for threat analysis ---
     const analysis = await queryOpenRouter(env, logs, stats);
-    if (!analysis) return;
-
-    // --- Deploy WAF rule if a confirmed threat is detected ---
-    if (analysis.isThreat && analysis.confidence >= 0.7) {
-      await deployWAFRule(env, analysis, meta);
+    if (!analysis) {
+      await logAIDefenseEvent(env, meta, "analysis_null", "OpenRouter returned null/invalid response");
+      return;
     }
-  } catch {
+    await logAIDefenseEvent(
+      env,
+      meta,
+      "analysis_ready",
+      `isThreat=${analysis.isThreat}, confidence=${analysis.confidence.toFixed(2)}, action=${analysis.recommendedAction}`
+    );
+
+    const wafDisabled = ES_DISABLE_WAF_VALUES.has(
+      (env.ES_DISABLE_WAF_AUTODEPLOY || "").toLowerCase()
+    );
+
+    // --- Deploy WAF rule if a confirmed threat is detected and auto-deploy is enabled ---
+    if (analysis.isThreat && analysis.confidence >= 0.7) {
+      if (wafDisabled) {
+        await logAIDefenseEvent(
+          env,
+          meta,
+          "waf_disabled",
+          "WAF auto-deploy disabled by ES_DISABLE_WAF_AUTODEPLOY"
+        );
+      } else {
+        await deployWAFRule(env, analysis, meta);
+        await logAIDefenseEvent(env, meta, "waf_deploy_attempted", "WAF deployment attempted");
+      }
+    } else {
+      await logAIDefenseEvent(env, meta, "monitor_only", "No WAF action taken by policy");
+    }
+  } catch (error) {
     // All errors are silently consumed — this pipeline must never
     // crash the Worker or affect the main request flow.
+    await logAIDefenseEvent(
+      env,
+      meta,
+      "pipeline_error",
+      error instanceof Error ? error.message.substring(0, 220) : "Unknown error"
+    );
   }
 }
 
@@ -129,17 +194,14 @@ async function acquireAILock(env: Env): Promise<boolean> {
  * Limited to MAX_LOGS_PER_BATCH to keep the AI prompt manageable.
  */
 async function fetchRecentLogs(env: Env): Promise<SecurityLogRecord[]> {
-  const windowStart = new Date(
-    Date.now() - LOG_WINDOW_MINUTES * 60 * 1000
-  ).toISOString();
-
+  const sqliteWindowExpr = `-${LOG_WINDOW_MINUTES} minutes`;
   const result = await env.DB.prepare(
     `SELECT * FROM security_logs
-     WHERE created_at >= ?
+     WHERE datetime(created_at) >= datetime('now', ?)
      ORDER BY created_at DESC
      LIMIT ?`
   )
-    .bind(windowStart, MAX_LOGS_PER_BATCH)
+    .bind(sqliteWindowExpr, MAX_LOGS_PER_BATCH)
     .all<SecurityLogRecord>();
 
   return result.results || [];
@@ -222,6 +284,31 @@ function aggregateLogStats(logs: SecurityLogRecord[]): LogAggregation {
       .slice(0, 10)
       .map(([asn, count]) => ({ asn, count })),
   };
+}
+
+function shouldQueryOpenRouter(stats: LogAggregation): boolean {
+  if (stats.totalEvents < MIN_EVENTS_THRESHOLD) return false;
+
+  const hardBlocks = stats.eventTypeCounts.hard_block || 0;
+  const challengeFails = stats.eventTypeCounts.challenge_failed || 0;
+  const turnstileFails = stats.eventTypeCounts.turnstile_failed || 0;
+  const replayEvents = stats.eventTypeCounts.replay_detected || 0;
+  const severeEvents = hardBlocks + challengeFails + turnstileFails + replayEvents;
+
+  // Require either broad spread or meaningful severe volume.
+  if (
+    stats.uniqueIPs.length < MIN_UNIQUE_IPS_THRESHOLD &&
+    severeEvents < MIN_SEVERE_EVENTS_THRESHOLD
+  ) {
+    return false;
+  }
+
+  // Skip low-confidence/noisy traffic patterns to save tokens.
+  if (stats.failureRate < 0.40 && severeEvents < MIN_SEVERE_EVENTS_THRESHOLD + 2) {
+    return false;
+  }
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,8 +462,11 @@ async function deployWAFRule(
   analysis: ThreatAnalysisResponse,
   meta: RequestMeta
 ): Promise<void> {
-  // Build the WAF expression
-  const expression = analysis.wafExpression || buildWAFExpression(analysis);
+  // Build a strictly validated WAF expression.
+  // Never trust free-form LLM expressions without safety checks.
+  const aiExpression = analysis.wafExpression?.trim() || null;
+  const safeAIExpression = aiExpression && isSafeWAFExpression(aiExpression) ? aiExpression : null;
+  const expression = safeAIExpression || buildWAFExpression(analysis);
   if (!expression) return;
 
   // Construct the rule description
@@ -473,6 +563,31 @@ function buildWAFExpression(analysis: ThreatAnalysisResponse): string | null {
   }
 }
 
+/**
+ * Strict allow-list for Cloudflare WAF expressions generated by AI.
+ * Rejects broad predicates (e.g., "true") and only accepts narrow IP/ASN/country filters.
+ */
+function isSafeWAFExpression(expression: string): boolean {
+  if (!expression || expression.length > 300) return false;
+  if (/^\s*true\s*$/i.test(expression)) return false;
+
+  const ipEq = /^\(\s*ip\.src\s+eq\s+((\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+)\s*\)$/;
+  const ipIn = /^\(\s*ip\.src\s+in\s+\{\s*("[^"]+"\s*)+\}\s*\)$/;
+  const asnEq = /^\(\s*ip\.geoip\.asnum\s+eq\s+\d+\s*\)$/;
+  const asnIn = /^\(\s*ip\.geoip\.asnum\s+in\s+\{\s*(\d+\s*)+\}\s*\)$/;
+  const countryEq = /^\(\s*ip\.geoip\.country\s+eq\s+"[A-Z]{2}"\s*\)$/;
+  const countryIn = /^\(\s*ip\.geoip\.country\s+in\s+\{\s*("[A-Z]{2}"\s*)+\}\s*\)$/;
+
+  return (
+    ipEq.test(expression) ||
+    ipIn.test(expression) ||
+    asnEq.test(expression) ||
+    asnIn.test(expression) ||
+    countryEq.test(expression) ||
+    countryIn.test(expression)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cloudflare API: WAF Rule Creation
 // ---------------------------------------------------------------------------
@@ -482,6 +597,24 @@ interface WAFRuleConfig {
   expression: string;
   action: string;
 }
+
+type MergeableField = "ip.src" | "ip.geoip.asnum" | "ip.geoip.country";
+
+interface ParsedMergeableExpression {
+  field: MergeableField;
+  values: string[];
+}
+
+interface RulesetRule {
+  id?: string;
+  action?: string;
+  expression?: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+const EDGE_SHIELD_AUTO_DESC_PREFIX = "[Edge Shield Auto]";
+const MAX_MERGED_TARGETS = 200;
 
 /**
  * Creates a custom WAF rule on a specific Cloudflare zone using
@@ -498,7 +631,40 @@ async function createCloudflareWAFRule(
   const rulesetId = await getOrCreateCustomRuleset(env, zoneId);
   if (!rulesetId) return;
 
-  // Add the new rule to the ruleset
+  // Smart dedupe/merge:
+  // 1) Skip exact duplicates.
+  // 2) Merge compatible Edge Shield rules (e.g., multiple single-IP blocks)
+  //    into one compact `in { ... }` expression.
+  const existingRules = await listCustomRulesetRules(env, zoneId, rulesetId);
+  if (existingRules) {
+    const existingMatch = findEquivalentRule(existingRules, rule);
+    if (existingMatch) {
+      return;
+    }
+
+    const mergeCandidate = findMergeCandidate(existingRules, rule);
+    if (mergeCandidate) {
+      const mergedValues = mergeValueSets(
+        mergeCandidate.parsed.values,
+        mergeCandidate.incoming.values
+      );
+      if (mergedValues.length <= MAX_MERGED_TARGETS) {
+        const mergedExpression = serializeMergeableExpression(
+          mergeCandidate.incoming.field,
+          mergedValues
+        );
+        await updateCustomRulesetRule(env, zoneId, rulesetId, mergeCandidate.ruleId, {
+          action: rule.action,
+          expression: mergedExpression,
+          description: mergeCandidate.description || rule.description,
+          enabled: true,
+        });
+        return;
+      }
+    }
+  }
+
+  // Add a new rule when no duplicate/merge path is available.
   const response = await fetch(
     `${CF_API_BASE}/zones/${zoneId}/rulesets/${rulesetId}/rules`,
     {
@@ -520,6 +686,189 @@ async function createCloudflareWAFRule(
     const errorBody = await response.text();
     throw new Error(`WAF rule creation failed (${response.status}): ${errorBody}`);
   }
+}
+
+async function listCustomRulesetRules(
+  env: Env,
+  zoneId: string,
+  rulesetId: string
+): Promise<RulesetRule[] | null> {
+  try {
+    const response = await fetch(
+      `${CF_API_BASE}/zones/${zoneId}/rulesets/${rulesetId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.CF_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!response.ok) return null;
+
+    const payload = await response.json() as {
+      result?: { rules?: RulesetRule[] };
+    };
+    return payload.result?.rules || [];
+  } catch {
+    return null;
+  }
+}
+
+async function updateCustomRulesetRule(
+  env: Env,
+  zoneId: string,
+  rulesetId: string,
+  ruleId: string,
+  rule: {
+    action: string;
+    expression: string;
+    description: string;
+    enabled: boolean;
+  }
+): Promise<void> {
+  const response = await fetch(
+    `${CF_API_BASE}/zones/${zoneId}/rulesets/${rulesetId}/rules/${ruleId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${env.CF_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(rule),
+    }
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`WAF rule update failed (${response.status}): ${errorBody}`);
+  }
+}
+
+function findEquivalentRule(existingRules: RulesetRule[], incoming: WAFRuleConfig): RulesetRule | null {
+  const incomingKey = canonicalizeExpression(incoming.expression);
+  const incomingAction = incoming.action.trim();
+
+  for (const rule of existingRules) {
+    if (!rule.expression || !rule.action) continue;
+    if (rule.action.trim() !== incomingAction) continue;
+    if (canonicalizeExpression(rule.expression) === incomingKey) {
+      return rule;
+    }
+  }
+  return null;
+}
+
+function findMergeCandidate(
+  existingRules: RulesetRule[],
+  incoming: WAFRuleConfig
+): { ruleId: string; description: string; parsed: ParsedMergeableExpression; incoming: ParsedMergeableExpression } | null {
+  const parsedIncoming = parseMergeableExpression(incoming.expression);
+  if (!parsedIncoming) return null;
+
+  for (const rule of existingRules) {
+    if (!rule.id || !rule.expression || !rule.action) continue;
+    if ((rule.description || "").startsWith(EDGE_SHIELD_AUTO_DESC_PREFIX) === false) continue;
+    if (rule.action.trim() !== incoming.action.trim()) continue;
+
+    const parsedExisting = parseMergeableExpression(rule.expression);
+    if (!parsedExisting) continue;
+    if (parsedExisting.field !== parsedIncoming.field) continue;
+
+    return {
+      ruleId: rule.id,
+      description: rule.description || incoming.description,
+      parsed: parsedExisting,
+      incoming: parsedIncoming,
+    };
+  }
+  return null;
+}
+
+function canonicalizeExpression(expression: string): string {
+  const parsed = parseMergeableExpression(expression);
+  if (parsed) {
+    return serializeMergeableExpression(parsed.field, parsed.values);
+  }
+  return expression.replace(/\s+/g, " ").trim();
+}
+
+function parseMergeableExpression(expression: string): ParsedMergeableExpression | null {
+  const raw = expression.trim();
+
+  let match = raw.match(/^\(\s*(ip\.src|ip\.geoip\.asnum|ip\.geoip\.country)\s+eq\s+("?)([^"\s\)]+)\2\s*\)$/i);
+  if (match) {
+    const field = match[1].toLowerCase() as MergeableField;
+    const value = normalizeMergeValue(field, match[3]);
+    if (!value) return null;
+    return { field, values: [value] };
+  }
+
+  match = raw.match(/^\(\s*(ip\.src|ip\.geoip\.asnum|ip\.geoip\.country)\s+in\s+\{(.+)\}\s*\)$/i);
+  if (!match) return null;
+
+  const field = match[1].toLowerCase() as MergeableField;
+  const tokenPart = match[2];
+  const tokens = tokenPart.match(/"[^"]+"|[^\s]+/g) || [];
+  const normalized: string[] = [];
+
+  for (const token of tokens) {
+    const stripped = token.startsWith("\"") && token.endsWith("\"")
+      ? token.slice(1, -1)
+      : token;
+    const value = normalizeMergeValue(field, stripped);
+    if (!value) return null;
+    normalized.push(value);
+  }
+
+  const unique = Array.from(new Set(normalized)).sort();
+  if (unique.length === 0) return null;
+  return { field, values: unique };
+}
+
+function normalizeMergeValue(field: MergeableField, rawValue: string): string | null {
+  const value = rawValue.trim();
+  if (value === "") return null;
+
+  if (field === "ip.src") {
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return value;
+    if (/^[0-9a-fA-F:]+$/.test(value)) return value.toLowerCase();
+    return null;
+  }
+
+  if (field === "ip.geoip.asnum") {
+    if (!/^\d+$/.test(value)) return null;
+    return String(parseInt(value, 10));
+  }
+
+  if (field === "ip.geoip.country") {
+    const upper = value.toUpperCase();
+    return /^[A-Z]{2}$/.test(upper) ? upper : null;
+  }
+
+  return null;
+}
+
+function mergeValueSets(existing: string[], incoming: string[]): string[] {
+  return Array.from(new Set([...existing, ...incoming])).sort();
+}
+
+function serializeMergeableExpression(field: MergeableField, values: string[]): string {
+  const normalized = Array.from(new Set(values)).sort();
+  if (normalized.length === 1) {
+    const single = normalized[0];
+    if (field === "ip.geoip.country") {
+      return `(${field} eq "${single}")`;
+    }
+    return `(${field} eq ${single})`;
+  }
+
+  if (field === "ip.geoip.country") {
+    const list = normalized.map((v) => `"${v}"`).join(" ");
+    return `(${field} in {${list}})`;
+  }
+
+  const list = normalized.join(" ");
+  return `(${field} in {${list}})`;
 }
 
 /**
@@ -605,5 +954,23 @@ async function getActiveZoneIds(env: Env): Promise<string[]> {
     return (result.results || []).map((r) => r.zone_id);
   } catch {
     return [];
+  }
+}
+
+async function logAIDefenseEvent(
+  env: Env,
+  meta: RequestMeta,
+  stage: string,
+  details: string
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO security_logs (event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+       VALUES ('ai_defense', ?, ?, ?, ?, NULL, NULL, ?)`
+    )
+      .bind(meta.ip, meta.asn, meta.country, meta.path, `${stage}: ${details}`)
+      .run();
+  } catch {
+    // Non-fatal
   }
 }

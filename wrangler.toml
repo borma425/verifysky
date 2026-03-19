@@ -11,11 +11,10 @@ account_id = "8c610bded8021e624eb8abc24833d79a"
 
 # ---------------------------------------------------------------------------
 # Route Configuration
-# Adjust these to match your domain and desired protection scope.
+# IMPORTANT:
+# Routes are managed from the dashboard (Cloudflare API), not from Wrangler.
+# Keeping routes out of this file prevents deploy from overriding domain routes.
 # ---------------------------------------------------------------------------
-# routes = [
-#   { pattern = "yourdomain.com/*", zone_name = "yourdomain.com" }
-# ]
 
 # ---------------------------------------------------------------------------
 # D1 Database Binding
@@ -34,7 +33,7 @@ database_id = "3581d2c4-a74c-490a-b9d9-db7e67ad701a"
 # ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "YOUR_KV_NAMESPACE_ID"
+id = "1557768befa24dfe92292a0ef1c0f7b4"
 
 # ---------------------------------------------------------------------------
 # Environment Variables (Secrets) — GLOBAL ONLY
@@ -54,8 +53,8 @@ id = "YOUR_KV_NAMESPACE_ID"
 # ---------------------------------------------------------------------------
 # Build Configuration
 # ---------------------------------------------------------------------------
-[build]
-command = "npm run build"
+# Build: Wrangler bundles TypeScript natively via esbuild (no custom build needed)
+
 
 # ---------------------------------------------------------------------------
 # Development Settings
@@ -69,3 +68,5 @@ local_protocol = "http"
 # ---------------------------------------------------------------------------
 [vars]
 OPENROUTER_MODEL = "google/gemini-3-flash-preview"
+ES_TEST_MODE = "off"
+ES_DISABLE_WAF_AUTODEPLOY = "on"

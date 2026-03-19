@@ -107,6 +107,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
       tlsVersion: null,
       tlsCipher: null,
       botManagementScore: null,
+      verifiedBot: false,
       userAgent,
       method: request.method,
       path: url.pathname,
@@ -127,6 +128,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
     tlsVersion: cf.tlsVersion ?? null,
     tlsCipher: cf.tlsCipher ?? null,
     botManagementScore: cf.botManagement?.score ?? null,
+    verifiedBot: cf.botManagement?.verifiedBot === true,
     userAgent,
     method: request.method,
     path: url.pathname,
@@ -214,6 +216,9 @@ export function createHtmlResponse(
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
+    // Never cache challenge pages to avoid serving stale nonces/UI versions
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
     // CSP: restrictive by default, loosened per-page as needed
     "Content-Security-Policy":
       "default-src 'self'; " +

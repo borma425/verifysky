@@ -160,6 +160,8 @@ CREATE TABLE IF NOT EXISTS domain_configs (
     zone_id           TEXT    NOT NULL,
     turnstile_sitekey TEXT    NOT NULL,
     turnstile_secret  TEXT    NOT NULL,
+    force_captcha     INTEGER NOT NULL DEFAULT 0, -- 0 | 1
+    security_mode     TEXT    NOT NULL DEFAULT 'balanced', -- monitor | balanced | aggressive
     status            TEXT    NOT NULL DEFAULT 'active',  -- active | paused | revoked
     created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

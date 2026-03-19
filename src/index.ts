@@ -19,6 +19,7 @@ import type {
   DomainConfigRecord,
   SessionTokenClaims,
   RequestMeta,
+  RiskAssessment,
 } from "./types";
 import { RiskLevel } from "./types";
 import { verifySessionToken } from "./crypto";
@@ -29,7 +30,13 @@ import {
   createErrorResponse,
   createHtmlResponse,
 } from "./utils";
-import { evaluateRisk, incrementIPRate } from "./risk";
+import {
+  evaluateRisk,
+  incrementIPRate,
+  incrementASNRate,
+  incrementSubnetRate,
+  getIPRateCount,
+} from "./risk";
 
 // Forward declarations — these modules will be created in Phases 4 and 5.
 // We import them dynamically to avoid circular dependency issues during build.
@@ -51,6 +58,17 @@ const DOMAIN_CACHE_PREFIX = "dcfg:";
 
 /** Domain config KV cache TTL (5 minutes) */
 const DOMAIN_CACHE_TTL = 300;
+const TEMP_BAN_PREFIX = "ban:ip:";
+const TEMP_BAN_TTL_SECONDS = 10 * 60;
+const IP_HARD_BAN_RATE_THRESHOLD = 120; // requests/minute per IP
+const KNOWN_CRAWLER_UA_PATTERN =
+  /(googlebot|google-inspectiontool|googleother|adsbot-google|mediapartners-google|bingbot|adidxbot|duckduckbot|yandexbot|baiduspider|applebot|slurp|amazonbot|facebookexternalhit|linkedinbot|twitterbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|seznambot|ccbot)/i;
+type SecurityMode = "monitor" | "balanced" | "aggressive";
+const AUTO_AGGR_PRESSURE_PREFIX = "mode:auto_aggr:pressure:";
+const AUTO_AGGR_ACTIVE_PREFIX = "mode:auto_aggr:active:";
+const AUTO_AGGR_PRESSURE_TTL_SECONDS = 3 * 60;
+const AUTO_AGGR_ACTIVE_TTL_SECONDS = 10 * 60;
+const AUTO_AGGR_TRIGGER_COUNT = 8;
 
 // ---------------------------------------------------------------------------
 // Multi-Tenant Domain Resolution
@@ -59,13 +77,14 @@ const DOMAIN_CACHE_TTL = 300;
 /**
  * Resolves the domain configuration from D1 with KV caching.
  * First checks KV for a cached config (sub-ms), falls back to D1 query.
- * Returns null if the domain is not onboarded or is inactive.
+ * Returns null if the domain is not onboarded.
  */
 async function resolveDomainConfig(
   domain: string,
   env: Env
 ): Promise<DomainConfigRecord | null> {
-  const cacheKey = `${DOMAIN_CACHE_PREFIX}${domain}`;
+  const normalizedDomain = domain.toLowerCase();
+  const cacheKey = `${DOMAIN_CACHE_PREFIX}${normalizedDomain}`;
 
   // Fast path: check KV cache
   try {
@@ -79,11 +98,21 @@ async function resolveDomainConfig(
 
   // Slow path: query D1
   try {
-    const config = await env.DB.prepare(
-      "SELECT * FROM domain_configs WHERE domain_name = ? AND status = 'active'"
+    let config = await env.DB.prepare(
+      "SELECT * FROM domain_configs WHERE domain_name = ?"
     )
-      .bind(domain)
+      .bind(normalizedDomain)
       .first<DomainConfigRecord>();
+
+    // Fallback: allow www.<domain> host to use apex config entry.
+    if (!config && normalizedDomain.startsWith("www.")) {
+      const apexDomain = normalizedDomain.slice(4);
+      config = await env.DB.prepare(
+        "SELECT * FROM domain_configs WHERE domain_name = ?"
+      )
+        .bind(apexDomain)
+        .first<DomainConfigRecord>();
+    }
 
     if (config) {
       // Cache in KV for fast subsequent lookups
@@ -203,6 +232,135 @@ async function logSecurityEvent(
   }
 }
 
+/**
+ * Checks whether an IP is temporarily banned in KV.
+ * Returns true when ban marker is present.
+ */
+async function isTemporarilyBanned(ip: string, env: Env): Promise<boolean> {
+  try {
+    const ban = await env.SESSION_KV.get(`${TEMP_BAN_PREFIX}${ip}`);
+    return ban === "1";
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedCrawler(meta: RequestMeta): boolean {
+  if (!/^(GET|HEAD)$/i.test(meta.method)) return false;
+  // Strong path: Cloudflare-verified good bot.
+  if (meta.verifiedBot) return true;
+  // Compatibility path for plans where bot verification isn't exposed in request.cf.
+  return KNOWN_CRAWLER_UA_PATTERN.test(meta.userAgent);
+}
+
+function getSecurityMode(domainConfig: DomainConfigRecord): SecurityMode {
+  const mode = String(domainConfig.security_mode || "balanced").toLowerCase();
+  if (mode === "monitor" || mode === "aggressive" || mode === "balanced") {
+    return mode;
+  }
+  return "balanced";
+}
+
+function mapRiskByMode(
+  score: number,
+  mode: SecurityMode
+): RiskLevel {
+  if (mode === "monitor") {
+    // Monitor mode is conservative: no automatic hard-block by risk score.
+    if (score > 35) return RiskLevel.SUSPICIOUS;
+    return RiskLevel.NORMAL;
+  }
+
+  if (mode === "aggressive") {
+    if (score > 55) return RiskLevel.MALICIOUS;
+    if (score > 20) return RiskLevel.SUSPICIOUS;
+    return RiskLevel.NORMAL;
+  }
+
+  // Balanced (default)
+  if (score > 70) return RiskLevel.MALICIOUS;
+  if (score > 30) return RiskLevel.SUSPICIOUS;
+  return RiskLevel.NORMAL;
+}
+
+function hasAttackPressureSignal(risk: RiskAssessment): boolean {
+  if (risk.score >= 65) return true;
+  const factors = risk.factors.join(" ").toLowerCase();
+  return (
+    factors.includes("burst") ||
+    factors.includes("high request rate") ||
+    factors.includes("elevated request rate") ||
+    factors.includes("asn traffic") ||
+    factors.includes("datacenter/hosting asn")
+  );
+}
+
+function shouldTriggerAIDefense(
+  risk: RiskAssessment,
+  mode: SecurityMode
+): boolean {
+  if (risk.score >= 75) return true;
+
+  const factors = risk.factors.join(" ").toLowerCase();
+  const hasBurst = factors.includes("burst") || factors.includes("asn traffic");
+  if (hasBurst && risk.score >= 45) return true;
+
+  if (mode === "aggressive" && risk.score >= 50) return true;
+
+  return false;
+}
+
+async function resolveEffectiveSecurityMode(
+  domainConfig: DomainConfigRecord,
+  risk: RiskAssessment,
+  meta: RequestMeta,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<SecurityMode> {
+  const configured = getSecurityMode(domainConfig);
+  if (configured !== "balanced") return configured;
+
+  const domain = String(domainConfig.domain_name || "").toLowerCase();
+  if (!domain) return configured;
+
+  const activeKey = `${AUTO_AGGR_ACTIVE_PREFIX}${domain}`;
+  const pressureKey = `${AUTO_AGGR_PRESSURE_PREFIX}${domain}`;
+
+  try {
+    const active = await env.SESSION_KV.get(activeKey);
+    if (active === "1") return "aggressive";
+
+    if (!hasAttackPressureSignal(risk)) return configured;
+
+    const current = parseInt((await env.SESSION_KV.get(pressureKey)) || "0", 10) || 0;
+    const next = current + 1;
+    await env.SESSION_KV.put(pressureKey, String(next), {
+      expirationTtl: AUTO_AGGR_PRESSURE_TTL_SECONDS,
+    });
+
+    if (next >= AUTO_AGGR_TRIGGER_COUNT) {
+      await env.SESSION_KV.put(activeKey, "1", {
+        expirationTtl: AUTO_AGGR_ACTIVE_TTL_SECONDS,
+      });
+      ctx.waitUntil(
+        logSecurityEvent(
+          env,
+          "mode_escalated",
+          meta,
+          risk.score,
+          null,
+          `Auto-escalated domain to aggressive for ${AUTO_AGGR_ACTIVE_TTL_SECONDS}s (pressure=${next})`
+        )
+      );
+      return "aggressive";
+    }
+  } catch {
+    // KV failures are non-fatal; remain in configured mode.
+  }
+
+  return configured;
+}
+
 // ---------------------------------------------------------------------------
 // Route Handlers
 // ---------------------------------------------------------------------------
@@ -290,9 +448,32 @@ async function handleSubmission(
  * Minimal information is disclosed to the attacker.
  */
 function handleHardBlock(): Response {
-  return createErrorResponse(
-    "ACCESS_DENIED",
-    "Access denied.",
+  return createHtmlResponse(
+    `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Access Denied</title>
+  <style>
+    body { margin:0; font-family: Arial, Helvetica, sans-serif; background:#f5f7fb; color:#111827; }
+    .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .card { width:100%; max-width:480px; background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:24px; box-shadow:0 12px 30px rgba(15,23,42,.08); text-align:center; }
+    .badge { display:inline-block; padding:6px 10px; border-radius:999px; background:#fee2e2; color:#991b1b; font-size:12px; font-weight:700; margin-bottom:10px; }
+    h1 { margin:0 0 8px; font-size:22px; }
+    p { margin:0; color:#4b5563; line-height:1.6; font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="badge">Security Protection</div>
+      <h1>Access denied</h1>
+      <p>Your request was blocked by the security policy.</p>
+    </div>
+  </div>
+</body>
+</html>`,
     403
   );
 }
@@ -323,24 +504,133 @@ const worker: ExportedHandler<Env> = {
     const meta = extractRequestMeta(request);
     const domain = getDomainFromRequest(request);
 
+    // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
+    if (isAllowedCrawler(meta)) {
+      ctx.waitUntil(
+        logSecurityEvent(
+          env,
+          "session_created",
+          meta,
+          0,
+          null,
+          meta.verifiedBot
+            ? "Verified crawler allow-listed"
+            : "Known crawler UA allow-listed (compat mode)"
+        )
+      );
+      return fetch(request);
+    }
+
+    // Fast hard-stop for known abusive IPs (temporary ban window).
+    if (await isTemporarilyBanned(meta.ip, env)) {
+      ctx.waitUntil(
+        logSecurityEvent(
+          env,
+          "hard_block",
+          meta,
+          100,
+          null,
+          `Temporarily banned IP (${TEMP_BAN_TTL_SECONDS}s window)`
+        )
+      );
+      return handleHardBlock();
+    }
+
     // --- Internal Routes (no domain config needed) ---
     if (meta.path === "/es-health") {
       return handleHealthCheck();
     }
 
     // --- Resolve Domain Configuration ---
+    // In test mode, we might not have a domain config, so we resolve it here but don't strictly require it
+    // yet. We'll check again after the test mode block.
     const domainConfig = await resolveDomainConfig(domain, env);
+
+    // --- Test Mode (for development/staging verification) ---
+    // Activate with: ?__es_test=challenge | block | risk
+    // Requires header: X-ES-Test-Key matching first 16 chars of JWT_SECRET
+    // Runs before domain validation so it can be tested directly on *.workers.dev
+    const testMode = new URL(request.url).searchParams.get("__es_test");
+    if (testMode && env.ES_TEST_MODE === "on") {
+      const testKey = request.headers.get("X-ES-Test-Key");
+      const jwtSecret: string | undefined = env.JWT_SECRET;
+      const expectedKey = jwtSecret ? jwtSecret.substring(0, 16) : null;
+
+      if (testKey && expectedKey && testKey === expectedKey) {
+        if (testMode === "challenge") {
+          // Provide a dummy domain config if tested outside an onboarded domain
+          const dummyConfig = domainConfig || {
+            domain_name: domain,
+            zone_id: "test_zone",
+            turnstile_sitekey: "1x00000000000000000000AA", // Cloudflare test key (always passes)
+            turnstile_secret: "1x0000000000000000000000000000000AA", // Cloudflare test secret
+            force_captcha: 0,
+            security_mode: "balanced",
+            status: "active",
+            created_at: new Date().toISOString(),
+          };
+          return serveChallengePagePlaceholder(meta, dummyConfig, env);
+        }
+        if (testMode === "block") {
+          return handleHardBlock();
+        }
+        if (testMode === "risk") {
+          const risk = await evaluateRisk(meta, env);
+          return createJsonResponse({
+            testMode: true,
+            risk,
+            meta: {
+              ip: meta.ip,
+              asn: meta.asn,
+              country: meta.country,
+              userAgent: meta.userAgent,
+              tlsVersion: meta.tlsVersion,
+              botManagementScore: meta.botManagementScore,
+            },
+          });
+        }
+      }
+    }
+
     if (!domainConfig) {
-      // Domain not onboarded — pass through without protection
-      return createErrorResponse(
-        "DOMAIN_NOT_CONFIGURED",
-        "This domain is not configured for Edge Shield protection.",
-        404
-      );
+      // Domain not onboarded — transparently pass through.
+      return fetch(request);
+    }
+
+    if (domainConfig.status !== "active") {
+      // Paused/revoked domains should bypass protection transparently.
+      return fetch(request);
     }
 
     // --- Increment IP rate counter (async, non-blocking) ---
     ctx.waitUntil(incrementIPRate(meta.ip, env.SESSION_KV));
+    ctx.waitUntil(incrementSubnetRate(meta.ip, env.SESSION_KV));
+    if (meta.asn) {
+      ctx.waitUntil(incrementASNRate(meta.asn, env.SESSION_KV));
+    }
+    // Immediate ban for IPs that exceed the allowed requests/minute window.
+    // This is intentionally aggressive for anti-abuse hardening.
+    try {
+      const ipRate = await getIPRateCount(meta.ip, env.SESSION_KV);
+      if (ipRate >= IP_HARD_BAN_RATE_THRESHOLD) {
+        await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+          expirationTtl: TEMP_BAN_TTL_SECONDS,
+        });
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            "hard_block",
+            meta,
+            100,
+            null,
+            `Auto-banned by IP rate policy (${ipRate}/min >= ${IP_HARD_BAN_RATE_THRESHOLD}/min)`
+          )
+        );
+        return handleHardBlock();
+      }
+    } catch {
+      // KV errors are non-fatal; continue normal flow
+    }
 
     // --- Handle Dynamic Challenge Submission (POST) ---
     if (request.method === "POST" && isDynamicSubmitPath(meta.path)) {
@@ -352,33 +642,55 @@ const worker: ExportedHandler<Env> = {
     const session = await validateSession(request, meta, env);
     if (session) {
       // Valid session — transparent pass.
-      // Return a pass-through response. In a real deployment, this would
-      // be replaced by `fetch(request)` to the origin server.
-      return createJsonResponse({
-        success: true,
-        message: "Session valid. Access granted.",
-        sessionExpiry: session.exp,
-      });
+      // Pass the request to the origin server.
+      return fetch(request);
+    }
+
+    // --- Forced CAPTCHA Mode (per-domain) ---
+    // If enabled in domain config, every request must pass challenge first.
+    if (Number(domainConfig.force_captcha ?? 0) === 1) {
+      ctx.waitUntil(
+        logSecurityEvent(
+          env,
+          "challenge_issued",
+          meta,
+          65,
+          null,
+          "Forced CAPTCHA mode enabled for this domain"
+        )
+      );
+      return serveChallengePagePlaceholder(meta, domainConfig, env);
     }
 
     // --- Risk Scoring Engine ---
     const risk = await evaluateRisk(meta, env);
+    const securityMode = await resolveEffectiveSecurityMode(
+      domainConfig,
+      risk,
+      meta,
+      env,
+      ctx
+    );
+    const effectiveRiskLevel = mapRiskByMode(risk.score, securityMode);
 
     // --- Three-Tier Dispatch ---
-    switch (risk.level) {
+    switch (effectiveRiskLevel) {
       case RiskLevel.NORMAL: {
         // Score 0-30: Transparent pass with invisible Turnstile only.
         // In production, this would inject the Turnstile widget into the
         // origin response or validate a pre-existing Turnstile token.
-        // For now, return a pass-through.
+        // For now, pass the request to the origin server.
         ctx.waitUntil(
-          logSecurityEvent(env, "session_created", meta, risk.score, null, "Normal risk — transparent pass")
+          logSecurityEvent(
+            env,
+            "session_created",
+            meta,
+            risk.score,
+            null,
+            `Normal risk — transparent pass (mode=${securityMode})`
+          )
         );
-        return createJsonResponse({
-          success: true,
-          message: "Access granted.",
-          risk: { score: risk.score, level: risk.level },
-        });
+        return fetch(request);
       }
 
       case RiskLevel.SUSPICIOUS: {
@@ -390,12 +702,14 @@ const worker: ExportedHandler<Env> = {
             meta,
             risk.score,
             null,
-            `Suspicious request — factors: ${risk.factors.join("; ")}`
+            `Suspicious request (mode=${securityMode}) — factors: ${risk.factors.join("; ")}`
           )
         );
 
-        // Trigger async AI defense analysis
-        ctx.waitUntil(triggerAIDefenseIfReady(env, meta));
+        // Trigger async AI defense only on stronger attack signals.
+        if (shouldTriggerAIDefense(risk, securityMode)) {
+          ctx.waitUntil(triggerAIDefenseIfReady(env, meta));
+        }
 
         return serveChallengePagePlaceholder(meta, domainConfig, env);
       }
@@ -409,12 +723,14 @@ const worker: ExportedHandler<Env> = {
             meta,
             risk.score,
             null,
-            `Hard block — factors: ${risk.factors.join("; ")}`
+            `Hard block (mode=${securityMode}) — factors: ${risk.factors.join("; ")}`
           )
         );
 
-        // Trigger async AI defense for attack pattern analysis
-        ctx.waitUntil(triggerAIDefenseIfReady(env, meta));
+        // Trigger async AI defense only when attack indicators are strong.
+        if (shouldTriggerAIDefense(risk, securityMode)) {
+          ctx.waitUntil(triggerAIDefenseIfReady(env, meta));
+        }
 
         return handleHardBlock();
       }

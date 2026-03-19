@@ -28,6 +28,12 @@ export interface Env {
   // OpenRouter model identifier (configured in wrangler.toml [vars])
   OPENROUTER_MODEL: string;
 
+  // Optional flag to allow __es_test endpoints on production routes.
+  // Set to "on" only during controlled testing windows.
+  ES_TEST_MODE?: string;
+  // Optional flag to disable automatic Cloudflare WAF rule deployment by AI.
+  ES_DISABLE_WAF_AUTODEPLOY?: string;
+
   // ---- Domain-Specific Config ----
   // Turnstile keys, Zone IDs are resolved per-request from D1 `domain_configs`.
   // See DomainConfigRecord type below.
@@ -109,6 +115,8 @@ export interface DomainConfigRecord {
   zone_id: string;
   turnstile_sitekey: string;
   turnstile_secret: string;
+  force_captcha: number;
+  security_mode?: "monitor" | "balanced" | "aggressive";
   status: "active" | "paused" | "revoked";
   created_at: string;
 }
@@ -153,8 +161,8 @@ export interface ChallengeSubmission {
   sliderX: number;
   /** Device fingerprint hash computed client-side */
   fingerprint: string;
-  /** Cloudflare Turnstile response token */
-  turnstileToken: string;
+  /** Cloudflare Turnstile response token (may be empty when blocked client-side) */
+  turnstileToken?: string;
   /** HMAC signature of the submission payload */
   signature: string;
 }
@@ -227,6 +235,7 @@ export interface RequestMeta {
   tlsVersion: string | null;
   tlsCipher: string | null;
   botManagementScore: number | null;
+  verifiedBot: boolean;
   userAgent: string;
   method: string;
   path: string;
