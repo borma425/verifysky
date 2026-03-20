@@ -1,15 +1,23 @@
-# Dependency directories
-node_modules/
+# Worker artifacts
+worker/.env
+worker/node_modules/
+worker/dist/
+worker/.wrangler/
+worker/npm-debug.log*
+worker/yarn-debug.log*
+worker/yarn-error.log*
 
-# Build outputs
-dist/
-.wrangler/
+# Monorepo: Laravel dashboard runtime/artifacts
+dashboard/.env
+dashboard/vendor/
+dashboard/node_modules/
+dashboard/public/build/
+dashboard/storage/logs/
+dashboard/storage/framework/cache/
+dashboard/storage/framework/sessions/
+dashboard/storage/framework/views/
+dashboard/storage/wrangler-runtime/
+dashboard/.phpunit.result.cache
 
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment variables (Sensitive data)
-.env
-node_modules/
+# Local embedded runtime
+/dashboard/.runtime/
