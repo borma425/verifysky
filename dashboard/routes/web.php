@@ -88,6 +88,7 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
     Route::delete('/domains/{domain}/rules/{ruleId}', [DomainRulesController::class, 'destroyFirewallRule'])->name('domains.rules.destroy');
 
     Route::get('/logs', [LogsController::class, 'index'])->name('logs.index');
+    Route::post('/logs/allow-ip', [LogsController::class, 'allowIp'])->name('logs.allow_ip');
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');

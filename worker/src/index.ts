@@ -71,8 +71,21 @@ const ADMIN_RATE_DEFAULT_PER_MIN = 60;
 const AI_MODEL_SETTING_KEY = "settings:ai:model";
 const AI_MODEL_FALLBACKS_SETTING_KEY = "settings:ai:fallbacks";
 const IP_HARD_BAN_RATE_THRESHOLD = 120; // requests/minute per IP
+const CRAWLER_RDNS_CACHE_PREFIX = "crawler:rdns:";
+const CRAWLER_RDNS_OK_TTL_SECONDS = 24 * 60 * 60;
+const CRAWLER_RDNS_FAIL_TTL_SECONDS = 60 * 60;
 const KNOWN_CRAWLER_UA_PATTERN =
   /(googlebot|google-inspectiontool|googleother|adsbot-google|mediapartners-google|bingbot|adidxbot|duckduckbot|yandexbot|baiduspider|applebot|slurp|amazonbot|facebookexternalhit|linkedinbot|twitterbot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|seznambot|ccbot)/i;
+type CrawlerFamily = "google" | "bing" | "amazon" | "duckduckgo" | "apple" | "yandex" | "baidu";
+const CRAWLER_RDNS_SUFFIXES: Record<CrawlerFamily, string[]> = {
+  google: [".googlebot.com", ".google.com"],
+  bing: [".search.msn.com"],
+  amazon: [".amazonbot.amazon"],
+  duckduckgo: [".duckduckgo.com"],
+  apple: [".applebot.apple.com"],
+  yandex: [".yandex.ru", ".yandex.net"],
+  baidu: [".baidu.com"],
+};
 type SecurityMode = "monitor" | "balanced" | "aggressive";
 const AUTO_AGGR_PRESSURE_PREFIX = "mode:auto_aggr:pressure:";
 const AUTO_AGGR_ACTIVE_PREFIX = "mode:auto_aggr:active:";
@@ -242,12 +255,14 @@ async function logSecurityEvent(
   fingerprintHash: string | null,
   details: string | null
 ): Promise<void> {
+  const domainName = extractDomainFromMeta(meta);
   try {
     await env.DB.prepare(
-      `INSERT INTO security_logs (event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
+        domainName,
         eventType,
         meta.ip,
         meta.asn,
@@ -260,6 +275,15 @@ async function logSecurityEvent(
       .run();
   } catch {
     // Logging failure must never crash the Worker
+  }
+}
+
+function extractDomainFromMeta(meta: RequestMeta): string | null {
+  try {
+    const host = new URL(meta.url).hostname.trim().toLowerCase();
+    return host === "" ? null : host;
+  } catch {
+    return null;
   }
 }
 
@@ -287,6 +311,102 @@ async function isAdminAllowedIP(ip: string, env: Env): Promise<boolean> {
 
 function isIPv4(ip: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
+}
+
+function toIPv4PtrDomain(ip: string): string | null {
+  if (!isIPv4(ip)) return null;
+  const octets = ip.split(".");
+  if (octets.length !== 4) return null;
+  return `${octets[3]}.${octets[2]}.${octets[1]}.${octets[0]}.in-addr.arpa`;
+}
+
+function normalizeDnsName(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function detectCrawlerFamily(userAgent: string): CrawlerFamily | null {
+  const ua = (userAgent || "").toLowerCase();
+  if (/(googlebot|google-inspectiontool|googleother|adsbot-google|mediapartners-google)/i.test(ua)) {
+    return "google";
+  }
+  if (/(bingbot|adidxbot)/i.test(ua)) return "bing";
+  if (/amazonbot/i.test(ua)) return "amazon";
+  if (/duckduckbot/i.test(ua)) return "duckduckgo";
+  if (/applebot/i.test(ua)) return "apple";
+  if (/yandexbot/i.test(ua)) return "yandex";
+  if (/baiduspider/i.test(ua)) return "baidu";
+  return null;
+}
+
+function matchesCrawlerHostname(hostname: string, family: CrawlerFamily): boolean {
+  const normalized = normalizeDnsName(hostname);
+  const suffixes = CRAWLER_RDNS_SUFFIXES[family] || [];
+  for (const suffix of suffixes) {
+    if (normalized.endsWith(suffix)) return true;
+  }
+  return false;
+}
+
+async function queryDnsRecords(
+  name: string,
+  type: "PTR" | "A"
+): Promise<string[]> {
+  const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${type}`;
+  const response = await fetch(url, {
+    headers: { Accept: "application/dns-json" },
+  });
+  if (!response.ok) return [];
+  const payload = (await response.json()) as { Answer?: Array<{ data?: string }> };
+  const answers = Array.isArray(payload?.Answer) ? payload.Answer : [];
+  return answers
+    .map((record) => String(record?.data || "").trim())
+    .filter(Boolean)
+    .map((record) => normalizeDnsName(record));
+}
+
+async function verifyCrawlerByReverseDns(
+  ip: string,
+  family: CrawlerFamily,
+  env: Env
+): Promise<boolean> {
+  const cacheKey = `${CRAWLER_RDNS_CACHE_PREFIX}${family}:${ip}`;
+  try {
+    const cached = await env.SESSION_KV.get(cacheKey);
+    if (cached === "1") return true;
+    if (cached === "0") return false;
+  } catch {
+    // Continue without cache
+  }
+
+  const ptrDomain = toIPv4PtrDomain(ip);
+  if (!ptrDomain) return false;
+
+  let verified = false;
+  try {
+    const ptrHosts = await queryDnsRecords(ptrDomain, "PTR");
+    for (const ptrHost of ptrHosts) {
+      if (!matchesCrawlerHostname(ptrHost, family)) continue;
+      const forwardIPs = await queryDnsRecords(ptrHost, "A");
+      if (forwardIPs.includes(ip)) {
+        verified = true;
+        break;
+      }
+    }
+  } catch {
+    verified = false;
+  }
+
+  try {
+    await env.SESSION_KV.put(cacheKey, verified ? "1" : "0", {
+      expirationTtl: verified
+        ? CRAWLER_RDNS_OK_TTL_SECONDS
+        : CRAWLER_RDNS_FAIL_TTL_SECONDS,
+    });
+  } catch {
+    // Cache write failures are non-fatal
+  }
+
+  return verified;
 }
 
 function ipv4ToInt(ip: string): number | null {
@@ -553,16 +673,56 @@ async function handleAdminIPRoute(
   return createErrorResponse("NOT_FOUND", "Unknown admin route", 404);
 }
 
-function isAllowedCrawler(meta: RequestMeta, env: Env): boolean {
-  if (!/^(GET|HEAD)$/i.test(meta.method)) return false;
+type CrawlerAllowDecision = {
+  allowed: boolean;
+  reason: string | null;
+};
+
+async function evaluateCrawlerAllowDecision(
+  meta: RequestMeta,
+  env: Env
+): Promise<CrawlerAllowDecision> {
+  if (!/^(GET|HEAD)$/i.test(meta.method)) {
+    return { allowed: false, reason: null };
+  }
   // Strong path: Cloudflare-verified good bot.
-  if (meta.verifiedBot) return true;
+  if (meta.verifiedBot) {
+    return {
+      allowed: true,
+      reason: "Verified crawler allow-listed",
+    };
+  }
+
+  const knownCrawlerUa = KNOWN_CRAWLER_UA_PATTERN.test(meta.userAgent);
+  if (!knownCrawlerUa) {
+    return { allowed: false, reason: null };
+  }
+
+  const family = detectCrawlerFamily(meta.userAgent);
+  const strictRdns =
+    String(env.ES_CRAWLER_RDNS_VERIFY || "on").toLowerCase() === "on";
+  if (strictRdns && family) {
+    const verifiedByDns = await verifyCrawlerByReverseDns(meta.ip, family, env);
+    if (verifiedByDns) {
+      return {
+        allowed: true,
+        reason: `Known crawler verified by reverse DNS (${family})`,
+      };
+    }
+  }
+
   // Optional compatibility path for plans where bot verification isn't exposed in request.cf.
   // Keep disabled by default to avoid bypass via spoofed bot User-Agents.
   const allowUaCompat =
     String(env.ES_ALLOW_UA_CRAWLER_ALLOWLIST || "").toLowerCase() === "on";
-  if (!allowUaCompat) return false;
-  return KNOWN_CRAWLER_UA_PATTERN.test(meta.userAgent);
+  if (!allowUaCompat) {
+    return { allowed: false, reason: null };
+  }
+
+  return {
+    allowed: true,
+    reason: "Known crawler UA allow-listed (compat mode)",
+  };
 }
 
 function getSecurityMode(domainConfig: DomainConfigRecord): SecurityMode {
@@ -863,7 +1023,8 @@ const worker: ExportedHandler<Env> = {
     }
 
     // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
-    if (isAllowedCrawler(meta, env)) {
+    const crawlerDecision = await evaluateCrawlerAllowDecision(meta, env);
+    if (crawlerDecision.allowed) {
       ctx.waitUntil(
         logSecurityEvent(
           env,
@@ -871,9 +1032,7 @@ const worker: ExportedHandler<Env> = {
           meta,
           0,
           null,
-          meta.verifiedBot
-            ? "Verified crawler allow-listed"
-            : "Known crawler UA allow-listed (compat mode)"
+          crawlerDecision.reason || "Crawler allow-listed"
         )
       );
       return fetch(request);

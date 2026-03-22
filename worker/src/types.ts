@@ -43,6 +43,10 @@ export interface Env {
   // Optional compatibility mode for crawler allow-listing by User-Agent only.
   // Default should remain OFF; enabling this may allow spoofed crawler UAs.
   ES_ALLOW_UA_CRAWLER_ALLOWLIST?: string;
+  // Optional strict crawler verification by reverse DNS + forward-confirmed lookup.
+  // "on" => known crawler UA must pass IP ownership verification before allow-listing.
+  // "off" => rely on verifiedBot and optional UA compatibility mode only.
+  ES_CRAWLER_RDNS_VERIFY?: string;
   // Optional flag to disable automatic Cloudflare WAF rule deployment by AI.
   ES_DISABLE_WAF_AUTODEPLOY?: string;
   // Optional strict mode for Turnstile verification on slider submit.
@@ -118,6 +122,7 @@ export interface FingerprintRecord {
 /** Row in the `security_logs` table */
 export interface SecurityLogRecord {
   id: number;
+  domain_name: string | null;
   event_type: SecurityEventType;
   ip_address: string;
   asn: string | null;

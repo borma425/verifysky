@@ -50,7 +50,7 @@ const TARGET_X_MIN = 60;
 const TARGET_X_MAX = 260;
 
 /** Acceptable tolerance for the submitted slider X vs stored target_x (pixels) */
-const X_TOLERANCE = 16;
+const X_TOLERANCE = 24;
 
 /** Challenge expiration time (seconds) */
 const CHALLENGE_TTL_SECONDS = 60;
@@ -62,7 +62,7 @@ const MIN_SOLVE_TIME_MS = 300;
 const MAX_SOLVE_TIME_MS = 30000;
 
 /** Minimum telemetry data points required for valid human interaction */
-const MIN_TELEMETRY_POINTS = 10;
+const MIN_TELEMETRY_POINTS = 4;
 
 /** Maximum allowed telemetry data points (prevents payload flooding) */
 const MAX_TELEMETRY_POINTS = 2000;
@@ -206,7 +206,7 @@ export async function handleChallengeSubmission(
   // Per-IP submission rate limit (protect challenge endpoint from flooding)
   const rateLimited = await isSubmissionRateLimited(meta.ip, env);
   if (rateLimited) {
-    ctx.waitUntil(markIPTemporarilyBanned(env, meta.ip, "submission_rate_limit"));
+    ctx.waitUntil(markIPTemporarilyBanned(env, meta.ip, "submission_rate_limit", meta));
     return createErrorResponse("RATE_LIMITED", "Too many verification attempts. Try again later.", 429);
   }
 
@@ -234,7 +234,7 @@ export async function handleChallengeSubmission(
     if (strictContextBinding) {
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         "Challenge cookie validation failed"));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch"));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch", meta));
       return createErrorResponse("CHALLENGE_CONTEXT_MISMATCH", "Challenge context mismatch", 403);
     }
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
@@ -293,7 +293,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "ip_mismatch"));
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         `IP mismatch: challenge issued to ${challenge.ip_address}`));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch"));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch", meta));
       return createErrorResponse("IP_MISMATCH", "Challenge IP mismatch", 403);
     }
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
@@ -311,7 +311,7 @@ export async function handleChallengeSubmission(
   const expectedSubmitPath = `/es-verify/${submission.nonce.substring(0, 24)}`;
   if (meta.path !== expectedSubmitPath) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "path_mismatch"));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "path_mismatch"));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "path_mismatch", meta));
     return createErrorResponse("INVALID_PATH", "Invalid submission path", 403);
   }
 
@@ -325,7 +325,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "signature_mismatch"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Challenge signature verification failed"));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "signature_mismatch"));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "signature_mismatch", meta));
     return createErrorResponse("INVALID_SIGNATURE", "Challenge integrity verification failed", 403);
   }
 
@@ -335,29 +335,44 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "nonce_header_mismatch"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Nonce header mismatch"));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch"));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch", meta));
     return createErrorResponse("INVALID_NONCE_HEADER", "Invalid nonce header", 403);
   }
 
   // --- 6. Analyze telemetry for human behavior ---
   const telemetryResult = analyzeTelemetry(submission.telemetry);
+  const xDiff = Math.abs(submission.sliderX - challenge.target_x);
+  const softPassEligible =
+    !telemetryResult.isHuman &&
+    xDiff <= 12 &&
+    telemetryResult.solveTimeMs >= 600 &&
+    telemetryResult.solveTimeMs <= 12000 &&
+    (
+      telemetryResult.reason.includes("Perfectly straight line detected") ||
+      telemetryResult.reason.includes("Very low Y deviation") ||
+      telemetryResult.reason.includes("Insufficient telemetry")
+    );
+
+  if (softPassEligible) {
+    telemetryResult.isHuman = true;
+    telemetryResult.humanScore = Math.max(40, telemetryResult.humanScore);
+  }
   if (!telemetryResult.isHuman) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "telemetry_rejected"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `Telemetry rejected: ${telemetryResult.reason}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "telemetry_rejected"));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "telemetry_rejected", meta));
     return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
   // --- 7. Verify slider X position matches target ---
-  const xDiff = Math.abs(submission.sliderX - challenge.target_x);
   if (xDiff > X_TOLERANCE) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "x_mismatch"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `X position mismatch: submitted ${submission.sliderX}, target ${challenge.target_x}, diff ${xDiff}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "x_mismatch"));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "x_mismatch", meta));
     return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
@@ -377,7 +392,7 @@ export async function handleChallengeSubmission(
         ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_failed"));
         ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
           "Turnstile verification failed (strict mode)"));
-        ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed"));
+        ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed", meta));
         return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
       }
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
@@ -388,7 +403,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_missing"));
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
         "Turnstile token missing (strict mode)"));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing"));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing", meta));
       return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
     }
     ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
@@ -535,15 +550,16 @@ function analyzeTelemetry(
   const reasons: string[] = [];
 
   // --- Check 3: Straight line detection ---
-  // Bots often produce perfectly straight horizontal lines (all Y values identical)
+  // Bots often produce perfectly straight horizontal lines (all Y values identical).
+  // Keep this lenient enough for touch devices where Y jitter can be very low.
   const ySet = new Set(yPositions);
-  if (ySet.size <= 2) {
-    return {
-      isHuman: false,
-      humanScore: 5,
-      reason: "Perfectly straight line detected (Y deviation = 0)",
-      solveTimeMs,
-    };
+  if (ySet.size <= 1) {
+    humanScore -= 30;
+    reasons.push("Perfectly straight line detected (Y deviation = 0)");
+  }
+  if (ySet.size === 2) {
+    humanScore -= 20;
+    reasons.push("Low Y variation detected (possible touch-device straight drag)");
   }
 
   // --- Check 4: Y-axis deviation (humans wobble) ---
@@ -1006,12 +1022,13 @@ async function logEvent(
   fingerprintHash: string | null,
   details: string
 ): Promise<void> {
+  const domainName = extractDomainFromMeta(meta);
   try {
     await env.DB.prepare(
-      `INSERT INTO security_logs (event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`
+      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`
     )
-      .bind(eventType, meta.ip, meta.asn, meta.country, meta.path, fingerprintHash, details)
+      .bind(domainName, eventType, meta.ip, meta.asn, meta.country, meta.path, fingerprintHash, details)
       .run();
   } catch {
     // Non-fatal
@@ -1033,7 +1050,8 @@ async function isSubmissionRateLimited(ip: string, env: Env): Promise<boolean> {
 async function recordFailureAndMaybeBan(
   env: Env,
   ip: string,
-  reason: string
+  reason: string,
+  meta?: RequestMeta
 ): Promise<void> {
   const key = `failrate:${ip}`;
   try {
@@ -1044,7 +1062,7 @@ async function recordFailureAndMaybeBan(
     });
 
     if (count >= MAX_FAILURES_BEFORE_TEMP_BAN) {
-      await markIPTemporarilyBanned(env, ip, reason);
+      await markIPTemporarilyBanned(env, ip, reason, meta);
     }
   } catch {
     // Non-fatal
@@ -1062,18 +1080,30 @@ async function clearFailureCounter(env: Env, ip: string): Promise<void> {
 async function markIPTemporarilyBanned(
   env: Env,
   ip: string,
-  reason: string
+  reason: string,
+  meta?: RequestMeta
 ): Promise<void> {
+  const domainName = meta ? extractDomainFromMeta(meta) : null;
+  const targetPath = meta?.path || "/es-verify";
   try {
     await env.SESSION_KV.put(`ban:ip:${ip}`, "1", { expirationTtl: TEMP_BAN_TTL_SECONDS });
     await env.DB.prepare(
-      `INSERT INTO security_logs (event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-       VALUES ('hard_block', ?, NULL, NULL, '/es-verify', NULL, 100, ?)`
+      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+       VALUES (?, 'hard_block', ?, NULL, NULL, ?, NULL, 100, ?)`
     )
-      .bind(ip, `Temporary IP ban (${TEMP_BAN_TTL_SECONDS}s): ${reason}`)
+      .bind(domainName, ip, targetPath, `Temporary IP ban (${TEMP_BAN_TTL_SECONDS}s): ${reason}`)
       .run();
   } catch {
     // Non-fatal
+  }
+}
+
+function extractDomainFromMeta(meta: RequestMeta): string | null {
+  try {
+    const host = new URL(meta.url).hostname.trim().toLowerCase();
+    return host === "" ? null : host;
+  } catch {
+    return null;
   }
 }
 

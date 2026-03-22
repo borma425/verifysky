@@ -631,6 +631,18 @@ class EdgeShieldService
         );
     }
 
+    public function ensureSecurityLogsDomainColumn(): void
+    {
+        // Backward compatibility for older D1 schema.
+        // If the column already exists, D1 will return an error and we ignore it.
+        $this->queryD1(
+            "ALTER TABLE security_logs ADD COLUMN domain_name TEXT"
+        );
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_security_logs_domain_created ON security_logs (domain_name, created_at)"
+        );
+    }
+
     public function getDomainConfig(string $domainName): array
     {
         $sql = sprintf(
@@ -826,6 +838,74 @@ class EdgeShieldService
             return [];
         }
         return $decoded;
+    }
+
+    public function allowIpViaWorkerAdmin(
+        string $domain,
+        string $ip,
+        int $ttlHours = 24,
+        string $reason = 'dashboard manual allow from logs'
+    ): array {
+        $host = strtolower(trim($domain));
+        $host = preg_replace('#^https?://#i', '', $host) ?? $host;
+        $host = explode('/', $host, 2)[0] ?? $host;
+        $host = trim($host);
+        if ($host === '') {
+            return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];
+        }
+
+        $token = (string) ($this->getDashboardSetting('es_admin_token') ?? '');
+        if (trim($token) === '') {
+            return ['ok' => false, 'error' => 'ES Admin Token is missing in settings.'];
+        }
+
+        $hours = max(1, min(24 * 30, (int) $ttlHours));
+        $url = 'https://'.$host.'/es-admin/ip/allow';
+
+        try {
+            $response = Http::timeout(20)
+                ->acceptJson()
+                ->withHeaders([
+                    'X-ES-Admin-Token' => $token,
+                ])
+                ->post($url, [
+                    'ip' => $ip,
+                    'ttlHours' => $hours,
+                    'reason' => $reason,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'Worker admin request failed: '.$e->getMessage(),
+            ];
+        }
+
+        $payload = $response->json();
+        if (!$response->ok()) {
+            $message = null;
+            if (is_array($payload)) {
+                $message = $payload['error']['message'] ?? $payload['message'] ?? null;
+            }
+            return [
+                'ok' => false,
+                'error' => $message
+                    ? 'Worker admin HTTP error: '.$response->status().' ('.$message.')'
+                    : 'Worker admin HTTP error: '.$response->status(),
+            ];
+        }
+
+        if (!is_array($payload) || (($payload['success'] ?? false) !== true)) {
+            $message = is_array($payload)
+                ? (string) ($payload['error']['message'] ?? $payload['message'] ?? 'Worker admin reported failure.')
+                : 'Unexpected worker admin response.';
+            return ['ok' => false, 'error' => $message];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'result' => $payload,
+        ];
     }
 
     private function normalizeDomain(string $domainName): string
