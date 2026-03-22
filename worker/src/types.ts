@@ -35,11 +35,24 @@ export interface Env {
   ES_TEST_MODE?: string;
   // Admin token for secure internal management endpoints (/es-admin/*).
   ES_ADMIN_TOKEN?: string;
+  // Optional comma-separated admin source IPs/CIDRs allowed to call /es-admin/*.
+  // Example: "203.0.113.10,198.51.100.0/24"
+  ES_ADMIN_ALLOWED_IPS?: string;
+  // Optional per-IP admin API requests/minute (defaults to 60).
+  ES_ADMIN_RATE_LIMIT_PER_MIN?: string;
   // Optional compatibility mode for crawler allow-listing by User-Agent only.
   // Default should remain OFF; enabling this may allow spoofed crawler UAs.
   ES_ALLOW_UA_CRAWLER_ALLOWLIST?: string;
   // Optional flag to disable automatic Cloudflare WAF rule deployment by AI.
   ES_DISABLE_WAF_AUTODEPLOY?: string;
+  // Optional strict mode for Turnstile verification on slider submit.
+  // "on" => reject when Turnstile token is missing/invalid.
+  // "off" => allow soft-pass if slider+telemetry checks pass.
+  ES_TURNSTILE_STRICT?: string;
+  // Optional strict mode for challenge context binding (cookie/IP).
+  // "on" => reject on cookie/IP mismatch.
+  // "off" => log mismatch but continue verification.
+  ES_STRICT_CONTEXT_BINDING?: string;
 
   // ---- Domain-Specific Config ----
   // Turnstile keys, Zone IDs are resolved per-request from D1 `domain_configs`.

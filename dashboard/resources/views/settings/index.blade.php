@@ -12,7 +12,18 @@
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div><label class="mb-1 block text-sm text-slate-600">Worker Script Name</label><input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'edge-shield' }}" placeholder="edge-shield"></div>
-        <div><label class="mb-1 block text-sm text-slate-600">ES Admin Token</label><input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="es_admin_token" value="{{ $settings['es_admin_token'] ?? '' }}" placeholder="token used for /es-admin/* endpoints"></div>
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">ES Admin Token</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" type="password" autocomplete="new-password" name="es_admin_token" value="" placeholder="{{ ($sensitiveConfigured['es_admin_token'] ?? false) ? 'Configured (leave blank to keep)' : 'token used for /es-admin/* endpoints' }}">
+        </div>
+      </div>
+      <div class="mt-3 grid gap-3 md:grid-cols-2">
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">Admin Login Path</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="admin_login_path" value="{{ $settings['admin_login_path'] ?? $currentLoginPath }}" placeholder="wow/login">
+          <p class="mt-1 text-xs text-slate-500">Current login URL: <code>{{ url('/'.$currentLoginPath) }}</code></p>
+        </div>
+        <div></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div class="rounded-lg border border-slate-200 px-3 py-2">
@@ -33,20 +44,36 @@
         </div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">ES Admin Allowed IPs</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="es_admin_allowed_ips" value="{{ $settings['es_admin_allowed_ips'] ?? '' }}" placeholder="203.0.113.10,198.51.100.0/24">
+        </div>
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">ES Admin Rate Limit / min</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" type="number" min="10" max="600" name="es_admin_rate_limit_per_min" value="{{ $settings['es_admin_rate_limit_per_min'] ?? '60' }}">
+        </div>
+      </div>
+      <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div><label class="mb-1 block text-sm text-slate-600">Notes</label><input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="notes" value="{{ $settings['notes'] ?? '' }}" placeholder="Ops notes"></div>
         <div></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div><label class="mb-1 block text-sm text-slate-600">CF API Token</label><input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="cf_api_token" value="{{ $settings['cf_api_token'] ?? '' }}"></div>
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">CF API Token</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" type="password" autocomplete="new-password" name="cf_api_token" value="" placeholder="{{ ($sensitiveConfigured['cf_api_token'] ?? false) ? 'Configured (leave blank to keep)' : '' }}">
+        </div>
         <div><label class="mb-1 block text-sm text-slate-600">CF Account ID</label><input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="cf_account_id" value="{{ $settings['cf_account_id'] ?? '' }}" placeholder="8c610bded8021e624eb8abc24833d79a"></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div><label class="mb-1 block text-sm text-slate-600">OpenRouter API Key</label><input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="openrouter_api_key" value="{{ $settings['openrouter_api_key'] ?? '' }}"></div>
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">OpenRouter API Key</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" type="password" autocomplete="new-password" name="openrouter_api_key" value="" placeholder="{{ ($sensitiveConfigured['openrouter_api_key'] ?? false) ? 'Configured (leave blank to keep)' : '' }}">
+        </div>
         <div></div>
       </div>
       <div class="mt-3">
         <label class="mb-1 block text-sm text-slate-600">JWT Secret</label>
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="jwt_secret" value="{{ $settings['jwt_secret'] ?? '' }}">
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2" type="password" autocomplete="new-password" name="jwt_secret" value="" placeholder="{{ ($sensitiveConfigured['jwt_secret'] ?? false) ? 'Configured (leave blank to keep)' : '' }}">
       </div>
       <button class="mt-4 rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400" type="submit">Save Settings</button>
     </form>

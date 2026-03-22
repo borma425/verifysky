@@ -32,3 +32,7 @@ npm run -s build
 - Dashboard-to-Worker sync is automatic on settings save.
 - Worker runtime values are sourced from dashboard settings.
 - Legacy path `/opt/lampp/htdocs/edge_shield_dashboard` can be symlinked to `dashboard/` for compatibility.
+
+## Architecture Blueprint
+
+- Trap + Project blueprint: [docs/TRAP_BLUEPRINT.md](docs/TRAP_BLUEPRINT.md)

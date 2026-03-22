@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
   <title>{{ $title ?? 'Edge Shield Dashboard' }}</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -15,6 +16,7 @@
       <a class="text-sm text-slate-300 hover:text-white" href="{{ route('logs.index') }}">Logs</a>
       <a class="text-sm text-slate-300 hover:text-white" href="{{ route('settings.index') }}">Settings</a>
       <a class="text-sm text-slate-300 hover:text-white" href="{{ route('actions.index') }}">Actions</a>
+      <a class="text-sm text-slate-300 hover:text-white" href="{{ route('trap_network.index') }}">real scammers</a>
       <div class="flex-1"></div>
     <form method="POST" action="{{ route('logout') }}">
       @csrf

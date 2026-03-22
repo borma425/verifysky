@@ -65,6 +65,9 @@ const TEMP_BAN_PREFIX = "ban:ip:";
 const TEMP_BAN_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_ALLOW_PREFIX = "allow:ip:";
 const ADMIN_ALLOW_DEFAULT_TTL_SECONDS = 24 * 60 * 60;
+const ADMIN_RATE_PREFIX = "rate:admin:";
+const ADMIN_RATE_WINDOW_SECONDS = 60;
+const ADMIN_RATE_DEFAULT_PER_MIN = 60;
 const AI_MODEL_SETTING_KEY = "settings:ai:model";
 const AI_MODEL_FALLBACKS_SETTING_KEY = "settings:ai:fallbacks";
 const IP_HARD_BAN_RATE_THRESHOLD = 120; // requests/minute per IP
@@ -282,6 +285,78 @@ async function isAdminAllowedIP(ip: string, env: Env): Promise<boolean> {
   }
 }
 
+function isIPv4(ip: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
+}
+
+function ipv4ToInt(ip: string): number | null {
+  if (!isIPv4(ip)) return null;
+  const octets = ip.split(".").map((o) => parseInt(o, 10));
+  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) {
+    return null;
+  }
+  return (
+    ((octets[0] << 24) >>> 0) +
+    ((octets[1] << 16) >>> 0) +
+    ((octets[2] << 8) >>> 0) +
+    (octets[3] >>> 0)
+  ) >>> 0;
+}
+
+function isIPv4InCidr(ip: string, cidr: string): boolean {
+  const [base, maskText] = cidr.split("/");
+  if (!base || !maskText) return false;
+  const maskBits = parseInt(maskText, 10);
+  if (!Number.isFinite(maskBits) || maskBits < 0 || maskBits > 32) return false;
+
+  const ipInt = ipv4ToInt(ip);
+  const baseInt = ipv4ToInt(base);
+  if (ipInt === null || baseInt === null) return false;
+
+  if (maskBits === 0) return true;
+  const mask = (0xffffffff << (32 - maskBits)) >>> 0;
+  return (ipInt & mask) === (baseInt & mask);
+}
+
+function isAdminSourceAllowed(ip: string, env: Env): boolean {
+  const rawAllowlist = (env.ES_ADMIN_ALLOWED_IPS || "").trim();
+  if (!rawAllowlist) return true;
+
+  const candidates = rawAllowlist
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (candidates.length === 0) return true;
+
+  for (const candidate of candidates) {
+    if (candidate === ip) return true;
+    if (candidate.includes("/") && isIPv4InCidr(ip, candidate)) return true;
+  }
+
+  return false;
+}
+
+function getAdminRateLimitPerMinute(env: Env): number {
+  const raw = (env.ES_ADMIN_RATE_LIMIT_PER_MIN || "").trim();
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return ADMIN_RATE_DEFAULT_PER_MIN;
+  return Math.max(10, Math.min(600, parsed));
+}
+
+async function isAdminRateLimited(ip: string, env: Env): Promise<boolean> {
+  const limit = getAdminRateLimitPerMinute(env);
+  const key = `${ADMIN_RATE_PREFIX}${ip}`;
+  try {
+    const current = await env.SESSION_KV.get(key);
+    const count = current ? parseInt(current, 10) + 1 : 1;
+    await env.SESSION_KV.put(key, String(count), { expirationTtl: ADMIN_RATE_WINDOW_SECONDS });
+    return count > limit;
+  } catch {
+    // Fail-open for availability; token + source allow-list still protect admin endpoints.
+    return false;
+  }
+}
+
 function isAdminAuthorized(request: Request, env: Env): boolean {
   const configured = (env.ES_ADMIN_TOKEN || "").trim();
   if (!configured) return false;
@@ -321,6 +396,12 @@ async function handleAdminIPRoute(
 ): Promise<Response> {
   if (!isAdminAuthorized(request, env)) {
     return createErrorResponse("UNAUTHORIZED", "Invalid admin token", 401);
+  }
+  if (!isAdminSourceAllowed(meta.ip, env)) {
+    return createErrorResponse("FORBIDDEN", "Admin source IP is not allowed", 403);
+  }
+  if (await isAdminRateLimited(meta.ip, env)) {
+    return createErrorResponse("RATE_LIMITED", "Too many admin requests", 429);
   }
 
   const url = new URL(request.url);
@@ -747,6 +828,19 @@ function isDynamicSubmitPath(path: string): boolean {
   return /^\/es-verify\/[a-f0-9]{16,}$/.test(path);
 }
 
+function isFallbackSubmitRequest(request: Request): boolean {
+  if (request.method !== "POST") return false;
+  const url = new URL(request.url);
+  if (url.searchParams.get("__es_submit") !== "1") return false;
+  const nonceHeader = (request.headers.get("X-ES-Nonce") || "").trim();
+  return /^[a-f0-9]{16}$/i.test(nonceHeader);
+}
+
+function isStaticAssetPath(path: string): boolean {
+  if (path === "/favicon.ico") return true;
+  return /\.(?:png|jpe?g|gif|webp|svg|ico|css|js|mjs|woff2?|ttf|eot|map|json|txt|xml)$/i.test(path);
+}
+
 // ---------------------------------------------------------------------------
 // Main Fetch Handler
 // ---------------------------------------------------------------------------
@@ -908,7 +1002,7 @@ const worker: ExportedHandler<Env> = {
     }
 
     // --- Handle Dynamic Challenge Submission (POST) ---
-    if (request.method === "POST" && isDynamicSubmitPath(meta.path)) {
+    if (request.method === "POST" && (isDynamicSubmitPath(meta.path) || isFallbackSubmitRequest(request))) {
       return handleSubmission(request, meta, domainConfig, env, ctx);
     }
 
@@ -918,6 +1012,11 @@ const worker: ExportedHandler<Env> = {
     if (session) {
       // Valid session — transparent pass.
       // Pass the request to the origin server.
+      return fetch(request);
+    }
+
+    // Do not issue interactive challenges for static assets.
+    if (isStaticAssetPath(meta.path)) {
       return fetch(request);
     }
 

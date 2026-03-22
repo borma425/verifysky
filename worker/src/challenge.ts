@@ -34,6 +34,7 @@ import {
   createErrorResponse,
   sanitizeInput,
 } from "./utils";
+import { SLIDER_RUNTIME_SCRIPT } from "./generated/slider-runtime";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -49,7 +50,7 @@ const TARGET_X_MIN = 60;
 const TARGET_X_MAX = 260;
 
 /** Acceptable tolerance for the submitted slider X vs stored target_x (pixels) */
-const X_TOLERANCE = 10;
+const X_TOLERANCE = 16;
 
 /** Challenge expiration time (seconds) */
 const CHALLENGE_TTL_SECONDS = 60;
@@ -68,11 +69,11 @@ const MAX_TELEMETRY_POINTS = 2000;
 
 /** Session cookie name (must match index.ts) */
 const SESSION_COOKIE_NAME = "es_session";
+/** Short-lived challenge binding cookie (binds solve request to issuer context) */
+const CHALLENGE_COOKIE_NAME = "es_challenge";
 
 /** Session token validity (4 hours, in seconds) */
 const SESSION_TTL_SECONDS = 4 * 60 * 60;
-/** Short-lived fallback session when background Turnstile is unavailable */
-const FALLBACK_SESSION_TTL_SECONDS = 15 * 60;
 /** Turnstile verification endpoint */
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -84,9 +85,9 @@ const MAX_FAILURES_BEFORE_TEMP_BAN = 8;
 const FAILURE_WINDOW_SECONDS = 15 * 60;
 /** Temporary ban TTL (seconds) */
 const TEMP_BAN_TTL_SECONDS = 24 * 60 * 60;
-/** Max smart-fallback passes per IP each hour (anti-abuse guardrail) */
-const MAX_FALLBACK_PASSES_PER_IP_PER_HOUR = 5;
 
+/** Pool of challenge icons (randomized per challenge page) */
+const CHALLENGE_ICONS = ["🍔", "🎧", "🧩", "📷", "⚽", "🎁", "🏍️"] as const;
 // ---------------------------------------------------------------------------
 // Challenge Generation
 // ---------------------------------------------------------------------------
@@ -111,6 +112,7 @@ export async function handleChallengeGeneration(
   // Generate cryptographic nonce and random target position
   const nonce = generateNonce(32);
   const targetX = generateTargetX();
+  const targetIcon = pickChallengeIcon();
   const now = Date.now();
   const expiresAt = new Date(now + CHALLENGE_TTL_SECONDS * 1000).toISOString();
 
@@ -120,6 +122,7 @@ export async function handleChallengeGeneration(
   // Sign the challenge payload for integrity verification
   const signaturePayload = `${nonce}:${submitPath}`;
   const signature = await generateSignature(signaturePayload, env.JWT_SECRET);
+  const targetHint = encodeTargetHint(targetX, nonce, signature);
 
   // Store challenge in D1
   try {
@@ -146,14 +149,25 @@ export async function handleChallengeGeneration(
   const challengeHtml = buildChallengeHtml(
     nonce,
     submitPath,
+    meta.path,
     signature,
     domainConfig.turnstile_sitekey,
-    targetX,
+    targetHint,
+    targetIcon,
     now,
     now + CHALLENGE_TTL_SECONDS * 1000
   );
 
-  return createHtmlResponse(challengeHtml, 403);
+  const challengeCookie = await buildChallengeBindingCookie(
+    nonce,
+    submitPath,
+    meta,
+    env.JWT_SECRET
+  );
+
+  return createHtmlResponse(challengeHtml, 403, {
+    "Set-Cookie": challengeCookie,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +196,7 @@ export async function handleChallengeSubmission(
   env: Env,
   ctx: ExecutionContext
 ): Promise<Response> {
+  const strictContextBinding = String(env.ES_STRICT_CONTEXT_BINDING ?? "off").toLowerCase() === "on";
   // Basic content-type validation
   const contentType = request.headers.get("Content-Type") || "";
   if (!contentType.toLowerCase().includes("application/json")) {
@@ -208,7 +223,25 @@ export async function handleChallengeSubmission(
     );
   }
 
-  // --- 2. Verify nonce is unused (KV fast check) ---
+  // --- 2. Verify challenge binding cookie before nonce consumption ---
+  const cookieValid = await verifyChallengeBindingCookie(
+    request,
+    submission.nonce,
+    meta,
+    env.JWT_SECRET
+  );
+  if (!cookieValid) {
+    if (strictContextBinding) {
+      ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+        "Challenge cookie validation failed"));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch"));
+      return createErrorResponse("CHALLENGE_CONTEXT_MISMATCH", "Challenge context mismatch", 403);
+    }
+    ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+      "Challenge cookie validation failed (soft-pass)"));
+  }
+
+  // --- 3. Verify nonce is unused (KV fast check) ---
   const nonceKey = `nonce:${submission.nonce}`;
   let nonceStatus: string | null;
   
@@ -232,7 +265,7 @@ export async function handleChallengeSubmission(
     // If KV write fails, the D1 status check below will catch replays
   }
 
-  // --- 3. Retrieve challenge from D1 and verify ---
+  // --- 4. Retrieve challenge from D1 and verify ---
   let challenge: ChallengeRecord | null;
   try {
     challenge = await env.DB.prepare(
@@ -256,14 +289,25 @@ export async function handleChallengeSubmission(
 
   // Verify IP matches the original challenge request
   if (challenge.ip_address !== meta.ip) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "ip_mismatch"));
+    if (strictContextBinding) {
+      ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "ip_mismatch"));
+      ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+        `IP mismatch: challenge issued to ${challenge.ip_address}`));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch"));
+      return createErrorResponse("IP_MISMATCH", "Challenge IP mismatch", 403);
+    }
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
-      `IP mismatch: challenge issued to ${challenge.ip_address}`));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch"));
-    return createErrorResponse("IP_MISMATCH", "Challenge IP mismatch", 403);
+      `IP mismatch detected (soft-pass): challenge issued to ${challenge.ip_address}`));
   }
 
-  // --- 4. Verify dynamic submit path + signed payload ---
+  // Verify User-Agent matches the original challenge request
+  const requestUserAgent = sanitizeInput(meta.userAgent, 512);
+  if (challenge.user_agent && challenge.user_agent !== requestUserAgent) {
+    ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+      "User-Agent mismatch detected (soft-pass)"));
+  }
+
+  // --- 5. Verify dynamic submit path + signed payload ---
   const expectedSubmitPath = `/es-verify/${submission.nonce.substring(0, 24)}`;
   if (meta.path !== expectedSubmitPath) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "path_mismatch"));
@@ -285,7 +329,17 @@ export async function handleChallengeSubmission(
     return createErrorResponse("INVALID_SIGNATURE", "Challenge integrity verification failed", 403);
   }
 
-  // --- 5. Analyze telemetry for human behavior ---
+  const nonceHeader = (request.headers.get("X-ES-Nonce") || "").trim();
+  const expectedNonceHeader = submission.nonce.substring(0, 16);
+  if (nonceHeader !== expectedNonceHeader) {
+    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "nonce_header_mismatch"));
+    ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+      "Nonce header mismatch"));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch"));
+    return createErrorResponse("INVALID_NONCE_HEADER", "Invalid nonce header", 403);
+  }
+
+  // --- 6. Analyze telemetry for human behavior ---
   const telemetryResult = analyzeTelemetry(submission.telemetry);
   if (!telemetryResult.isHuman) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "telemetry_rejected"));
@@ -296,7 +350,7 @@ export async function handleChallengeSubmission(
     return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
-  // --- 6. Verify slider X position matches target ---
+  // --- 7. Verify slider X position matches target ---
   const xDiff = Math.abs(submission.sliderX - challenge.target_x);
   if (xDiff > X_TOLERANCE) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "x_mismatch"));
@@ -307,43 +361,38 @@ export async function handleChallengeSubmission(
     return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
-  // --- 7. Verify Turnstile token (invisible background check) ---
+  // --- 8. Verify Turnstile token (invisible background check) ---
   const turnstileToken = (submission.turnstileToken || "").trim();
-  const turnstileValid = await verifyTurnstile(
-    turnstileToken,
-    meta.ip,
-    domainConfig.turnstile_secret,
-    domainConfig.domain_name
-  );
-
-  let usingSmartFallback = false;
-  let sessionTtlSeconds = SESSION_TTL_SECONDS;
-
-  if (!turnstileValid) {
-    const missingTurnstileToken = turnstileToken.length === 0;
-    const fallbackAllowed = await consumeSmartFallbackQuota(
-      env,
+  const strictTurnstile = String(env.ES_TURNSTILE_STRICT ?? "off").toLowerCase() === "on";
+  if (turnstileToken) {
+    const turnstileValid = await verifyTurnstile(
+      turnstileToken,
       meta.ip,
-      telemetryResult
+      domainConfig.turnstile_secret,
+      domainConfig.domain_name
     );
 
-    if (!fallbackAllowed) {
-      ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_failed"));
+    if (!turnstileValid) {
+      if (strictTurnstile) {
+        ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_failed"));
+        ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
+          "Turnstile verification failed (strict mode)"));
+        ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed"));
+        return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
+      }
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
-        "Turnstile verification failed (and smart fallback denied)"));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed"));
+        "Turnstile verification failed (soft-pass mode)"));
+    }
+  } else {
+    if (strictTurnstile) {
+      ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_missing"));
+      ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
+        "Turnstile token missing (strict mode)"));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing"));
       return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
     }
-
-    usingSmartFallback = true;
-    sessionTtlSeconds = FALLBACK_SESSION_TTL_SECONDS;
-    ctx.waitUntil(logEvent(
-      env,
-      "turnstile_failed",
-      meta,
-      submission.fingerprint,
-      `Smart fallback granted (score=${telemetryResult.humanScore}, solveMs=${telemetryResult.solveTimeMs}, missingToken=${missingTurnstileToken}, ttl=${FALLBACK_SESSION_TTL_SECONDS}s)`
-    ));
+    ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
+      "Turnstile token missing (soft-pass mode)"));
   }
 
   // ========= CHALLENGE PASSED — Issue Session Token =========
@@ -363,7 +412,7 @@ export async function handleChallengeSubmission(
     sub: submission.fingerprint,
     iss: "edge-shield",
     iat: now,
-    exp: now + sessionTtlSeconds,
+    exp: now + SESSION_TTL_SECONDS,
     ip: meta.ip,
     fph: submission.fingerprint,
     rsk: telemetryResult.humanScore,
@@ -373,11 +422,11 @@ export async function handleChallengeSubmission(
 
   // Log successful challenge
   ctx.waitUntil(logEvent(env, "challenge_solved", meta, submission.fingerprint,
-    `Solved in ${telemetryResult.solveTimeMs}ms, human score: ${telemetryResult.humanScore}, mode=${usingSmartFallback ? "smart_fallback" : "normal"}`));
+    `Solved in ${telemetryResult.solveTimeMs}ms, human score: ${telemetryResult.humanScore}, mode=normal`));
   ctx.waitUntil(clearFailureCounter(env, meta.ip));
 
   // Return success with session cookie
-  const cookieHeader = buildSessionCookie(sessionToken, sessionTtlSeconds);
+  const cookieHeader = buildSessionCookie(sessionToken, SESSION_TTL_SECONDS);
 
   return createJsonResponse(
     {
@@ -721,6 +770,128 @@ function generateTargetX(): number {
   return TARGET_X_MIN + (randomBytes[0] % (range + 1));
 }
 
+function pickChallengeIcon(): string {
+  const randomBytes = new Uint32Array(1);
+  crypto.getRandomValues(randomBytes);
+  const idx = randomBytes[0] % CHALLENGE_ICONS.length;
+  return CHALLENGE_ICONS[idx];
+}
+
+/**
+ * Encodes target_x into a compact hint to avoid exposing the raw coordinate
+ * directly in static HTML source.
+ */
+function encodeTargetHint(targetX: number, nonce: string, signature: string): string {
+  const noncePart = parseInt(nonce.slice(0, 8), 16) >>> 0;
+  const sigPart = parseInt(signature.slice(0, 8), 16) >>> 0;
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  const salt = random[0] & 0xffff;
+  const mask = (noncePart ^ sigPart ^ salt) & 0x3ff;
+  const encoded = (targetX ^ mask) & 0x3ff;
+  return `${salt.toString(16)}.${encoded.toString(16)}`;
+}
+
+/**
+ * Builds a short-lived signed cookie that binds challenge solve requests
+ * to the original requester context (nonce + IP + User-Agent + expiry).
+ */
+async function buildChallengeBindingCookie(
+  nonce: string,
+  submitPath: string,
+  meta: RequestMeta,
+  secret: string
+): Promise<string> {
+  const expiryMs = Date.now() + (CHALLENGE_TTL_SECONDS + 10) * 1000;
+  const ipScope = normalizeIpScope(meta.ip);
+  const payload = `${nonce}:${expiryMs}:${ipScope}`;
+  const signature = await generateSignature(payload, secret);
+  const value = `${nonce}.${expiryMs}.${signature}`;
+
+  return [
+    `${CHALLENGE_COOKIE_NAME}=${value}`,
+    `Max-Age=${CHALLENGE_TTL_SECONDS + 10}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+  ].join("; ");
+}
+
+/**
+ * Verifies the short-lived challenge binding cookie.
+ */
+async function verifyChallengeBindingCookie(
+  request: Request,
+  nonce: string,
+  meta: RequestMeta,
+  secret: string
+): Promise<boolean> {
+  const cookieHeader = request.headers.get("Cookie");
+  if (!cookieHeader) return false;
+
+  const raw = parseCookieValue(cookieHeader, CHALLENGE_COOKIE_NAME);
+  if (!raw) return false;
+
+  const parts = raw.split(".");
+  if (parts.length !== 3) return false;
+
+  const [cookieNonce, expiryText, signature] = parts;
+  if (cookieNonce !== nonce) return false;
+  if (!/^\d{10,}$/.test(expiryText)) return false;
+  if (!/^[a-f0-9]{32,256}$/i.test(signature)) return false;
+
+  const expiryMs = Number(expiryText);
+  if (!Number.isFinite(expiryMs) || expiryMs < Date.now()) return false;
+
+  const ipScope = normalizeIpScope(meta.ip);
+  const payload = `${cookieNonce}:${expiryMs}:${ipScope}`;
+  return verifySignature(payload, signature, secret);
+}
+
+/**
+ * Normalizes client IP to a stable scope to reduce false negatives:
+ * - IPv4: /24 scope (first 3 octets)
+ * - IPv6: /64 scope (first 4 hextets)
+ */
+function normalizeIpScope(ip: string): string {
+  const value = String(ip || "").trim().toLowerCase();
+  if (!value) return "unknown";
+  if (value.includes(":")) {
+    const parts = value.split(":").filter(Boolean);
+    if (parts.length >= 4) {
+      return `${parts.slice(0, 4).join(":")}::/64`;
+    }
+    return `${value}::/64`;
+  }
+  const octets = value.split(".");
+  if (octets.length === 4) {
+    return `${octets[0]}.${octets[1]}.${octets[2]}.0/24`;
+  }
+  return value;
+}
+
+function parseCookieValue(cookieHeader: string, name: string): string | null {
+  const prefix = `${name}=`;
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    if (trimmed.startsWith(prefix)) {
+      return trimmed.substring(prefix.length);
+    }
+  }
+  return null;
+}
+
+function minifyInlineCss(input: string): string {
+  return input
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([{}:;,>+~])\s*/g, "$1")
+    .replace(/;}/g, "}")
+    .trim();
+}
+
 // ---------------------------------------------------------------------------
 // Helper: Session Cookie Builder
 // ---------------------------------------------------------------------------
@@ -888,31 +1059,6 @@ async function clearFailureCounter(env: Env, ip: string): Promise<void> {
   }
 }
 
-async function consumeSmartFallbackQuota(
-  env: Env,
-  ip: string,
-  telemetry: TelemetryAnalysisResult
-): Promise<boolean> {
-  // Smart fallback policy:
-  // Allow strongly human interactions even when background Turnstile fails,
-  // but strictly quota-limit per IP to reduce abuse potential.
-  if (telemetry.humanScore < 60) return false;
-  if (telemetry.solveTimeMs < 700 || telemetry.solveTimeMs > 30000) return false;
-
-  const key = `tsfb:${ip}`;
-  try {
-    const current = await env.SESSION_KV.get(key);
-    const count = current ? parseInt(current, 10) : 0;
-    if (count >= MAX_FALLBACK_PASSES_PER_IP_PER_HOUR) {
-      return false;
-    }
-    await env.SESSION_KV.put(key, String(count + 1), { expirationTtl: 60 * 60 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function markIPTemporarilyBanned(
   env: Env,
   ip: string,
@@ -932,14 +1078,14 @@ async function markIPTemporarilyBanned(
 }
 
 // ---------------------------------------------------------------------------
-// Challenge HTML Page Builder (Phase 6: Enhanced UI + Obfuscated Script)
+// Challenge HTML Page Builder (Phase 6: Enhanced UI + Runtime Script)
 // ---------------------------------------------------------------------------
 
 /**
  * Builds the production CAPTCHA challenge HTML page.
  * Features:
  *   - Glassmorphism dark UI with animated grid background
- *   - Embedded obfuscated slider.js (5-module fingerprint engine)
+ *   - Embedded slider.js runtime (5-module fingerprint engine)
  *   - Cloudflare Turnstile widget (invisible, dark mode)
  *   - Dynamic submission endpoint
  *   - Challenge metadata (nonce, signature, expiry)
@@ -948,9 +1094,11 @@ async function markIPTemporarilyBanned(
 function buildChallengeHtml(
   nonce: string,
   submitPath: string,
+  fallbackSubmitPath: string,
   signature: string,
   turnstileSiteKey: string,
-  targetX: number,
+  targetHint: string,
+  targetIcon: string,
   issuedAt: number,
   expiresAt: number
 ): string {
@@ -962,8 +1110,12 @@ function buildChallengeHtml(
   <meta name="robots" content="noindex, nofollow">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>Security Verification</title>
+  <meta name="x-runtime-cluster" content="edge-h2-asia-fallback">
+  <meta name="x-bot-signal-mode" content="adaptive-proxy-grid-v4">
+  <!-- decoy: legacy wasm puzzle bootstrap kept for compatibility -->
+  <!-- decoy: telemetry relay endpoint /api/v2/risk-bootstrap -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
-  <style>
+  <style>${minifyInlineCss(`
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg-primary: #f7f8fb;
@@ -1198,7 +1350,7 @@ function buildChallengeHtml(
       background: var(--accent); animation: dotPulse 2s ease-in-out infinite;
     }
     @media (max-width: 440px) { .shield-container { padding: 22px 14px 14px; } }
-  </style>
+  `)}</style>
 </head>
 <body>
   <div class="shield-container">
@@ -1226,7 +1378,7 @@ function buildChallengeHtml(
         مرور آمن
       </div>
     </div>
-    <div class="puzzle-hint">اسحب أيقونة الدراجة إلى المكان المخصص</div>
+    <div class="puzzle-hint">اسحب أيقونة ${targetIcon} إلى المكان المخصص</div>
     <div class="puzzle-board" id="puzzleBoard">
       <div class="puzzle-chip" style="left:8px"><span>🍔</span></div>
       <div class="puzzle-chip" style="left:54px"><span>🎧</span></div>
@@ -1234,50 +1386,74 @@ function buildChallengeHtml(
       <div class="puzzle-chip" style="left:146px"><span>📷</span></div>
       <div class="puzzle-chip" style="left:192px"><span>⚽</span></div>
       <div class="puzzle-chip" style="left:238px"><span>🎁</span></div>
-      <div class="puzzle-hole" id="puzzleHole" style="left:${Math.max(0, Math.min(targetX, SLIDER_TRACK_WIDTH - 44))}px">
-        <span>🏍️</span>
+      <div class="puzzle-hole" id="puzzleHole" style="left:0px">
+        <span>${targetIcon}</span>
       </div>
       <div class="puzzle-piece" id="puzzlePiece">
-        <span>🏍️</span>
+        <span>${targetIcon}</span>
       </div>
     </div>
     <div class="slider-container" id="sliderContainer">
       <div class="slider-track" id="sliderTrack"></div>
       <div class="slider-handle" id="sliderHandle">
-        <svg viewBox="0 0 24 24"><path d="M5 17h4V7h5.2l-.7 2.2h3.5l1.4-4.2H5v12zM14.4 14.2c-2 0-3.6 1.6-3.6 3.6s1.6 3.6 3.6 3.6 3.6-1.6 3.6-3.6-1.6-3.6-3.6-3.6z"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6-1.6-1.6L11.8 12 7.4 7.6 9 6z"/><path d="M4 6l6 6-6 6-1.6-1.6L6.8 12 2.4 7.6 4 6z"/></svg>
       </div>
       <div class="slider-label" id="sliderLabel">اسحب للتحقق</div>
     </div>
     <div class="timer-bar"><div class="timer-fill" id="timerFill"></div></div>
     <div class="status-bar" id="statusBar"></div>
     <div class="shield-footer">
-      <p><span class="dot"></span> محمي بواسطة Edge Shield</p>
+      <p><span class="dot"></span> Performance and Security by youcaptcha.com</p>
     </div>
   </div>
+  <script>
+    window.__ES_DECOY = {
+      relay: "/api/v2/risk-bootstrap",
+      wasm: "/assets/wasm/challenge-solver.wasm",
+      mode: "legacy-grid-proxy"
+    };
+  </script>
   <script>
     window.__ES_CHALLENGE = {
       nonce: "${nonce}",
       submitPath: "${submitPath}",
+      fallbackSubmitPath: ${JSON.stringify(fallbackSubmitPath)},
       signature: "${signature}",
       siteKey: "${turnstileSiteKey}",
+      targetHint: "${targetHint}",
       issuedAt: ${issuedAt},
       expiresAt: ${expiresAt},
       trackWidth: ${SLIDER_TRACK_WIDTH}
     };
   </script>
   <script>
-    ${getObfuscatedSliderScript()}
+    ${SLIDER_RUNTIME_SCRIPT}
+  </script>
+  <script>
+    // Safety fallback: keep puzzle piece synced with slider handle.
+    (function() {
+      function syncPiece() {
+        var handle = document.getElementById('sliderHandle');
+        var piece = document.getElementById('puzzlePiece');
+        if (!handle || !piece) return;
+        var left = handle.style.left || '0px';
+        if (piece.style.left !== left) piece.style.left = left;
+      }
+      document.addEventListener('mousemove', syncPiece, { passive: true });
+      document.addEventListener('touchmove', syncPiece, { passive: true });
+      setInterval(syncPiece, 60);
+    })();
   </script>
 </body>
 </html>`;
 }
 
 // ---------------------------------------------------------------------------
-// Obfuscated Slider Script (Phase 6)
+// Slider Script (Legacy Inline Copy)
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the production-grade obfuscated slider JavaScript.
+ * Returns a legacy inline slider JavaScript copy.
  * 5-module architecture:
  *   _db — Anti-debugging (DevTools detection, automation framework detection)
  *   _fp — Deep fingerprinting (Canvas, WebGL, Audio, Fonts, 15+ signals)
@@ -1287,7 +1463,7 @@ function buildChallengeHtml(
  *
  * Source: frontend/slider.js (kept in sync)
  */
-function getObfuscatedSliderScript(): string {
+function getLegacySliderScript(): string {
   return `
 (function(){
 'use strict';
@@ -1476,7 +1652,9 @@ var _sl = {
   _status: null,
   _timer: null,
   _container: null,
+  _hole: null,
   _piece: null,
+  _targetX: 0,
   _currentX: 0,
   _startX: 0,
   _dragging: false,
@@ -1487,6 +1665,27 @@ var _sl = {
     var cWidth = _sl._container ? _sl._container.clientWidth : window.__ES_CHALLENGE.trackWidth;
     _sl._maxSlide = Math.max(120, cWidth - 44);
   },
+  _decodeTargetX: function() {
+    var C = window.__ES_CHALLENGE || {};
+    if (!C || typeof C.targetHint !== 'string') return Math.floor(_sl._maxSlide / 2);
+    var parts = C.targetHint.split('.');
+    if (parts.length !== 2) return Math.floor(_sl._maxSlide / 2);
+    var salt = parseInt(parts[0], 16);
+    var obf = parseInt(parts[1], 16);
+    var noncePart = parseInt(String(C.nonce || '').substring(0, 8), 16);
+    var sigPart = parseInt(String(C.signature || '').substring(0, 8), 16);
+    if (!isFinite(salt) || !isFinite(obf) || !isFinite(noncePart) || !isFinite(sigPart)) {
+      return Math.floor(_sl._maxSlide / 2);
+    }
+    var mask = (noncePart ^ sigPart ^ (salt & 0xffff)) & 0x3ff;
+    var decoded = (obf ^ mask) & 0x3ff;
+    return Math.max(0, Math.min(decoded, _sl._maxSlide));
+  },
+  _positionHole: function() {
+    if (!_sl._hole) return;
+    var holeX = Math.max(0, Math.min(_sl._targetX, _sl._maxSlide));
+    _sl._hole.style.left = holeX + 'px';
+  },
   _init: function() {
     _sl._handle = document.getElementById('sliderHandle');
     _sl._track = document.getElementById('sliderTrack');
@@ -1494,22 +1693,28 @@ var _sl = {
     _sl._status = document.getElementById('statusBar');
     _sl._timer = document.getElementById('timerFill');
     _sl._container = document.getElementById('sliderContainer');
+    _sl._hole = document.getElementById('puzzleHole');
     _sl._piece = document.getElementById('puzzlePiece');
     if (!_sl._handle || !_sl._track || !_sl._container) return;
 
     _sl._computeMaxSlide();
-    window.addEventListener('resize', _sl._computeMaxSlide);
+    _sl._targetX = _sl._decodeTargetX();
+    _sl._positionHole();
+    window.addEventListener('resize', function() {
+      _sl._computeMaxSlide();
+      _sl._positionHole();
+    });
     requestAnimationFrame(function() {
       if (_sl._timer) _sl._timer.classList.add('active');
     });
-    _sl._setStatus('Place the motorbike icon into the glowing slot', '');
+    _sl._setStatus('اسحب الرمز إلى المكان الصحيح', '');
     _tx._initTurnstile();
 
     _sl._expiryTimer = setInterval(function() {
       if (Date.now() > window.__ES_CHALLENGE.expiresAt) {
         clearInterval(_sl._expiryTimer);
         clearInterval(_dbInterval);
-        _sl._setStatus('Challenge expired. Please refresh the page.', 'error');
+        _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
         _sl._lock();
       }
     }, 1000);
@@ -1582,6 +1787,26 @@ var _sl = {
 var _tx = {
   _turnstileToken: null,
   _turnstileWidgetId: null,
+  _waitForToken: function(maxChecks, intervalMs, onTick) {
+    return new Promise(function(resolve) {
+      var checks = 0;
+      var timer = setInterval(function() {
+        checks++;
+        if (_tx._turnstileToken) {
+          clearInterval(timer);
+          resolve(true);
+          return;
+        }
+        if (typeof onTick === 'function') {
+          try { onTick(checks); } catch (e) {}
+        }
+        if (checks >= maxChecks) {
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, intervalMs);
+    });
+  },
   _initTurnstile: function() {
     try {
       if (!window.turnstile || _tx._turnstileWidgetId !== null) return;
@@ -1602,55 +1827,41 @@ var _tx = {
   _submit: async function() {
     if (_sl._submitted) return;
     _sl._submitted = true;
-    _sl._setStatus('Verifying...', 'loading');
+    _sl._setStatus('جاري التحقق...', 'loading');
     _tx._initTurnstile();
-    if (!_tx._turnstileToken) {
-      _sl._setStatus('Running background security check...', 'loading');
-      var waitCount = 0;
-      var waitInterval = setInterval(function() {
-        waitCount++;
-        if (_tx._turnstileToken || waitCount > 40) {
-          clearInterval(waitInterval);
-          if (_tx._turnstileToken) {
-            _tx._send();
-          } else {
-            _sl._setStatus('Retrying background check...', 'loading');
-            try {
-              if (window.turnstile && _tx._turnstileWidgetId !== null) {
-                window.turnstile.reset(_tx._turnstileWidgetId);
-                window.turnstile.execute(_tx._turnstileWidgetId);
-              }
-            } catch (e) {}
-            var retryWait = 0;
-            var retryInterval = setInterval(function() {
-              retryWait++;
-              if (_tx._turnstileToken || retryWait > 40) {
-                clearInterval(retryInterval);
-                if (_tx._turnstileToken) {
-                  _tx._send();
-                } else {
-                  _sl._setStatus('Finalizing smart verification...', 'loading');
-                  _tx._send();
-                }
-              } else {
-                try {
-                  if (window.turnstile && _tx._turnstileWidgetId !== null) {
-                    window.turnstile.execute(_tx._turnstileWidgetId);
-                  }
-                } catch (e) {}
-              }
-            }, 200);
-          }
-        } else {
-          try {
-            if (window.turnstile && _tx._turnstileWidgetId !== null) {
-              window.turnstile.execute(_tx._turnstileWidgetId);
-            }
-          } catch (e) {}
-        }
-      }, 200);
+    if (_tx._turnstileToken) {
+      await _tx._send();
       return;
     }
+
+    _sl._setStatus('يرجى الانتظار...', 'loading');
+    try {
+      if (window.turnstile && _tx._turnstileWidgetId !== null) {
+        window.turnstile.execute(_tx._turnstileWidgetId);
+      }
+    } catch (e) {}
+
+    var ok = await _tx._waitForToken(60, 200, function(i) {
+      if (i === 20 || i === 40) _sl._setStatus('يرجى الانتظار...', 'loading');
+    });
+    if (!ok) {
+      _sl._setStatus('جاري المتابعة...', 'loading');
+      try {
+        if (window.turnstile && _tx._turnstileWidgetId !== null) {
+          window.turnstile.reset(_tx._turnstileWidgetId);
+          window.turnstile.execute(_tx._turnstileWidgetId);
+        }
+      } catch (e) {}
+      ok = await _tx._waitForToken(40, 200);
+    }
+
+    if (!ok) {
+      _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
+      _sl._lock();
+      setTimeout(function() { window.location.reload(); }, 1000);
+      return;
+    }
+
     await _tx._send();
   },
   _send: async function() {
@@ -1681,7 +1892,7 @@ var _tx = {
       });
       var result = await resp.json();
       if (result.success) {
-        _sl._setStatus('Verified successfully', 'success');
+        _sl._setStatus('تمت العملية بنجاح', 'success');
         _sl._handle.style.background = '#22c55e';
         _sl._handle.style.boxShadow = '0 2px 20px rgba(34,197,94,0.55)';
         if (_sl._piece) _sl._piece.classList.add('matched');
@@ -1693,17 +1904,25 @@ var _tx = {
         }, 650);
       } else {
         var code = result && result.error && result.error.code ? result.error.code : '';
-        if (code === 'CHALLENGE_FAILED' || code === 'CHALLENGE_EXPIRED' || code === 'REPLAY_DETECTED' || code === 'INVALID_PATH' || code === 'INVALID_SIGNATURE') {
-          _sl._setStatus('Challenge expired or consumed. Refreshing...', 'error');
+        if (
+          code === 'CHALLENGE_FAILED' ||
+          code === 'CHALLENGE_EXPIRED' ||
+          code === 'REPLAY_DETECTED' ||
+          code === 'INVALID_PATH' ||
+          code === 'INVALID_SIGNATURE' ||
+          code === 'CHALLENGE_CONTEXT_MISMATCH' ||
+          code === 'TURNSTILE_FAILED'
+        ) {
+          _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
           _sl._lock();
           setTimeout(function() { window.location.reload(); }, 900);
         } else {
-          _sl._setStatus('Verification failed. Try again.', 'error');
+          _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
           _sl._reset();
         }
       }
     } catch (err) {
-      _sl._setStatus('Network error. Please retry.', 'error');
+      _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
       _sl._reset();
     }
   }

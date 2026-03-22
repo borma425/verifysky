@@ -9,6 +9,7 @@ use Symfony\Component\Process\Process;
 class EdgeShieldService
 {
     private const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
+    private ?array $settingsCache = null;
 
     public function projectRoot(): string
     {
@@ -117,53 +118,49 @@ class EdgeShieldService
         }
 
         // Worker runtime settings: Dashboard is the source of truth.
-        $openrouterModel = trim((string) (
-            DashboardSetting::query()->where('key', 'openrouter_model')->value('value')
-        ));
+        $openrouterModel = trim((string) ($this->getDashboardSetting('openrouter_model') ?? ''));
         if ($openrouterModel !== '') {
             $envPrefix .= ' OPENROUTER_MODEL='.escapeshellarg($openrouterModel);
         }
 
-        $openrouterFallbacks = trim((string) (
-            DashboardSetting::query()->where('key', 'openrouter_fallback_models')->value('value')
-        ));
+        $openrouterFallbacks = trim((string) ($this->getDashboardSetting('openrouter_fallback_models') ?? ''));
         if ($openrouterFallbacks !== '') {
             $envPrefix .= ' OPENROUTER_FALLBACK_MODELS='.escapeshellarg($openrouterFallbacks);
         }
 
-        $openrouterApiKey = trim((string) (
-            DashboardSetting::query()->where('key', 'openrouter_api_key')->value('value')
-        ));
+        $openrouterApiKey = trim((string) ($this->getDashboardSetting('openrouter_api_key') ?? ''));
         if ($openrouterApiKey !== '') {
             $envPrefix .= ' OPENROUTER_API_KEY='.escapeshellarg($openrouterApiKey);
         }
 
-        $jwtSecret = trim((string) (
-            DashboardSetting::query()->where('key', 'jwt_secret')->value('value')
-        ));
+        $jwtSecret = trim((string) ($this->getDashboardSetting('jwt_secret') ?? ''));
         if ($jwtSecret !== '') {
             $envPrefix .= ' JWT_SECRET='.escapeshellarg($jwtSecret);
         }
 
-        $esAdminToken = trim((string) (
-            DashboardSetting::query()->where('key', 'es_admin_token')->value('value')
-        ));
+        $esAdminToken = trim((string) ($this->getDashboardSetting('es_admin_token') ?? ''));
         if ($esAdminToken !== '') {
             $envPrefix .= ' ES_ADMIN_TOKEN='.escapeshellarg($esAdminToken);
         }
 
-        $esDisableWaf = trim((string) (
-            DashboardSetting::query()->where('key', 'es_disable_waf_autodeploy')->value('value')
-        ));
+        $esDisableWaf = trim((string) ($this->getDashboardSetting('es_disable_waf_autodeploy') ?? ''));
         if ($esDisableWaf !== '') {
             $envPrefix .= ' ES_DISABLE_WAF_AUTODEPLOY='.escapeshellarg($esDisableWaf);
         }
 
-        $esCrawlerCompat = trim((string) (
-            DashboardSetting::query()->where('key', 'es_allow_ua_crawler_allowlist')->value('value')
-        ));
+        $esCrawlerCompat = trim((string) ($this->getDashboardSetting('es_allow_ua_crawler_allowlist') ?? ''));
         if ($esCrawlerCompat !== '') {
             $envPrefix .= ' ES_ALLOW_UA_CRAWLER_ALLOWLIST='.escapeshellarg($esCrawlerCompat);
+        }
+
+        $esAdminAllowedIps = trim((string) ($this->getDashboardSetting('es_admin_allowed_ips') ?? ''));
+        if ($esAdminAllowedIps !== '') {
+            $envPrefix .= ' ES_ADMIN_ALLOWED_IPS='.escapeshellarg($esAdminAllowedIps);
+        }
+
+        $esAdminRatePerMin = trim((string) ($this->getDashboardSetting('es_admin_rate_limit_per_min') ?? ''));
+        if ($esAdminRatePerMin !== '') {
+            $envPrefix .= ' ES_ADMIN_RATE_LIMIT_PER_MIN='.escapeshellarg($esAdminRatePerMin);
         }
 
         return $envPrefix.' '.$command;
@@ -185,8 +182,7 @@ class EdgeShieldService
 
     private function cloudflareApiToken(): ?string
     {
-        $setting = DashboardSetting::query()->where('key', 'cf_api_token')->value('value');
-        $settingToken = trim((string) ($setting ?? ''));
+        $settingToken = trim((string) ($this->getDashboardSetting('cf_api_token') ?? ''));
         if ($settingToken !== '') {
             return $settingToken;
         }
@@ -202,8 +198,7 @@ class EdgeShieldService
 
     private function cloudflareAccountId(): ?string
     {
-        $setting = DashboardSetting::query()->where('key', 'cf_account_id')->value('value');
-        $settingAccountId = trim((string) ($setting ?? ''));
+        $settingAccountId = trim((string) ($this->getDashboardSetting('cf_account_id') ?? ''));
         if ($settingAccountId !== '') {
             return $settingAccountId;
         }
@@ -219,8 +214,7 @@ class EdgeShieldService
 
     private function workerScriptName(): string
     {
-        $setting = DashboardSetting::query()->where('key', 'worker_script_name')->value('value');
-        $settingName = trim((string) ($setting ?? ''));
+        $settingName = trim((string) ($this->getDashboardSetting('worker_script_name') ?? ''));
         if ($settingName !== '') {
             return $settingName;
         }
@@ -726,8 +720,29 @@ class EdgeShieldService
 
     private function getDashboardSetting(string $key): ?string
     {
-        $val = DashboardSetting::query()->where('key', $key)->value('value');
-        $normalized = trim((string) ($val ?? ''));
+        if ($this->settingsCache === null) {
+            $settings = DashboardSetting::query()->get();
+            foreach ($settings as $setting) {
+                if (!$setting instanceof DashboardSetting || !$setting->isSensitiveKey()) {
+                    continue;
+                }
+
+                $rawValue = (string) $setting->getRawOriginal('value');
+                if ($rawValue === '' || str_starts_with($rawValue, 'enc:v1:')) {
+                    continue;
+                }
+
+                // One-time in-place migration for legacy plaintext secrets.
+                $setting->value = $rawValue;
+                $setting->save();
+            }
+
+            $this->settingsCache = $settings
+                ->mapWithKeys(fn (DashboardSetting $setting): array => [$setting->key => $setting->value])
+                ->all();
+        }
+
+        $normalized = trim((string) ($this->settingsCache[$key] ?? ''));
         return $normalized !== '' ? $normalized : null;
     }
 
@@ -797,12 +812,16 @@ class EdgeShieldService
             ?? 'openai/gpt-oss-120b:free,nvidia/nemotron-3-super:free';
         $disableWaf = $this->getDashboardSetting('es_disable_waf_autodeploy') ?? 'on';
         $allowUaCompat = $this->getDashboardSetting('es_allow_ua_crawler_allowlist') ?? 'off';
+        $adminAllowedIps = $this->getDashboardSetting('es_admin_allowed_ips') ?? '';
+        $adminRatePerMin = $this->getDashboardSetting('es_admin_rate_limit_per_min') ?? '60';
 
         $deployCmd = $this->wranglerBin().' deploy --keep-vars'
             .' --var '.escapeshellarg('OPENROUTER_MODEL:'.$openrouterModel)
             .' --var '.escapeshellarg('OPENROUTER_FALLBACK_MODELS:'.$openrouterFallbacks)
             .' --var '.escapeshellarg('ES_DISABLE_WAF_AUTODEPLOY:'.$disableWaf)
-            .' --var '.escapeshellarg('ES_ALLOW_UA_CRAWLER_ALLOWLIST:'.$allowUaCompat);
+            .' --var '.escapeshellarg('ES_ALLOW_UA_CRAWLER_ALLOWLIST:'.$allowUaCompat)
+            .' --var '.escapeshellarg('ES_ADMIN_ALLOWED_IPS:'.$adminAllowedIps)
+            .' --var '.escapeshellarg('ES_ADMIN_RATE_LIMIT_PER_MIN:'.$adminRatePerMin);
 
         $deploy = $this->runInProject($deployCmd, 240);
         $logs[] = 'deploy-with-vars exit='.(string) ($deploy['exit_code'] ?? 'n/a');

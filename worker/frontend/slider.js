@@ -1,17 +1,4 @@
-// ============================================================================
-// Ultimate Edge Shield — Obfuscated Slider CAPTCHA & Fingerprint Engine
-//
-// This script is designed for aggressive obfuscation. All variable names
-// and function names use short, non-descriptive identifiers intentionally.
-// The structure is split into discrete modules to resist static analysis.
-//
-// Modules:
-//   _fp  — Deep device fingerprinting (Canvas, WebGL, Audio, Fonts)
-//   _tm  — Mouse/touch telemetry recorder
-//   _sl  — Slider interaction mechanics
-//   _tx  — Cryptographic payload signing & submission
-//   _db  — Anti-debugging & environment integrity checks
-// ============================================================================
+// Runtime script for slider challenge and telemetry collection.
 
 (function() {
   'use strict';
@@ -116,7 +103,7 @@
 
         x.fillStyle = 'rgba(102, 204, 0, 0.7)';
         x.font = '18pt Arial';
-        x.fillText('EdgeShield\ud83d\udee1\ufe0f', 4, 45);
+        x.fillText('Verification Active', 4, 45);
 
         // Geometric shapes (vary by anti-aliasing implementation)
         x.globalCompositeOperation = 'multiply';
@@ -350,11 +337,37 @@
     _status: null,
     _timer: null,
     _container: null,
+    _hole: null,
+    _piece: null,
     _maxSlide: 0,
+    _targetX: 0,
     _currentX: 0,
     _startX: 0,
     _dragging: false,
     _submitted: false,
+
+    _decodeTargetX: function() {
+      var C = window.__ES_CHALLENGE || {};
+      if (!C || typeof C.targetHint !== 'string') return Math.floor(_sl._maxSlide / 2);
+      var parts = C.targetHint.split('.');
+      if (parts.length !== 2) return Math.floor(_sl._maxSlide / 2);
+      var salt = parseInt(parts[0], 16);
+      var obf = parseInt(parts[1], 16);
+      var noncePart = parseInt(String(C.nonce || '').substring(0, 8), 16);
+      var sigPart = parseInt(String(C.signature || '').substring(0, 8), 16);
+      if (!isFinite(salt) || !isFinite(obf) || !isFinite(noncePart) || !isFinite(sigPart)) {
+        return Math.floor(_sl._maxSlide / 2);
+      }
+      var mask = (noncePart ^ sigPart ^ (salt & 0xffff)) & 0x3ff;
+      var decoded = (obf ^ mask) & 0x3ff;
+      return Math.max(0, Math.min(decoded, _sl._maxSlide));
+    },
+
+    _positionHole: function() {
+      if (!_sl._hole) return;
+      var holeX = Math.max(0, Math.min(_sl._targetX, _sl._maxSlide));
+      _sl._hole.style.left = holeX + 'px';
+    },
 
     _init: function() {
       _sl._handle = document.getElementById('sliderHandle');
@@ -363,7 +376,17 @@
       _sl._status = document.getElementById('statusBar');
       _sl._timer = document.getElementById('timerFill');
       _sl._container = document.getElementById('sliderContainer');
+      _sl._hole = document.getElementById('puzzleHole');
+      _sl._piece = document.getElementById('puzzlePiece');
       _sl._maxSlide = window.__ES_CHALLENGE.trackWidth - 44;
+      _sl._targetX = _sl._decodeTargetX();
+      _sl._positionHole();
+      _tx._initTurnstile();
+
+      window.addEventListener('resize', function() {
+        _sl._maxSlide = window.__ES_CHALLENGE.trackWidth - 44;
+        _sl._positionHole();
+      });
 
       // Animate timer bar
       requestAnimationFrame(function() {
@@ -375,7 +398,7 @@
         if (Date.now() > window.__ES_CHALLENGE.expiresAt) {
           clearInterval(_ex);
           clearInterval(_dbInterval);
-          _sl._setStatus('Challenge expired. Please refresh the page.', 'error');
+          _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
           if (_sl._container) _sl._container.style.pointerEvents = 'none';
         }
       }, 1000);
@@ -410,6 +433,7 @@
       _sl._currentX = nx;
       _sl._handle.style.left = nx + 'px';
       _sl._track.style.width = (nx + 22) + 'px';
+      if (_sl._piece) _sl._piece.style.left = nx + 'px';
       _tm._record(e);
     },
 
@@ -433,7 +457,17 @@
       _sl._currentX = 0;
       _sl._handle.style.left = '0px';
       _sl._track.style.width = '0px';
+      if (_sl._piece) {
+        _sl._piece.style.left = '0px';
+      }
       if (_sl._label) _sl._label.style.opacity = '1';
+      try {
+        _tx._turnstileToken = null;
+        if (window.turnstile && _tx._turnstileWidgetId !== null) {
+          window.turnstile.reset(_tx._turnstileWidgetId);
+          window.turnstile.execute(_tx._turnstileWidgetId);
+        }
+      } catch (e) {}
     },
 
     _lock: function() {
@@ -447,29 +481,112 @@
 
   var _tx = {
     _turnstileToken: null,
+    _turnstileWidgetId: null,
+    _turnstileBootstrapTimer: null,
+    _turnstileBootstrapChecks: 0,
+    _initTurnstile: function() {
+      try {
+        if (!window.turnstile) {
+          if (_tx._turnstileBootstrapTimer) return;
+          _tx._turnstileBootstrapChecks = 0;
+          _tx._turnstileBootstrapTimer = setInterval(function() {
+            _tx._turnstileBootstrapChecks++;
+            if (window.turnstile) {
+              clearInterval(_tx._turnstileBootstrapTimer);
+              _tx._turnstileBootstrapTimer = null;
+              _tx._initTurnstile();
+              return;
+            }
+            if (_tx._turnstileBootstrapChecks > 80) {
+              clearInterval(_tx._turnstileBootstrapTimer);
+              _tx._turnstileBootstrapTimer = null;
+            }
+          }, 250);
+          return;
+        }
+
+        if (_tx._turnstileWidgetId !== null) {
+          try { window.turnstile.execute(_tx._turnstileWidgetId); } catch (e) {}
+          return;
+        }
+        var C = window.__ES_CHALLENGE || {};
+        if (!C.siteKey) return;
+        var el = document.getElementById('tsHidden');
+        if (!el) return;
+        _tx._turnstileWidgetId = window.turnstile.render(el, {
+          sitekey: C.siteKey,
+          size: 'invisible',
+          retry: 'auto',
+          'retry-interval': 800,
+          callback: function(token) { _tx._turnstileToken = token; },
+          'expired-callback': function() { _tx._turnstileToken = null; },
+          'error-callback': function() { _tx._turnstileToken = null; }
+        });
+        try { window.turnstile.execute(_tx._turnstileWidgetId); } catch (e) {}
+      } catch (e) {}
+    },
+    _waitForToken: function(maxChecks, intervalMs, onTick) {
+      return new Promise(function(resolve) {
+        var checks = 0;
+        var timer = setInterval(function() {
+          checks++;
+          if (_tx._turnstileToken) {
+            clearInterval(timer);
+            resolve(true);
+            return;
+          }
+          if (typeof onTick === 'function') {
+            try { onTick(checks); } catch (e) {}
+          }
+          if (checks >= maxChecks) {
+            clearInterval(timer);
+            resolve(false);
+          }
+        }, intervalMs);
+      });
+    },
+    _postJson: function(url, payload, nonce) {
+      return fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-ES-Nonce': nonce.substring(0, 16)
+        },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      }).then(function(resp) {
+        return resp.text();
+      }).then(function(text) {
+        try { return JSON.parse(text); } catch (e) { return null; }
+      }).catch(function() {
+        return null;
+      });
+    },
 
     _submit: async function() {
       if (_sl._submitted) return;
       _sl._submitted = true;
       _sl._setStatus('Verifying...', 'loading');
+      _tx._initTurnstile();
 
-      // Wait for Turnstile if not ready
-      if (!_tx._turnstileToken) {
-        _sl._setStatus('Completing security check...', 'loading');
-        var _wc = 0;
-        var _wi = setInterval(function() {
-          _wc++;
-          if (_tx._turnstileToken || _wc > 30) {
-            clearInterval(_wi);
-            if (_tx._turnstileToken) {
-              _tx._send();
-            } else {
-              _sl._setStatus('Security check timed out. Please refresh.', 'error');
-              _sl._reset();
-            }
-          }
-        }, 200);
+      if (_tx._turnstileToken) {
+        await _tx._send();
         return;
+      }
+
+      _sl._setStatus('يرجى الانتظار...', 'loading');
+      var ok = await _tx._waitForToken(60, 200, function(i) {
+        _tx._initTurnstile();
+        try {
+          if (window.turnstile && _tx._turnstileWidgetId !== null) {
+            window.turnstile.execute(_tx._turnstileWidgetId);
+          }
+        } catch (e) {}
+        if (i === 20 || i === 40) _sl._setStatus('يرجى الانتظار...', 'loading');
+      });
+
+      if (!ok) {
+        _sl._setStatus('جاري إكمال التحقق...', 'loading');
       }
 
       await _tx._send();
@@ -499,20 +616,21 @@
       };
 
       try {
-        var resp = await fetch(C.submitPath, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-ES-Nonce': C.nonce.substring(0, 16)
-          },
-          body: JSON.stringify(payload),
-          credentials: 'same-origin'
-        });
-
-        var result = await resp.json();
+        var result = await _tx._postJson(C.submitPath, payload, C.nonce);
+        if (!result) {
+          var baseFallback = (C.fallbackSubmitPath || window.location.pathname || '/');
+          var joiner = baseFallback.indexOf('?') >= 0 ? '&' : '?';
+          var fallbackUrl = baseFallback + joiner + '__es_submit=1';
+          result = await _tx._postJson(fallbackUrl, payload, C.nonce);
+        }
+        if (!result) {
+          _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
+          _sl._reset();
+          return;
+        }
 
         if (result.success) {
-          _sl._setStatus('\u2713 Verified successfully', 'success');
+          _sl._setStatus('تمت العملية بنجاح', 'success');
           _sl._handle.style.background = '#22c55e';
           _sl._handle.style.boxShadow = '0 2px 20px rgba(34, 197, 94, 0.6)';
           _sl._lock();
@@ -522,11 +640,26 @@
             window.location.href = result.redirectUrl || '/';
           }, 700);
         } else {
-          _sl._setStatus('Verification failed. Please try again.', 'error');
-          _sl._reset();
+          var code = result && result.error && result.error.code ? result.error.code : '';
+          if (
+            code === 'CHALLENGE_FAILED' ||
+            code === 'CHALLENGE_EXPIRED' ||
+            code === 'REPLAY_DETECTED' ||
+            code === 'INVALID_PATH' ||
+            code === 'INVALID_SIGNATURE' ||
+            code === 'CHALLENGE_CONTEXT_MISMATCH' ||
+            code === 'TURNSTILE_FAILED'
+          ) {
+            _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
+            _sl._lock();
+            setTimeout(function() { window.location.reload(); }, 900);
+          } else {
+            _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
+            _sl._reset();
+          }
         }
       } catch(err) {
-        _sl._setStatus('Network error. Please retry.', 'error');
+        _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');
         _sl._reset();
       }
     }
