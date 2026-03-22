@@ -32,16 +32,16 @@
     @if($error)<div class="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ $error }}</div>@endif
   </div>
 
-  <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
-      <thead class="bg-slate-50 text-left text-slate-600"><tr><th class="px-3 py-2">Domain</th><th class="px-3 py-2">Event</th><th class="px-3 py-2">IP</th><th class="px-3 py-2">requests</th><th class="px-3 py-2">السماح</th><th class="px-3 py-2">ASN</th><th class="px-3 py-2">Country</th><th class="px-3 py-2">Path</th><th class="px-3 py-2">Details</th><th class="px-3 py-2">Time</th></tr></thead>
+    <table class="w-full min-w-[1400px] text-sm">
+      <thead class="bg-slate-50 text-left text-slate-600"><tr><th class="px-3 py-2">Domain</th><th class="px-3 py-2">Event</th><th class="px-3 py-2">IP</th><th class="px-3 py-2">requests</th><th class="px-3 py-2">allow</th><th class="px-3 py-2">ASN</th><th class="px-3 py-2">Country</th><th class="px-3 py-2">Path</th><th class="px-3 py-2">Details</th><th class="px-3 py-2">Time</th></tr></thead>
       <tbody>
       @forelse($logs as $row)
         <tr class="border-b border-slate-100">
-          <td class="px-3 py-2">{{ $row['domain'] ?? '-' }}</td>
-          <td class="px-3 py-2">{{ $row['event_type'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $row['ip_address'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $row['event_type'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
           <td class="px-3 py-2 font-semibold text-slate-800">{{ $row['requests'] ?? 0 }}</td>
           <td class="px-3 py-2">
             @php($canAllow = !empty($row['ip_address']) && !empty($row['domain']) && ($row['domain'] !== '-'))
@@ -50,17 +50,17 @@
                 @csrf
                 <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                 <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                <button type="submit" class="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">السماح</button>
+                <button type="submit" class="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">allow</button>
               </form>
             @else
               <span class="text-xs text-slate-400">غير متاح</span>
             @endif
           </td>
-          <td class="px-3 py-2">{{ $row['asn'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $row['country'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $row['target_path'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $row['details'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $row['created_at'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $row['asn'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $row['country'] ?? '' }}</td>
+          <td class="px-3 py-2 max-w-[320px] break-all">{{ $row['target_path'] ?? '' }}</td>
+          <td class="px-3 py-2 max-w-[440px] break-words">{{ $row['details'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $row['created_at'] ?? '' }}</td>
         </tr>
       @empty
         <tr><td colspan="10" class="px-3 py-3 text-slate-500">No logs.</td></tr>

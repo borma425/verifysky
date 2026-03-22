@@ -27,9 +27,9 @@
     </form>
   </div>
 
-  <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="overflow-x-auto">
-    <table class="min-w-full text-sm">
+    <table class="w-full min-w-[1450px] text-sm">
       <thead class="bg-slate-50 text-left text-slate-600"><tr><th class="px-3 py-2">Domain</th><th class="px-3 py-2">Zone ID</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Security Mode</th><th class="px-3 py-2">Force CAPTCHA</th><th class="px-3 py-2">Created</th><th class="px-3 py-2">Actions</th></tr></thead>
       <tbody>
       @forelse($domains as $d)
@@ -37,9 +37,9 @@
         @php $mode = strtolower((string)($d['security_mode'] ?? 'balanced')); @endphp
         @php $status = strtolower((string)($d['status'] ?? '')); @endphp
         <tr class="border-b border-slate-100">
-          <td class="px-3 py-2">{{ $d['domain_name'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $d['zone_id'] ?? '' }}</td>
-          <td class="px-3 py-2">{{ $d['status'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $d['domain_name'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $d['zone_id'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $d['status'] ?? '' }}</td>
           <td class="px-3 py-2">
             <span class="rounded-full px-2.5 py-1 text-xs font-semibold {{ $mode === 'aggressive' ? 'bg-rose-100 text-rose-700' : ($mode === 'monitor' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700') }}">
               {{ ucfirst($mode) }}
@@ -50,7 +50,7 @@
               {{ $forced ? 'Enabled' : 'Disabled' }}
             </span>
           </td>
-          <td class="px-3 py-2">{{ $d['created_at'] ?? '' }}</td>
+          <td class="px-3 py-2 whitespace-nowrap">{{ $d['created_at'] ?? '' }}</td>
           <td class="px-3 py-2">
             <div class="flex flex-wrap items-center gap-2">
             <a href="{{ route('domains.rules', ['domain' => $d['domain_name']]) }}" class="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500">

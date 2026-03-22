@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\ActionsController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DomainsController;
@@ -92,9 +91,6 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
-
-    Route::get('/actions', [ActionsController::class, 'index'])->name('actions.index');
-    Route::post('/actions/run', [ActionsController::class, 'run'])->name('actions.run');
 
     Route::get('/trap-network', [TrapNetworkController::class, 'index'])->name('trap_network.index');
     Route::delete('/trap-network/{lead}', [TrapNetworkController::class, 'destroy'])->name('trap_network.destroy');
