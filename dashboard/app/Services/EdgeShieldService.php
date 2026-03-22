@@ -285,7 +285,7 @@ class EdgeShieldService
         ?string $turnstileSiteKey = null,
         ?string $turnstileSecret = null
     ): array {
-        $domain = strtolower(trim($domainName));
+        $domain = $this->normalizeDomain($domainName);
         $resolvedZoneId = trim((string) ($zoneId ?? ''));
         $resolvedSiteKey = trim((string) ($turnstileSiteKey ?? ''));
         $resolvedSecret = trim((string) ($turnstileSecret ?? ''));
@@ -326,9 +326,9 @@ class EdgeShieldService
                 [],
                 [
                     'name' => $widgetName,
-                    'domains' => [$domain],
-                    'mode' => 'managed',
-                    'clearance_level' => 'interactive',
+                    'domains' => $this->turnstileAllowedDomains($domain),
+                    // Worker challenge runtime expects invisible mode.
+                    'mode' => 'invisible',
                 ]
             );
 
@@ -373,10 +373,50 @@ class EdgeShieldService
         ];
     }
 
+    public function removeDomainSecurityArtifacts(
+        string $zoneId,
+        string $domainName,
+        ?string $turnstileSiteKey = null
+    ): array {
+        $zone = trim($zoneId);
+        $domain = $this->normalizeDomain($domainName);
+        $siteKey = trim((string) ($turnstileSiteKey ?? ''));
+
+        if ($zone === '' || $domain === '') {
+            return ['ok' => false, 'error' => 'Zone ID or domain is empty.', 'details' => []];
+        }
+
+        $details = [];
+        $routeRemoval = $this->removeWorkerRoutes($zone, $domain);
+        if ($routeRemoval['ok']) {
+            $details[] = 'Worker routes removed: '.($routeRemoval['action'] ?? 'none');
+        } else {
+            $details[] = 'Worker route cleanup failed: '.($routeRemoval['error'] ?? 'unknown error');
+        }
+
+        if ($siteKey !== '') {
+            $widgetRemoval = $this->deleteTurnstileWidget($zone, $siteKey);
+            if ($widgetRemoval['ok']) {
+                $details[] = 'Turnstile widget removed.';
+            } else {
+                $details[] = 'Turnstile widget cleanup failed: '.($widgetRemoval['error'] ?? 'unknown error');
+            }
+        } else {
+            $details[] = 'Turnstile widget key missing; widget cleanup skipped.';
+        }
+
+        $ok = $routeRemoval['ok'] && ($siteKey === '' || ($widgetRemoval['ok'] ?? false));
+        return [
+            'ok' => $ok,
+            'error' => $ok ? null : implode(' | ', $details),
+            'details' => $details,
+        ];
+    }
+
     public function ensureWorkerRoute(string $zoneId, string $domainName): array
     {
         $zone = trim($zoneId);
-        $domain = strtolower(trim($domainName));
+        $domain = $this->normalizeDomain($domainName);
         if ($zone === '' || $domain === '') {
             return ['ok' => false, 'error' => 'Zone ID or domain is empty.'];
         }
@@ -463,6 +503,76 @@ class EdgeShieldService
                 return ['ok' => false, 'error' => $create['error']];
             }
             $actions[] = $pattern.':created';
+        }
+
+        return ['ok' => true, 'error' => null, 'action' => implode(', ', $actions)];
+    }
+
+    public function removeWorkerRoutes(string $zoneId, string $domainName): array
+    {
+        $zone = trim($zoneId);
+        $domain = $this->normalizeDomain($domainName);
+        if ($zone === '' || $domain === '') {
+            return ['ok' => false, 'error' => 'Zone ID or domain is empty.'];
+        }
+
+        $primaryDomain = $domain;
+        $secondaryDomain = str_starts_with($domain, 'www.')
+            ? substr($domain, 4)
+            : 'www.'.$domain;
+        $patterns = array_values(array_unique([
+            $primaryDomain.'/*',
+            $secondaryDomain !== '' ? $secondaryDomain.'/*' : null,
+        ]));
+        $script = $this->workerScriptName();
+
+        $routes = [];
+        $page = 1;
+        while (true) {
+            $list = $this->cloudflareRequest('GET', '/zones/'.$zone.'/workers/routes', [
+                'page' => $page,
+                'per_page' => 100,
+            ]);
+            if (!$list['ok']) {
+                return ['ok' => false, 'error' => $list['error']];
+            }
+
+            $pageRoutes = is_array($list['result']) ? $list['result'] : [];
+            $routes = array_merge($routes, $pageRoutes);
+            if (count($pageRoutes) < 100 || $page > 20) {
+                break;
+            }
+            $page++;
+        }
+
+        $actions = [];
+        foreach ($patterns as $pattern) {
+            if (!is_string($pattern) || trim($pattern) === '') {
+                continue;
+            }
+
+            $matched = null;
+            foreach ($routes as $route) {
+                if (!is_array($route)) {
+                    continue;
+                }
+                if (($route['pattern'] ?? null) === $pattern && ($route['script'] ?? null) === $script) {
+                    $matched = $route;
+                    break;
+                }
+            }
+
+            if (!$matched || !is_string($matched['id'] ?? null) || trim((string) $matched['id']) === '') {
+                $actions[] = $pattern.':not_found';
+                continue;
+            }
+
+            $delete = $this->cloudflareRequest('DELETE', '/zones/'.$zone.'/workers/routes/'.$matched['id']);
+            if (!$delete['ok']) {
+                return ['ok' => false, 'error' => $delete['error']];
+            }
+
+            $actions[] = $pattern.':deleted';
         }
 
         return ['ok' => true, 'error' => null, 'action' => implode(', ', $actions)];
@@ -716,6 +826,72 @@ class EdgeShieldService
             return [];
         }
         return $decoded;
+    }
+
+    private function normalizeDomain(string $domainName): string
+    {
+        $domain = strtolower(trim($domainName));
+        $domain = preg_replace('#^https?://#', '', $domain) ?? $domain;
+        $domain = explode('/', $domain, 2)[0] ?? $domain;
+        return trim($domain);
+    }
+
+    private function turnstileAllowedDomains(string $domain): array
+    {
+        if ($domain === '') {
+            return [];
+        }
+
+        if (str_starts_with($domain, 'www.')) {
+            $apex = substr($domain, 4);
+            return array_values(array_unique([$domain, $apex]));
+        }
+
+        return array_values(array_unique([$domain, 'www.'.$domain]));
+    }
+
+    private function resolveZoneAccountId(string $zoneId): array
+    {
+        $zone = trim($zoneId);
+        if ($zone === '') {
+            return ['ok' => false, 'error' => 'Zone ID is empty.', 'account_id' => null];
+        }
+
+        $zoneResp = $this->cloudflareRequest('GET', '/zones/'.$zone);
+        if (!$zoneResp['ok']) {
+            return ['ok' => false, 'error' => $zoneResp['error'], 'account_id' => null];
+        }
+
+        $zoneRow = is_array($zoneResp['result']) ? $zoneResp['result'] : [];
+        $accountId = is_string($zoneRow['account']['id'] ?? null) ? trim($zoneRow['account']['id']) : '';
+        if ($accountId === '') {
+            return ['ok' => false, 'error' => 'Unable to resolve Cloudflare account for the zone.', 'account_id' => null];
+        }
+
+        return ['ok' => true, 'error' => null, 'account_id' => $accountId];
+    }
+
+    private function deleteTurnstileWidget(string $zoneId, string $siteKey): array
+    {
+        $key = trim($siteKey);
+        if ($key === '') {
+            return ['ok' => false, 'error' => 'Turnstile site key is empty.'];
+        }
+
+        $account = $this->resolveZoneAccountId($zoneId);
+        if (!$account['ok']) {
+            return ['ok' => false, 'error' => $account['error']];
+        }
+
+        $delete = $this->cloudflareRequest(
+            'DELETE',
+            '/accounts/'.$account['account_id'].'/challenges/widgets/'.$key
+        );
+        if (!$delete['ok']) {
+            return ['ok' => false, 'error' => $delete['error']];
+        }
+
+        return ['ok' => true, 'error' => null];
     }
 
     private function getDashboardSetting(string $key): ?string

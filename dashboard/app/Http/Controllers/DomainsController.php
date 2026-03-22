@@ -106,16 +106,45 @@ class DomainsController extends Controller
 
     public function destroy(string $domain): RedirectResponse
     {
-        $sql = sprintf(
-            "DELETE FROM domain_configs WHERE domain_name = '%s'",
-            str_replace("'", "''", $domain)
+        $escapedDomain = str_replace("'", "''", strtolower(trim($domain)));
+        $readSql = sprintf(
+            "SELECT domain_name, zone_id, turnstile_sitekey FROM domain_configs WHERE domain_name = '%s' LIMIT 1",
+            $escapedDomain
         );
-        $result = $this->edgeShield->queryD1($sql);
+        $read = $this->edgeShield->queryD1($readSql);
+        if (!$read['ok']) {
+            return back()->with('error', $read['error'] ?: 'Failed to read domain config before delete.');
+        }
 
-        return back()->with(
-            $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Domain removed.' : ($result['error'] ?: 'Failed to remove domain')
+        $rows = $this->edgeShield->parseWranglerJson($read['output'])[0]['results'] ?? [];
+        $row = is_array($rows[0] ?? null) ? $rows[0] : null;
+        if (!$row) {
+            return back()->with('error', 'Domain not found in configuration.');
+        }
+
+        $cleanup = $this->edgeShield->removeDomainSecurityArtifacts(
+            (string) ($row['zone_id'] ?? ''),
+            (string) ($row['domain_name'] ?? ''),
+            (string) ($row['turnstile_sitekey'] ?? '')
         );
+
+        $deleteSql = sprintf(
+            "DELETE FROM domain_configs WHERE domain_name = '%s'",
+            $escapedDomain
+        );
+        $result = $this->edgeShield->queryD1($deleteSql);
+        if (!$result['ok']) {
+            return back()->with('error', $result['error'] ?: 'Failed to remove domain');
+        }
+
+        if (!$cleanup['ok']) {
+            return back()->with(
+                'status',
+                'Domain removed from configuration, but cleanup reported warnings: '.implode(' | ', $cleanup['details'] ?? [])
+            );
+        }
+
+        return back()->with('status', 'Domain removed completely (config + route + Turnstile widget).');
     }
 
     public function toggleForceCaptcha(string $domain, Request $request): RedirectResponse
