@@ -13,6 +13,11 @@ class EdgeShieldService
 
     public function projectRoot(): string
     {
+        $configuredRoot = trim((string) env('EDGE_SHIELD_ROOT', ''));
+        if ($configuredRoot !== '') {
+            return rtrim($configuredRoot, '/');
+        }
+
         $candidates = [
             base_path('../worker'),
             base_path('../../cloudflare_antibots/worker'),
@@ -22,7 +27,9 @@ class EdgeShieldService
 
         $defaultRoot = null;
         foreach ($candidates as $candidate) {
-            $resolved = realpath($candidate);
+            // Some shared-hosting setups enforce open_basedir and may block
+            // probing sibling paths outside the dashboard root.
+            $resolved = @realpath($candidate);
             if (!$resolved || !is_dir($resolved)) {
                 continue;
             }
