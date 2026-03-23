@@ -57,6 +57,9 @@ export interface Env {
   // "on" => reject on cookie/IP mismatch.
   // "off" => log mismatch but continue verification.
   ES_STRICT_CONTEXT_BINDING?: string;
+  // Optional URL used to redirect requests that hit final hard-block policy.
+  // Example: "https://example.com/blocked"
+  ES_BLOCK_REDIRECT_URL?: string;
 
   // ---- Domain-Specific Config ----
   // Turnstile keys, Zone IDs are resolved per-request from D1 `domain_configs`.

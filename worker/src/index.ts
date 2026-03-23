@@ -944,7 +944,33 @@ async function handleSubmission(
  * Returns a hard block response for malicious requests.
  * Minimal information is disclosed to the attacker.
  */
-function handleHardBlock(): Response {
+function normalizeBlockRedirectUrl(raw: string | undefined): string | null {
+  const candidate = (raw ?? "").trim();
+  if (candidate === "") return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function handleHardBlock(env: Env): Response {
+  const redirectUrl = normalizeBlockRedirectUrl(env.ES_BLOCK_REDIRECT_URL);
+  if (redirectUrl) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: redirectUrl,
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
+    });
+  }
+
   return createHtmlResponse(
     `<!DOCTYPE html>
 <html lang="en">
@@ -1064,8 +1090,8 @@ const worker: ExportedHandler<Env> = {
           null,
           `Temporarily banned IP (${TEMP_BAN_TTL_SECONDS}s window)`
         )
-      );
-      return handleHardBlock();
+        );
+      return handleHardBlock(env);
     }
 
     // --- Resolve Domain Configuration ---
@@ -1099,7 +1125,7 @@ const worker: ExportedHandler<Env> = {
           return serveChallengePagePlaceholder(meta, dummyConfig, env);
         }
         if (testMode === "block") {
-          return handleHardBlock();
+          return handleHardBlock(env);
         }
         if (testMode === "risk") {
           const risk = await evaluateRisk(meta, env);
@@ -1154,7 +1180,7 @@ const worker: ExportedHandler<Env> = {
             `Auto-banned by IP rate policy (${ipRate}/min >= ${IP_HARD_BAN_RATE_THRESHOLD}/min)`
           )
         );
-        return handleHardBlock();
+        return handleHardBlock(env);
       }
     } catch {
       // KV errors are non-fatal; continue normal flow
@@ -1287,7 +1313,7 @@ const worker: ExportedHandler<Env> = {
           ctx.waitUntil(triggerAIDefenseIfReady(env, meta));
         }
 
-        return handleHardBlock();
+        return handleHardBlock(env);
       }
     }
   },

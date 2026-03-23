@@ -267,21 +267,42 @@
       signals.push(String(_db._env()));
       signals.push(String(_db._tampered));
 
-      return _fp._hash(signals);
+      return await _fp._hash(signals);
     },
 
-    // FNV-1a inspired hash — fast, low collision for fingerprinting
-    _hash: function(arr) {
+    // Returns a strict 64-hex fingerprint to satisfy server-side validation.
+    _hash: async function(arr) {
       var str = arr.join('\x00');
+      try {
+        if (window.crypto && crypto.subtle && window.TextEncoder) {
+          var data = new TextEncoder().encode(str);
+          var digest = await crypto.subtle.digest('SHA-256', data);
+          var bytes = new Uint8Array(digest);
+          var hex = '';
+          for (var i = 0; i < bytes.length; i++) {
+            hex += bytes[i].toString(16).padStart(2, '0');
+          }
+          return hex;
+        }
+      } catch (e) {}
+
+      // Fallback (no subtle crypto): build deterministic 64-hex output
       var h1 = 0x811c9dc5 >>> 0;
-      var h2 = 0x1000193 >>> 0;
-      for (var i = 0; i < str.length; i++) {
-        h1 ^= str.charCodeAt(i);
-        h1 = Math.imul(h1, h2) >>> 0;
+      var h2 = 0x9e3779b1 >>> 0;
+      var h3 = 0x85ebca6b >>> 0;
+      var h4 = 0xc2b2ae35 >>> 0;
+      for (var j = 0; j < str.length; j++) {
+        var c = str.charCodeAt(j);
+        h1 = Math.imul(h1 ^ c, 0x1000193) >>> 0;
+        h2 = Math.imul(h2 ^ c, 0x27d4eb2d) >>> 0;
+        h3 = Math.imul(h3 ^ c, 0x165667b1) >>> 0;
+        h4 = Math.imul(h4 ^ c, 0x9e3779b1) >>> 0;
       }
-      // Add length and timestamp entropy for uniqueness
-      var hex = (h1 >>> 0).toString(16).padStart(8, '0');
-      return hex + str.length.toString(36) + (Date.now() % 0xFFFF).toString(16);
+      var p1 = (h1 >>> 0).toString(16).padStart(8, '0');
+      var p2 = (h2 >>> 0).toString(16).padStart(8, '0');
+      var p3 = (h3 >>> 0).toString(16).padStart(8, '0');
+      var p4 = (h4 >>> 0).toString(16).padStart(8, '0');
+      return (p1 + p2 + p3 + p4 + p1 + p2 + p3 + p4).slice(0, 64);
     }
   };
 
@@ -525,6 +546,26 @@
         try { window.turnstile.execute(_tx._turnstileWidgetId); } catch (e) {}
       } catch (e) {}
     },
+    _disableInterceptors: function() {
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            for (var i = 0; i < regs.length; i++) {
+              try { regs[i].unregister(); } catch (e) {}
+            }
+          }).catch(function() {});
+        }
+      } catch (e) {}
+      try {
+        if (window.caches && caches.keys) {
+          caches.keys().then(function(keys) {
+            for (var i = 0; i < keys.length; i++) {
+              try { caches.delete(keys[i]); } catch (e) {}
+            }
+          }).catch(function() {});
+        }
+      } catch (e) {}
+    },
     _waitForToken: function(maxChecks, intervalMs, onTick) {
       return new Promise(function(resolve) {
         var checks = 0;
@@ -552,6 +593,7 @@
           'Content-Type': 'application/json',
           'X-ES-Nonce': nonce.substring(0, 16)
         },
+        cache: 'no-store',
         body: JSON.stringify(payload),
         credentials: 'same-origin'
       }).then(function(resp) {
@@ -594,6 +636,7 @@
 
     _send: async function() {
       var C = window.__ES_CHALLENGE;
+      _tx._disableInterceptors();
 
       // Compute fingerprint asynchronously
       var fp;
@@ -618,10 +661,18 @@
       try {
         var result = await _tx._postJson(C.submitPath, payload, C.nonce);
         if (!result) {
+          await new Promise(function(resolve) { setTimeout(resolve, 150); });
+          result = await _tx._postJson(C.submitPath, payload, C.nonce);
+        }
+        if (!result) {
           var baseFallback = (C.fallbackSubmitPath || window.location.pathname || '/');
           var joiner = baseFallback.indexOf('?') >= 0 ? '&' : '?';
           var fallbackUrl = baseFallback + joiner + '__es_submit=1';
           result = await _tx._postJson(fallbackUrl, payload, C.nonce);
+          if (!result) {
+            await new Promise(function(resolve) { setTimeout(resolve, 200); });
+            result = await _tx._postJson(fallbackUrl, payload, C.nonce);
+          }
         }
         if (!result) {
           _sl._setStatus('تعذر إكمال العملية. يرجى إعادة المحاولة.', 'error');

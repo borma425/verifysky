@@ -16,7 +16,7 @@ const D1_DATABASE_NAME = "EDGE_SHIELD_DB";
 // CLI Argument Parsing
 // ---------------------------------------------------------------------------
 const domain = process.argv[2];
-const apiToken = process.env.CF_API_TOKEN || process.argv[3];
+const apiToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || process.argv[3];
 
 if (!domain) {
   console.error("\n╔══════════════════════════════════════════════════════════╗");
@@ -25,14 +25,15 @@ if (!domain) {
   console.error("║  Usage: node scripts/onboard-domain.mjs <domain>       ║");
   console.error("║  Example: node scripts/onboard-domain.mjs example.com  ║");
   console.error("║                                                        ║");
-  console.error("║  Required env: CF_API_TOKEN                            ║");
+  console.error("║  Required env: CLOUDFLARE_API_TOKEN                    ║");
   console.error("╚══════════════════════════════════════════════════════════╝\n");
   process.exit(1);
 }
 
 if (!apiToken) {
-  console.error("[ERROR] CF_API_TOKEN is not set.");
-  console.error("  Set it via: export CF_API_TOKEN=<your-cloudflare-api-token>");
+  console.error("[ERROR] CLOUDFLARE_API_TOKEN is not set.");
+  console.error("  Set it via: export CLOUDFLARE_API_TOKEN=<your-cloudflare-api-token>");
+  console.error("  (Legacy fallback: CF_API_TOKEN is still supported)");
   console.error("  Or pass it as the second argument.");
   process.exit(1);
 }

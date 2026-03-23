@@ -162,6 +162,10 @@ class EdgeShieldService
         if ($esAdminRatePerMin !== '') {
             $envPrefix .= ' ES_ADMIN_RATE_LIMIT_PER_MIN='.escapeshellarg($esAdminRatePerMin);
         }
+        $blockRedirectUrl = trim((string) ($this->getDashboardSetting('es_block_redirect_url') ?? ''));
+        if ($blockRedirectUrl !== '') {
+            $envPrefix .= ' ES_BLOCK_REDIRECT_URL='.escapeshellarg($blockRedirectUrl);
+        }
 
         return $envPrefix.' '.$command;
     }
@@ -1070,6 +1074,7 @@ class EdgeShieldService
         $allowUaCompat = $this->getDashboardSetting('es_allow_ua_crawler_allowlist') ?? 'off';
         $adminAllowedIps = $this->getDashboardSetting('es_admin_allowed_ips') ?? '';
         $adminRatePerMin = $this->getDashboardSetting('es_admin_rate_limit_per_min') ?? '60';
+        $blockRedirectUrl = $this->getDashboardSetting('es_block_redirect_url') ?? '';
 
         $deployCmd = $this->wranglerBin().' deploy --keep-vars'
             .' --var '.escapeshellarg('OPENROUTER_MODEL:'.$openrouterModel)
@@ -1077,7 +1082,8 @@ class EdgeShieldService
             .' --var '.escapeshellarg('ES_DISABLE_WAF_AUTODEPLOY:'.$disableWaf)
             .' --var '.escapeshellarg('ES_ALLOW_UA_CRAWLER_ALLOWLIST:'.$allowUaCompat)
             .' --var '.escapeshellarg('ES_ADMIN_ALLOWED_IPS:'.$adminAllowedIps)
-            .' --var '.escapeshellarg('ES_ADMIN_RATE_LIMIT_PER_MIN:'.$adminRatePerMin);
+            .' --var '.escapeshellarg('ES_ADMIN_RATE_LIMIT_PER_MIN:'.$adminRatePerMin)
+            .' --var '.escapeshellarg('ES_BLOCK_REDIRECT_URL:'.$blockRedirectUrl);
 
         $deploy = $this->runInProject($deployCmd, 240);
         $logs[] = 'deploy-with-vars exit='.(string) ($deploy['exit_code'] ?? 'n/a');

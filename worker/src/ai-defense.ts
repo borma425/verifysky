@@ -524,6 +524,7 @@ async function deployWAFRule(
   analysis: ThreatAnalysisResponse,
   meta: RequestMeta
 ): Promise<void> {
+  const domainName = extractDomainFromMeta(meta);
   // Build a strictly validated WAF expression.
   // Never trust free-form LLM expressions without safety checks.
   const aiExpression = analysis.wafExpression?.trim() || null;
@@ -555,10 +556,11 @@ async function deployWAFRule(
   // Log the WAF rule creation
   try {
     await env.DB.prepare(
-      `INSERT INTO security_logs (event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-       VALUES ('waf_rule_created', ?, ?, ?, ?, NULL, NULL, ?)`
+      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+       VALUES (?, 'waf_rule_created', ?, ?, ?, ?, NULL, NULL, ?)`
     )
       .bind(
+        domainName,
         meta.ip,
         meta.asn,
         meta.country,
@@ -1025,14 +1027,24 @@ async function logAIDefenseEvent(
   stage: string,
   details: string
 ): Promise<void> {
+  const domainName = extractDomainFromMeta(meta);
   try {
     await env.DB.prepare(
-      `INSERT INTO security_logs (event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-       VALUES ('ai_defense', ?, ?, ?, ?, NULL, NULL, ?)`
+      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+       VALUES (?, 'ai_defense', ?, ?, ?, ?, NULL, NULL, ?)`
     )
-      .bind(meta.ip, meta.asn, meta.country, meta.path, `${stage}: ${details}`)
+      .bind(domainName, meta.ip, meta.asn, meta.country, meta.path, `${stage}: ${details}`)
       .run();
   } catch {
     // Non-fatal
+  }
+}
+
+function extractDomainFromMeta(meta: RequestMeta): string | null {
+  try {
+    const host = new URL(meta.url).hostname.trim().toLowerCase();
+    return host === "" ? null : host;
+  } catch {
+    return null;
   }
 }

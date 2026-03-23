@@ -23,7 +23,11 @@
           <input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="admin_login_path" value="{{ $settings['admin_login_path'] ?? $currentLoginPath }}" placeholder="wow/login">
           <p class="mt-1 text-xs text-slate-500">Current login URL: <code>{{ url('/'.$currentLoginPath) }}</code></p>
         </div>
-        <div></div>
+        <div>
+          <label class="mb-1 block text-sm text-slate-600">Hard-Block Redirect URL</label>
+          <input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="es_block_redirect_url" value="{{ $settings['es_block_redirect_url'] ?? '' }}" placeholder="https://example.com/blocked">
+          <p class="mt-1 text-xs text-slate-500">Used only for final hard block redirect. Slider CAPTCHA page is not affected.</p>
+        </div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div class="rounded-lg border border-slate-200 px-3 py-2">

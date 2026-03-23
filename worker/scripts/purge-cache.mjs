@@ -7,7 +7,7 @@ const CF_API_BASE = "https://api.cloudflare.com/client/v4";
 const D1_DATABASE_NAME = "EDGE_SHIELD_DB";
 
 function loadDotEnvIfNeeded() {
-  if (process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN) return;
+  if (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN) return;
   const envPath = path.resolve(process.cwd(), ".env");
   if (!fs.existsSync(envPath)) return;
   const raw = fs.readFileSync(envPath, "utf8");
@@ -81,10 +81,10 @@ async function purgeZone(zoneId, apiToken) {
 
 async function main() {
   loadDotEnvIfNeeded();
-  const apiToken = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
   const strict = String(process.env.ES_PURGE_CACHE_STRICT || "off").toLowerCase() === "on";
   if (!apiToken) {
-    console.warn("[purge] Skipped: missing CF_API_TOKEN / CLOUDFLARE_API_TOKEN");
+    console.warn("[purge] Skipped: missing CLOUDFLARE_API_TOKEN / CF_API_TOKEN");
     return;
   }
 

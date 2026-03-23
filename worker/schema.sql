@@ -111,6 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_fingerprints_risk
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS security_logs (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain_name      TEXT,
     event_type       TEXT    NOT NULL,
     ip_address       TEXT    NOT NULL,
     asn              TEXT,
@@ -144,6 +145,10 @@ CREATE INDEX IF NOT EXISTS idx_security_logs_fingerprint
 -- Identifies concentrated attacks on specific routes (e.g., /checkout, /login)
 CREATE INDEX IF NOT EXISTS idx_security_logs_path
     ON security_logs (target_path, created_at);
+
+-- Domain-level filtering/reporting for dashboard logs
+CREATE INDEX IF NOT EXISTS idx_security_logs_domain_created
+    ON security_logs (domain_name, created_at);
 
 
 -- ---------------------------------------------------------------------------

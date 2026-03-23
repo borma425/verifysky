@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Services\EdgeShieldService;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Support\Facades\Cache;
 use Mockery;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -14,6 +15,7 @@ class DomainActionsTest extends TestCase
     {
         parent::setUp();
         $this->withoutMiddleware(VerifyCsrfToken::class);
+        Cache::flush();
     }
 
     protected function tearDown(): void
@@ -172,5 +174,57 @@ class DomainActionsTest extends TestCase
 
         $response->assertRedirect()->assertSessionHas('status');
     }
-}
 
+    public function test_logs_page_shows_domain_column_and_pagination(): void
+    {
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('ensureSecurityLogsDomainColumn')->once();
+        $mock->shouldReceive('queryD1')->times(2)->andReturn(
+            [
+                'ok' => true,
+                'output' => 'ignored-filter-options',
+                'error' => null,
+            ],
+            [
+                'ok' => true,
+                'output' => 'ignored-rows',
+                'error' => null,
+            ]
+        );
+        $mock->shouldReceive('parseWranglerJson')->times(2)->andReturn(
+            [[
+                'results' => [
+                    [
+                        'bucket' => 'domain',
+                        'value' => 'example.com',
+                    ],
+                    [
+                        'bucket' => 'event',
+                        'value' => 'challenge_issued',
+                    ],
+                ],
+            ]],
+            [[
+                'results' => [[
+                    'event_type' => 'challenge_issued',
+                    'ip_address' => '203.0.113.10',
+                    'asn' => '13335',
+                    'country' => 'US',
+                    'target_path' => '/',
+                    'details' => '{"domain":"example.com"}',
+                    'created_at' => '2026-03-22 00:00:00',
+                    'total_rows' => 120,
+                ]],
+            ]]
+        );
+
+        $response = $this->withSession(['is_admin' => true])->get('/logs');
+
+        $response->assertOk()
+            ->assertSee('Domain')
+            ->assertSee('example.com')
+            ->assertSee('All domains')
+            ->assertSee('All events')
+            ->assertSee('Filter by IP');
+    }
+}

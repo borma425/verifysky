@@ -7,7 +7,7 @@
 //
 // This script will:
 //   1. Generate a cryptographically secure 32-byte JWT_SECRET
-//   2. Prompt for CF_API_TOKEN (Cloudflare API Token)
+//   2. Prompt for CLOUDFLARE_API_TOKEN (Cloudflare API Token)
 //   3. Prompt for OPENROUTER_API_KEY (OpenRouter API Key)
 //   4. Push all three as Wrangler secrets
 //
@@ -85,17 +85,20 @@ async function main() {
   console.log(`  → Generated: ${jwtSecret.substring(0, 8)}${"*".repeat(48)} (masked)`);
   console.log(`  → Entropy: 256 bits\n`);
 
-  // Step 2: Prompt for CF_API_TOKEN
+  // Step 2: Prompt for CLOUDFLARE_API_TOKEN
   console.log("[2/3] Cloudflare API Token");
   console.log("  Required permissions:");
   console.log("    • Zone → Firewall Services → Edit (for WAF rule creation)");
   console.log("    • Zone → Zone → Read (for zone ID lookup)");
   console.log("    • Account → Turnstile → Edit (for widget management)");
   console.log("    • Account → Workers Scripts → Edit (for route management)");
-  const cfApiToken = process.env.CF_API_TOKEN || await prompt("  Enter CF_API_TOKEN: ");
+  const cfApiToken =
+    process.env.CLOUDFLARE_API_TOKEN ||
+    process.env.CF_API_TOKEN ||
+    await prompt("  Enter CLOUDFLARE_API_TOKEN: ");
 
   if (!cfApiToken) {
-    console.error("  ✗ CF_API_TOKEN is required. Aborting.");
+    console.error("  ✗ CLOUDFLARE_API_TOKEN is required. Aborting.");
     process.exit(1);
   }
   console.log(`  ✓ Token received: ${cfApiToken.substring(0, 8)}${"*".repeat(24)} (masked)\n`);
