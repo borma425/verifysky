@@ -90,19 +90,19 @@ class SettingsController extends Controller
         }
 
         $sync = $this->edgeShield->syncCloudflareFromDashboardSettings();
-        $syncSummary = implode(' | ', $sync['logs'] ?? []);
-
         if (!$sync['ok']) {
             $errorCount = count($sync['errors'] ?? []);
-            $firstError = (string) (($sync['errors'][0] ?? 'Cloudflare sync failed'));
-            $status = "Settings saved, but Cloudflare sync has {$errorCount} issue(s). First issue: {$firstError}";
-            if ($syncSummary !== '') {
-                $status .= ' | '.$syncSummary;
-            }
-            return back()->with('status', $status);
+            $firstError = $this->stripAnsi((string) ($sync['errors'][0] ?? 'Cloudflare sync failed.'));
+            $message = "Settings saved, but Cloudflare sync failed ({$errorCount} issue(s)). First issue: {$firstError}";
+            return back()->with('error', $message);
         }
 
-        return back()->with('status', 'Settings saved and synced to Cloudflare successfully. '.$syncSummary);
+        $message = 'Settings saved and synced to Cloudflare successfully.';
+        if ($this->hasAlreadySyncedRoutes($sync)) {
+            $message .= ' Routes are already up to date.';
+        }
+
+        return back()->with('status', $message);
     }
 
     private function normalizeLoginPath(string $path): string
@@ -125,5 +125,28 @@ class SettingsController extends Controller
     {
         $candidate = (string) ($settings['admin_login_path'] ?? env('DASHBOARD_LOGIN_PATH', 'wow/login'));
         return $this->normalizeLoginPath($candidate);
+    }
+
+    private function stripAnsi(string $text): string
+    {
+        $plain = preg_replace('/\e\[[0-9;]*[A-Za-z]/', '', $text) ?? $text;
+        return trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
+    }
+
+    private function hasAlreadySyncedRoutes(array $sync): bool
+    {
+        $logs = $sync['logs'] ?? [];
+        if (!is_array($logs)) {
+            return false;
+        }
+
+        foreach ($logs as $log) {
+            $line = strtolower((string) $log);
+            if (str_contains($line, 'route-sync') && str_contains($line, 'already_synced')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
