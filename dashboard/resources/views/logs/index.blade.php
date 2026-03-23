@@ -35,23 +35,49 @@
   <div class="es-card es-animate es-animate-delay relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 p-5 md:p-6">
     <div class="overflow-x-auto">
     <table class="es-table min-w-[1400px]">
-      <thead><tr><th>Domain</th><th>Event</th><th>IP</th><th>Requests</th><th>Allow</th><th>ASN</th><th>Country</th><th>Path</th><th>Details</th><th>Time</th></tr></thead>
+      <thead><tr><th>Domain</th><th>Event</th><th>IP</th><th>Attacks</th><th>Action</th><th>ASN</th><th>Country</th><th>Path</th><th>Details</th><th>Time</th></tr></thead>
       <tbody>
       @forelse($logs as $row)
         <tr>
           <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
           <td class="whitespace-nowrap">{{ $row['event_type'] ?? '' }}</td>
           <td class="whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
-          <td class="font-semibold text-cyan-200">{{ $row['requests'] ?? 0 }}</td>
+          <td class="whitespace-nowrap">
+            <div class="flex flex-col items-start gap-1 text-[11px] leading-tight text-cyan-100">
+              <span class="rounded-md border border-cyan-300/25 bg-cyan-400/10 px-2 py-0.5 font-semibold">T: {{ $row['requests_today'] ?? 0 }}</span>
+              <span class="rounded-md border border-sky-300/20 bg-sky-400/10 px-2 py-0.5 font-semibold">Y: {{ $row['requests_yesterday'] ?? 0 }}</span>
+              <span class="rounded-md border border-indigo-300/20 bg-indigo-400/10 px-2 py-0.5 font-semibold">M: {{ $row['requests_month'] ?? 0 }}</span>
+            </div>
+          </td>
           <td>
             @php($canAllow = !empty($row['ip_address']) && !empty($row['domain']) && ($row['domain'] !== '-'))
             @if($canAllow)
-              <form method="POST" action="{{ route('logs.allow_ip') }}">
-                @csrf
-                <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
-                <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                <button type="submit" class="es-btn es-btn-success">Allow</button>
-              </form>
+              @if(($row['prefer_block_action'] ?? false) === true)
+                <form method="POST" action="{{ route('logs.block_ip') }}">
+                  @csrf
+                  <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
+                  <input type="hidden" name="domain" value="{{ $row['domain'] }}">
+                  <button type="submit" class="es-icon-btn es-icon-btn-danger" title="Block IP for 24h" aria-label="Block IP">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+                      <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+                      <path d="M12 15v2"></path>
+                    </svg>
+                  </button>
+                </form>
+              @else
+                <form method="POST" action="{{ route('logs.allow_ip') }}">
+                  @csrf
+                  <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
+                  <input type="hidden" name="domain" value="{{ $row['domain'] }}">
+                  <button type="submit" class="es-icon-btn es-icon-btn-success" title="Allow-list IP and reset ban" aria-label="Allow-list IP and reset ban">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+                      <path d="M21 3v6h-6"></path>
+                    </svg>
+                  </button>
+                </form>
+              @endif
             @else
               <span class="text-xs es-muted">N/A</span>
             @endif

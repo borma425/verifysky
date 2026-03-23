@@ -118,6 +118,37 @@ class LogsController extends Controller
                SELECT
                  ip_address,
                  COUNT(*) AS requests,
+                 SUM(
+                   CASE
+                     WHEN datetime(created_at) >= datetime('now', 'start of day') THEN 1
+                     ELSE 0
+                   END
+                 ) AS requests_today,
+                 SUM(
+                   CASE
+                     WHEN datetime(created_at) >= datetime('now', 'start of day', '-1 day')
+                       AND datetime(created_at) < datetime('now', 'start of day') THEN 1
+                     ELSE 0
+                   END
+                 ) AS requests_yesterday,
+                 SUM(
+                   CASE
+                     WHEN datetime(created_at) >= datetime('now', 'start of month') THEN 1
+                     ELSE 0
+                   END
+                 ) AS requests_month,
+                 SUM(
+                   CASE
+                     WHEN event_type IN ('challenge_solved', 'session_created') THEN 1
+                     ELSE 0
+                   END
+                 ) AS solved_or_passed_events,
+                 SUM(
+                   CASE
+                     WHEN event_type IN ('challenge_failed', 'hard_block', 'turnstile_failed', 'replay_detected', 'session_rejected') THEN 1
+                     ELSE 0
+                   END
+                 ) AS flagged_events,
                  MAX(id) AS latest_id,
                  MAX(
                    CASE
@@ -137,11 +168,16 @@ class LogsController extends Controller
                f.target_path,
                f.details,
                f.created_at,
-               g.requests
+               g.requests,
+               g.requests_today,
+               g.requests_yesterday,
+               g.requests_month,
+               g.solved_or_passed_events,
+               g.flagged_events
              FROM grouped g
              JOIN filtered f ON f.id = g.latest_id
              LEFT JOIN filtered fd ON fd.id = g.latest_domain_id
-             ORDER BY g.requests DESC, g.latest_id DESC
+             ORDER BY g.requests_today DESC, g.requests_yesterday DESC, g.requests_month DESC, g.latest_id DESC
              LIMIT {$perPage} OFFSET {$offset}"
         );
         $rowsOk = ($result['ok'] ?? false) && $countOk;
@@ -153,6 +189,12 @@ class LogsController extends Controller
             $safeRow = is_array($row) ? $row : [];
             $safeRow['domain'] = $this->resolveLogDomain($safeRow);
             $safeRow['requests'] = (int) ($safeRow['requests'] ?? 0);
+            $safeRow['requests_today'] = (int) ($safeRow['requests_today'] ?? 0);
+            $safeRow['requests_yesterday'] = (int) ($safeRow['requests_yesterday'] ?? 0);
+            $safeRow['requests_month'] = (int) ($safeRow['requests_month'] ?? 0);
+            $safeRow['solved_or_passed_events'] = (int) ($safeRow['solved_or_passed_events'] ?? 0);
+            $safeRow['flagged_events'] = (int) ($safeRow['flagged_events'] ?? 0);
+            $safeRow['prefer_block_action'] = $safeRow['solved_or_passed_events'] > 0 && $safeRow['flagged_events'] === 0;
             return $safeRow;
         }, $rawRows);
 
@@ -204,7 +246,43 @@ class LogsController extends Controller
             return back()->with('error', (string) ($result['error'] ?? 'Failed to allow IP via worker admin.'));
         }
 
-        return back()->with('status', 'IP '.$ip.' was allow-listed and unbanned on '.$domain.'.');
+        $deleteResult = $this->edgeShield->queryD1(
+            "DELETE FROM security_logs
+             WHERE ip_address = '".str_replace("'", "''", $ip)."'"
+        );
+
+        if (!($deleteResult['ok'] ?? false)) {
+            return back()->with('error', 'IP was allow-listed, but failed to reset visit counters: '.((string) ($deleteResult['error'] ?? 'unknown error')));
+        }
+
+        return back()->with('status', 'IP '.$ip.' was allow-listed, unbanned, and its visit counters were reset.');
+    }
+
+    public function blockIp(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ip' => ['required', 'ip'],
+            'domain' => ['required', 'string', 'max:255'],
+        ]);
+
+        $ip = trim((string) $validated['ip']);
+        $domain = trim((string) $validated['domain']);
+        if ($domain === '' || $domain === '-') {
+            return back()->with('error', 'Cannot block this IP because domain is missing for this log row.');
+        }
+
+        $result = $this->edgeShield->blockIpViaWorkerAdmin(
+            $domain,
+            $ip,
+            24,
+            'dashboard security logs block'
+        );
+
+        if (!($result['ok'] ?? false)) {
+            return back()->with('error', (string) ($result['error'] ?? 'Failed to block IP via worker admin.'));
+        }
+
+        return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours.');
     }
 
     private function resolveLogDomain(array $row): string

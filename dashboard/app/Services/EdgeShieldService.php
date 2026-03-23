@@ -962,6 +962,74 @@ class EdgeShieldService
         ];
     }
 
+    public function blockIpViaWorkerAdmin(
+        string $domain,
+        string $ip,
+        int $ttlHours = 24,
+        string $reason = 'dashboard manual block from logs'
+    ): array {
+        $host = strtolower(trim($domain));
+        $host = preg_replace('#^https?://#i', '', $host) ?? $host;
+        $host = explode('/', $host, 2)[0] ?? $host;
+        $host = trim($host);
+        if ($host === '') {
+            return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];
+        }
+
+        $token = (string) ($this->getDashboardSetting('es_admin_token') ?? '');
+        if (trim($token) === '') {
+            return ['ok' => false, 'error' => 'ES Admin Token is missing in settings.'];
+        }
+
+        $hours = max(1, min(24 * 30, (int) $ttlHours));
+        $url = 'https://'.$host.'/es-admin/ip/ban';
+
+        try {
+            $response = Http::timeout(20)
+                ->acceptJson()
+                ->withHeaders([
+                    'X-ES-Admin-Token' => $token,
+                ])
+                ->post($url, [
+                    'ip' => $ip,
+                    'ttlHours' => $hours,
+                    'reason' => $reason,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'Worker admin request failed: '.$e->getMessage(),
+            ];
+        }
+
+        $payload = $response->json();
+        if (!$response->ok()) {
+            $message = null;
+            if (is_array($payload)) {
+                $message = $payload['error']['message'] ?? $payload['message'] ?? null;
+            }
+            return [
+                'ok' => false,
+                'error' => $message
+                    ? 'Worker admin HTTP error: '.$response->status().' ('.$message.')'
+                    : 'Worker admin HTTP error: '.$response->status(),
+            ];
+        }
+
+        if (!is_array($payload) || (($payload['success'] ?? false) !== true)) {
+            $message = is_array($payload)
+                ? (string) ($payload['error']['message'] ?? $payload['message'] ?? 'Worker admin reported failure.')
+                : 'Unexpected worker admin response.';
+            return ['ok' => false, 'error' => $message];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'result' => $payload,
+        ];
+    }
+
     private function normalizeDomain(string $domainName): string
     {
         $domain = strtolower(trim($domainName));
