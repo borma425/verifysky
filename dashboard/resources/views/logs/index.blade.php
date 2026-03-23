@@ -39,7 +39,10 @@
       <tbody>
       @forelse($logs as $row)
         @php
-          $eventTypeValue = (string) ($row['event_type'] ?? '');
+          $eventTypeValue = trim((string) ($row['worst_event_type'] ?? ''));
+          if ($eventTypeValue === '') {
+            $eventTypeValue = (string) ($row['event_type'] ?? '');
+          }
           $eventScoreDefaults = [
             'challenge_issued' => 35,
             'challenge_solved' => 10,
@@ -50,9 +53,11 @@
             'turnstile_failed' => 55,
             'replay_detected' => 75,
             'waf_rule_created' => 80,
+            'mode_escalated' => 65,
+            'ai_defense' => 55,
           ];
           $fallbackScore = $eventScoreDefaults[$eventTypeValue] ?? 50;
-          $rawScore = $row['risk_score'] ?? null;
+          $rawScore = $row['worst_event_score'] ?? ($row['max_risk_score'] ?? $row['risk_score'] ?? null);
           $eventScore = is_numeric($rawScore) ? (int) $rawScore : $fallbackScore;
           $eventScore = max(0, min(100, $eventScore));
           $eventScoreClass = $eventScore >= 70
@@ -60,14 +65,22 @@
             : ($eventScore >= 40
               ? 'border-amber-400/40 bg-amber-500/20 text-amber-100'
               : 'border-emerald-400/40 bg-emerald-500/20 text-emerald-100');
+          $isRepeatOffender = (int) ($row['requests_today'] ?? 0) >= 20
+            || (int) ($row['requests_yesterday'] ?? 0) >= 40
+            || (int) ($row['requests_month'] ?? 0) >= 120;
         @endphp
         <tr>
           <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
-          <td class="whitespace-nowrap">
+          <td class="whitespace-nowrap align-top">
             <div class="flex items-center gap-2">
               <span>{{ $eventTypeValue }}</span>
               <span class="rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none {{ $eventScoreClass }}">{{ $eventScore }}%</span>
             </div>
+            @if($isRepeatOffender)
+              <div class="mt-1">
+                <span class="rounded-md border border-rose-400/40 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-rose-100">REPEAT OFFENDER</span>
+              </div>
+            @endif
           </td>
           <td class="whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
           <td class="whitespace-nowrap">

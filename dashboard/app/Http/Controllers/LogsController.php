@@ -118,6 +118,7 @@ class LogsController extends Controller
                SELECT
                  ip_address,
                  COUNT(*) AS requests,
+                 MAX(COALESCE(risk_score, 0)) AS max_risk_score,
                  SUM(
                    CASE
                      WHEN datetime(created_at) >= datetime('now', 'start of day') THEN 1
@@ -163,6 +164,52 @@ class LogsController extends Controller
                COALESCE(fd.domain_name, f.domain_name) AS domain_name,
                f.event_type,
                f.risk_score,
+               (
+                 SELECT fw.event_type
+                 FROM filtered fw
+                 WHERE fw.ip_address = g.ip_address
+                 ORDER BY
+                   CASE fw.event_type
+                     WHEN 'hard_block' THEN 100
+                     WHEN 'replay_detected' THEN 95
+                     WHEN 'challenge_failed' THEN 90
+                     WHEN 'turnstile_failed' THEN 88
+                     WHEN 'session_rejected' THEN 85
+                     WHEN 'challenge_issued' THEN 70
+                     WHEN 'mode_escalated' THEN 65
+                     WHEN 'waf_rule_created' THEN 60
+                     WHEN 'ai_defense' THEN 55
+                     WHEN 'challenge_solved' THEN 20
+                     WHEN 'session_created' THEN 10
+                     ELSE 30
+                   END DESC,
+                   COALESCE(fw.risk_score, 0) DESC,
+                   fw.id DESC
+                 LIMIT 1
+               ) AS worst_event_type,
+               (
+                 SELECT COALESCE(fw.risk_score, 0)
+                 FROM filtered fw
+                 WHERE fw.ip_address = g.ip_address
+                 ORDER BY
+                   CASE fw.event_type
+                     WHEN 'hard_block' THEN 100
+                     WHEN 'replay_detected' THEN 95
+                     WHEN 'challenge_failed' THEN 90
+                     WHEN 'turnstile_failed' THEN 88
+                     WHEN 'session_rejected' THEN 85
+                     WHEN 'challenge_issued' THEN 70
+                     WHEN 'mode_escalated' THEN 65
+                     WHEN 'waf_rule_created' THEN 60
+                     WHEN 'ai_defense' THEN 55
+                     WHEN 'challenge_solved' THEN 20
+                     WHEN 'session_created' THEN 10
+                     ELSE 30
+                   END DESC,
+                   COALESCE(fw.risk_score, 0) DESC,
+                   fw.id DESC
+                 LIMIT 1
+               ) AS worst_event_score,
                f.ip_address,
                f.asn,
                f.country,
@@ -180,6 +227,7 @@ class LogsController extends Controller
                f.details,
                f.created_at,
                g.requests,
+               g.max_risk_score,
                g.requests_today,
                g.requests_yesterday,
                g.requests_month,
@@ -201,6 +249,9 @@ class LogsController extends Controller
             $safeRow['domain'] = $this->resolveLogDomain($safeRow);
             $safeRow['requests'] = (int) ($safeRow['requests'] ?? 0);
             $safeRow['risk_score'] = isset($safeRow['risk_score']) ? (int) $safeRow['risk_score'] : null;
+            $safeRow['max_risk_score'] = (int) ($safeRow['max_risk_score'] ?? 0);
+            $safeRow['worst_event_score'] = (int) ($safeRow['worst_event_score'] ?? 0);
+            $safeRow['worst_event_type'] = trim((string) ($safeRow['worst_event_type'] ?? ''));
             $safeRow['requests_today'] = (int) ($safeRow['requests_today'] ?? 0);
             $safeRow['requests_yesterday'] = (int) ($safeRow['requests_yesterday'] ?? 0);
             $safeRow['requests_month'] = (int) ($safeRow['requests_month'] ?? 0);
