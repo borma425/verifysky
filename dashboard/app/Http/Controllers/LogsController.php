@@ -162,6 +162,7 @@ class LogsController extends Controller
              SELECT
                COALESCE(fd.domain_name, f.domain_name) AS domain_name,
                f.event_type,
+               f.risk_score,
                f.ip_address,
                f.asn,
                f.country,
@@ -199,6 +200,7 @@ class LogsController extends Controller
             $safeRow = is_array($row) ? $row : [];
             $safeRow['domain'] = $this->resolveLogDomain($safeRow);
             $safeRow['requests'] = (int) ($safeRow['requests'] ?? 0);
+            $safeRow['risk_score'] = isset($safeRow['risk_score']) ? (int) $safeRow['risk_score'] : null;
             $safeRow['requests_today'] = (int) ($safeRow['requests_today'] ?? 0);
             $safeRow['requests_yesterday'] = (int) ($safeRow['requests_yesterday'] ?? 0);
             $safeRow['requests_month'] = (int) ($safeRow['requests_month'] ?? 0);

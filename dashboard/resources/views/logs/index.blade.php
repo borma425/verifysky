@@ -38,9 +38,37 @@
       <thead><tr><th>Domain</th><th>Event</th><th>IP</th><th>Attacks</th><th>Action</th><th>ASN</th><th>Country</th><th>Path</th><th>Details</th><th>Time</th></tr></thead>
       <tbody>
       @forelse($logs as $row)
+        @php
+          $eventTypeValue = (string) ($row['event_type'] ?? '');
+          $eventScoreDefaults = [
+            'challenge_issued' => 35,
+            'challenge_solved' => 10,
+            'challenge_failed' => 65,
+            'hard_block' => 70,
+            'session_created' => 5,
+            'session_rejected' => 60,
+            'turnstile_failed' => 55,
+            'replay_detected' => 75,
+            'waf_rule_created' => 80,
+          ];
+          $fallbackScore = $eventScoreDefaults[$eventTypeValue] ?? 50;
+          $rawScore = $row['risk_score'] ?? null;
+          $eventScore = is_numeric($rawScore) ? (int) $rawScore : $fallbackScore;
+          $eventScore = max(0, min(100, $eventScore));
+          $eventScoreClass = $eventScore >= 70
+            ? 'border-rose-400/40 bg-rose-500/20 text-rose-100'
+            : ($eventScore >= 40
+              ? 'border-amber-400/40 bg-amber-500/20 text-amber-100'
+              : 'border-emerald-400/40 bg-emerald-500/20 text-emerald-100');
+        @endphp
         <tr>
           <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
-          <td class="whitespace-nowrap">{{ $row['event_type'] ?? '' }}</td>
+          <td class="whitespace-nowrap">
+            <div class="flex items-center gap-2">
+              <span>{{ $eventTypeValue }}</span>
+              <span class="rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none {{ $eventScoreClass }}">{{ $eventScore }}%</span>
+            </div>
+          </td>
           <td class="whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
           <td class="whitespace-nowrap">
             <div class="flex flex-col items-start gap-1 text-[11px] leading-tight text-cyan-100">
