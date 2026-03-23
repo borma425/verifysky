@@ -84,7 +84,30 @@
           </td>
           <td class="whitespace-nowrap">{{ $row['asn'] ?? '' }}</td>
           <td class="whitespace-nowrap">{{ $row['country'] ?? '' }}</td>
-          <td class="max-w-[320px] break-all">{{ $row['target_path'] ?? '' }}</td>
+          <td class="max-w-[320px]">
+            @php($recentPaths = is_array($row['recent_paths'] ?? null) ? $row['recent_paths'] : [])
+            @php($topPaths = is_array($row['top_paths'] ?? null) ? $row['top_paths'] : [])
+            <div class="space-y-1">
+              @forelse($topPaths as $path)
+                <div class="max-w-[290px] truncate font-mono text-[11px] text-slate-200">{{ $path }}</div>
+              @empty
+                <span class="text-xs es-muted">-</span>
+              @endforelse
+            </div>
+            @if(count($recentPaths) > 2)
+              <details class="es-path-tooltip mt-1">
+                <summary class="es-path-tooltip-trigger" title="Show last 50 paths" aria-label="Show last 50 paths">+</summary>
+                <div class="es-path-tooltip-panel">
+                  <div class="mb-2 text-[11px] font-semibold text-sky-100">Last {{ count($recentPaths) }} paths</div>
+                  <div class="space-y-1">
+                    @foreach($recentPaths as $path)
+                      <div class="break-all font-mono text-[11px] text-slate-200">{{ $path }}</div>
+                    @endforeach
+                  </div>
+                </div>
+              </details>
+            @endif
+          </td>
           <td class="max-w-[440px] break-words">{{ $row['details'] ?? '' }}</td>
           <td class="whitespace-nowrap">{{ $row['created_at'] ?? '' }}</td>
         </tr>

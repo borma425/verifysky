@@ -166,6 +166,16 @@ class LogsController extends Controller
                f.asn,
                f.country,
                f.target_path,
+               (
+                 SELECT json_group_array(path_row.target_path)
+                 FROM (
+                   SELECT COALESCE(NULLIF(TRIM(fp.target_path), ''), '-') AS target_path
+                   FROM filtered fp
+                   WHERE fp.ip_address = g.ip_address
+                   ORDER BY fp.id DESC
+                   LIMIT 50
+                 ) path_row
+               ) AS recent_paths_json,
                f.details,
                f.created_at,
                g.requests,
@@ -195,6 +205,25 @@ class LogsController extends Controller
             $safeRow['solved_or_passed_events'] = (int) ($safeRow['solved_or_passed_events'] ?? 0);
             $safeRow['flagged_events'] = (int) ($safeRow['flagged_events'] ?? 0);
             $safeRow['prefer_block_action'] = $safeRow['solved_or_passed_events'] > 0 && $safeRow['flagged_events'] === 0;
+
+            $decodedPaths = json_decode((string) ($safeRow['recent_paths_json'] ?? '[]'), true);
+            $recentPaths = [];
+            if (is_array($decodedPaths)) {
+                foreach ($decodedPaths as $pathItem) {
+                    $pathText = trim((string) $pathItem);
+                    $recentPaths[] = $pathText !== '' ? $pathText : '-';
+                }
+            }
+            if (count($recentPaths) === 0) {
+                $fallbackPath = trim((string) ($safeRow['target_path'] ?? ''));
+                if ($fallbackPath !== '') {
+                    $recentPaths[] = $fallbackPath;
+                }
+            }
+
+            $safeRow['recent_paths'] = array_slice($recentPaths, 0, 50);
+            $safeRow['top_paths'] = array_slice($safeRow['recent_paths'], 0, 2);
+
             return $safeRow;
         }, $rawRows);
 
