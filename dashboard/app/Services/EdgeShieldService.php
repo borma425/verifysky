@@ -822,14 +822,15 @@ class EdgeShieldService
         return $this->runInProject($this->wranglerBin().' '.$args, $timeout);
     }
 
-    public function queryD1(string $sql): array
+    public function queryD1(string $sql, int $timeout = 90): array
     {
         $cmd = sprintf(
             '%s d1 execute EDGE_SHIELD_DB --remote --command %s',
             $this->wranglerBin(),
             escapeshellarg($sql)
         );
-        return $this->runInProject($cmd, 90);
+        $effectiveTimeout = max(10, min(300, $timeout));
+        return $this->runInProject($cmd, $effectiveTimeout);
     }
 
     public function parseWranglerJson(string $raw): array
