@@ -10,6 +10,7 @@ class EdgeShieldService
 {
     private const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
     private ?array $settingsCache = null;
+    private ?bool $procOpenAvailable = null;
 
     public function projectRoot(): string
     {
@@ -803,10 +804,30 @@ class EdgeShieldService
 
     public function runInProject(string $command, int $timeout = 60): array
     {
+        if (!$this->isProcOpenAvailable()) {
+            return [
+                'ok' => false,
+                'exit_code' => 127,
+                'output' => '',
+                'error' => 'PHP function proc_open is disabled on this server. Worker runtime commands cannot run from dashboard.',
+                'command' => $command,
+            ];
+        }
+
         $full = 'cd '.escapeshellarg($this->projectRoot()).' && '.$this->sanitizeCommandForNode($command);
-        $process = Process::fromShellCommandline($full);
-        $process->setTimeout($timeout);
-        $process->run();
+        try {
+            $process = Process::fromShellCommandline($full);
+            $process->setTimeout($timeout);
+            $process->run();
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'exit_code' => 1,
+                'output' => '',
+                'error' => $this->compactErrorMessage($e->getMessage()),
+                'command' => $command,
+            ];
+        }
 
         return [
             'ok' => $process->isSuccessful(),
@@ -815,6 +836,27 @@ class EdgeShieldService
             'error' => trim($process->getErrorOutput()),
             'command' => $command,
         ];
+    }
+
+    private function isProcOpenAvailable(): bool
+    {
+        if ($this->procOpenAvailable !== null) {
+            return $this->procOpenAvailable;
+        }
+
+        if (!function_exists('proc_open')) {
+            $this->procOpenAvailable = false;
+            return false;
+        }
+
+        $disabled = (string) ini_get('disable_functions');
+        $disabledFunctions = array_map(
+            static fn (string $item): string => trim(strtolower($item)),
+            explode(',', strtolower($disabled))
+        );
+
+        $this->procOpenAvailable = !in_array('proc_open', $disabledFunctions, true);
+        return $this->procOpenAvailable;
     }
 
     public function runWrangler(string $args, int $timeout = 60): array
