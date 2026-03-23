@@ -830,10 +830,37 @@ class EdgeShieldService
             return ['ok' => false, 'error' => 'Zone ID or rule ID is empty.'];
         }
 
+        $current = $this->getZoneFirewallRuleById($zone, $rule);
+        if (!($current['ok'] ?? false)) {
+            return ['ok' => false, 'error' => $current['error'] ?? 'Failed to load current rule before update.'];
+        }
+        if (!is_array($current['rule'] ?? null)) {
+            return ['ok' => false, 'error' => 'Firewall rule was not found in zone.'];
+        }
+        $currentRule = $current['rule'];
+
+        $action = trim((string) ($currentRule['action'] ?? ''));
+        $description = trim((string) ($currentRule['description'] ?? ''));
+        $filterId = trim((string) (($currentRule['filter']['id'] ?? '')));
+        $filterExpr = trim((string) (($currentRule['filter']['expression'] ?? '')));
+
+        $fullPayload = [
+            'paused' => $paused,
+            'action' => $action,
+            'description' => $description,
+        ];
+        if ($filterId !== '' || $filterExpr !== '') {
+            $fullPayload['filter'] = array_filter([
+                'id' => $filterId !== '' ? $filterId : null,
+                'expression' => $filterExpr !== '' ? $filterExpr : null,
+            ], fn ($v) => $v !== null);
+        }
+
         $attempts = [
             ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => ['paused' => $paused]],
-            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules', 'json' => [['id' => $rule, 'paused' => $paused]]],
-            ['method' => 'PUT', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => ['paused' => $paused]],
+            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => $fullPayload],
+            ['method' => 'PUT', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => $fullPayload],
+            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules', 'json' => [array_merge(['id' => $rule], $fullPayload)]],
         ];
 
         $lastError = 'Failed to update firewall rule.';
@@ -916,6 +943,28 @@ class EdgeShieldService
         }
 
         return ['ok' => true, 'found' => false, 'paused' => null];
+    }
+
+    private function getZoneFirewallRuleById(string $zoneId, string $ruleId): array
+    {
+        $list = $this->listZoneFirewallRules($zoneId);
+        if (!($list['ok'] ?? false)) {
+            return ['ok' => false, 'error' => $list['error'] ?? 'Failed to read firewall rules.', 'rule' => null];
+        }
+
+        $rules = is_array($list['rules'] ?? null) ? $list['rules'] : [];
+        foreach ($rules as $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            if ((string) ($rule['id'] ?? '') !== $ruleId) {
+                continue;
+            }
+
+            return ['ok' => true, 'error' => null, 'rule' => $rule];
+        }
+
+        return ['ok' => true, 'error' => null, 'rule' => null];
     }
 
     public function runInProject(string $command, int $timeout = 60): array
