@@ -246,6 +246,16 @@ class LogsController extends Controller
             return back()->with('error', (string) ($result['error'] ?? 'Failed to allow IP via worker admin.'));
         }
 
+        $status = $this->edgeShield->getIpAdminStatusViaWorkerAdmin($domain, $ip);
+        if (!($status['ok'] ?? false)) {
+            return back()->with('error', 'IP was allow-listed, but status verification failed: '.((string) ($status['error'] ?? 'unknown error')));
+        }
+        $isAllowed = (bool) (($status['status']['allowed'] ?? false));
+        $isBanned = (bool) (($status['status']['banned'] ?? false));
+        if (!$isAllowed || $isBanned) {
+            return back()->with('error', 'Allow action did not stabilize as expected (allowed=true, banned=false).');
+        }
+
         $deleteResult = $this->edgeShield->queryD1(
             "DELETE FROM security_logs
              WHERE ip_address = '".str_replace("'", "''", $ip)."'"
@@ -280,6 +290,16 @@ class LogsController extends Controller
 
         if (!($result['ok'] ?? false)) {
             return back()->with('error', (string) ($result['error'] ?? 'Failed to block IP via worker admin.'));
+        }
+
+        $status = $this->edgeShield->getIpAdminStatusViaWorkerAdmin($domain, $ip);
+        if (!($status['ok'] ?? false)) {
+            return back()->with('error', 'IP was blocked, but status verification failed: '.((string) ($status['error'] ?? 'unknown error')));
+        }
+        $isAllowed = (bool) (($status['status']['allowed'] ?? false));
+        $isBanned = (bool) (($status['status']['banned'] ?? false));
+        if ($isAllowed || !$isBanned) {
+            return back()->with('error', 'Block action did not stabilize as expected (allowed=false, banned=true).');
         }
 
         return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours.');

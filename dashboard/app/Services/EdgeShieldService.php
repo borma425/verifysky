@@ -830,17 +830,43 @@ class EdgeShieldService
             return ['ok' => false, 'error' => 'Zone ID or rule ID is empty.'];
         }
 
-        $update = $this->cloudflareRequest(
-            'PATCH',
-            '/zones/'.$zone.'/firewall/rules/'.$rule,
-            [],
-            ['paused' => $paused]
-        );
-        if (!$update['ok']) {
-            return ['ok' => false, 'error' => $update['error']];
+        $attempts = [
+            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => ['paused' => $paused]],
+            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules', 'json' => [['id' => $rule, 'paused' => $paused]]],
+            ['method' => 'PUT', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => ['paused' => $paused]],
+        ];
+
+        $lastError = 'Failed to update firewall rule.';
+        foreach ($attempts as $attempt) {
+            $update = $this->cloudflareRequest(
+                (string) $attempt['method'],
+                (string) $attempt['path'],
+                [],
+                is_array($attempt['json']) ? $attempt['json'] : null
+            );
+            if (!$update['ok']) {
+                $lastError = (string) ($update['error'] ?? $lastError);
+                continue;
+            }
+
+            $state = $this->getZoneFirewallRuleState($zone, $rule);
+            if (!$state['ok']) {
+                return ['ok' => false, 'error' => $state['error'] ?? 'Rule update may have applied, but verification failed.'];
+            }
+            if (($state['found'] ?? false) !== true) {
+                return ['ok' => false, 'error' => 'Rule update request succeeded, but rule was not found during verification.'];
+            }
+            if (($state['paused'] ?? null) !== $paused) {
+                $actual = ($state['paused'] ?? false) ? 'paused' : 'enabled';
+                $expected = $paused ? 'paused' : 'enabled';
+                $lastError = 'Rule state mismatch after update. Expected '.$expected.' but API returned '.$actual.'.';
+                continue;
+            }
+
+            return ['ok' => true, 'error' => null];
         }
 
-        return ['ok' => true, 'error' => null];
+        return ['ok' => false, 'error' => $lastError];
     }
 
     public function deleteZoneFirewallRule(string $zoneId, string $ruleId): array
@@ -856,7 +882,40 @@ class EdgeShieldService
             return ['ok' => false, 'error' => $delete['error']];
         }
 
+        $state = $this->getZoneFirewallRuleState($zone, $rule);
+        if (!($state['ok'] ?? false)) {
+            return ['ok' => false, 'error' => $state['error'] ?? 'Rule delete request succeeded, but verification failed.'];
+        }
+        if (($state['found'] ?? false) === true) {
+            return ['ok' => false, 'error' => 'Delete request succeeded, but rule still exists in Cloudflare.'];
+        }
+
         return ['ok' => true, 'error' => null];
+    }
+
+    private function getZoneFirewallRuleState(string $zoneId, string $ruleId): array
+    {
+        $list = $this->listZoneFirewallRules($zoneId);
+        if (!($list['ok'] ?? false)) {
+            return ['ok' => false, 'error' => $list['error'] ?? 'Failed to read firewall rules for verification.'];
+        }
+
+        $rules = is_array($list['rules'] ?? null) ? $list['rules'] : [];
+        foreach ($rules as $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            if ((string) ($rule['id'] ?? '') !== $ruleId) {
+                continue;
+            }
+            return [
+                'ok' => true,
+                'found' => true,
+                'paused' => (bool) ($rule['paused'] ?? false),
+            ];
+        }
+
+        return ['ok' => true, 'found' => false, 'paused' => null];
     }
 
     public function runInProject(string $command, int $timeout = 60): array
@@ -1016,6 +1075,71 @@ class EdgeShieldService
             'ok' => true,
             'error' => null,
             'result' => $payload,
+        ];
+    }
+
+    public function getIpAdminStatusViaWorkerAdmin(string $domain, string $ip): array
+    {
+        $host = strtolower(trim($domain));
+        $host = preg_replace('#^https?://#i', '', $host) ?? $host;
+        $host = explode('/', $host, 2)[0] ?? $host;
+        $host = trim($host);
+        if ($host === '') {
+            return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];
+        }
+        if (trim($ip) === '') {
+            return ['ok' => false, 'error' => 'IP is required.'];
+        }
+
+        $token = (string) ($this->getDashboardSetting('es_admin_token') ?? '');
+        if (trim($token) === '') {
+            return ['ok' => false, 'error' => 'ES Admin Token is missing in settings.'];
+        }
+
+        $url = 'https://'.$host.'/es-admin/ip/status?ip='.rawurlencode(trim($ip));
+        try {
+            $response = Http::timeout(20)
+                ->acceptJson()
+                ->withHeaders([
+                    'X-ES-Admin-Token' => $token,
+                ])
+                ->get($url);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'Worker admin request failed: '.$e->getMessage(),
+            ];
+        }
+
+        $payload = $response->json();
+        if (!$response->ok()) {
+            $message = null;
+            if (is_array($payload)) {
+                $message = $payload['error']['message'] ?? $payload['message'] ?? null;
+            }
+            return [
+                'ok' => false,
+                'error' => $message
+                    ? 'Worker admin HTTP error: '.$response->status().' ('.$message.')'
+                    : 'Worker admin HTTP error: '.$response->status(),
+            ];
+        }
+
+        if (!is_array($payload) || (($payload['success'] ?? false) !== true)) {
+            $message = is_array($payload)
+                ? (string) ($payload['error']['message'] ?? $payload['message'] ?? 'Worker admin reported failure.')
+                : 'Unexpected worker admin response.';
+            return ['ok' => false, 'error' => $message];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'status' => [
+                'ip' => (string) ($payload['ip'] ?? $ip),
+                'banned' => (bool) ($payload['banned'] ?? false),
+                'allowed' => (bool) ($payload['allowed'] ?? false),
+            ],
         ];
     }
 
