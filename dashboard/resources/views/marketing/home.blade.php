@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <link rel="icon" type="image/png" sizes="512x512" href="{{ asset('Logo.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('apple-touch-icon.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32x32.png') }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16x16.png') }}">
+  <link rel="manifest" href="{{ asset('site.webmanifest') }}">
   <link rel="canonical" href="{{ url('/') }}">
   <title>YouCaptcha | Global Human Verification Cloud</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -28,9 +33,9 @@
 
     <header class="sticky top-0 z-50 border-b border-slate-700/40 bg-[#071018]/80 backdrop-blur">
       <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        <a href="/" class="flex items-center gap-2">
-          <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-400/20 text-cyan-300">Y</span>
-          <span class="text-lg font-black tracking-tight">YouCaptcha</span>
+        <a href="/" class="flex items-center gap-3">
+          <img src="{{ asset('Logo.png') }}" alt="YouCaptcha" class="h-12 w-12 rounded-xl border border-cyan-300/40 bg-cyan-900/20 object-cover shadow-lg shadow-cyan-500/20 md:h-14 md:w-14">
+          <span class="text-xl font-black tracking-tight md:text-2xl">YouCaptcha</span>
         </a>
         <nav class="hidden items-center gap-5 text-sm text-slate-300 md:flex">
           <a class="hover:text-white" href="#platform">Platform</a>

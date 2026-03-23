@@ -4,13 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+  <link rel="icon" type="image/png" sizes="512x512" href="{{ asset('Logo.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('apple-touch-icon.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32x32.png') }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16x16.png') }}">
+  <link rel="manifest" href="{{ asset('site.webmanifest') }}">
   <title>{{ $title ?? 'Edge Shield Dashboard' }}</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="min-h-full bg-slate-100 text-slate-900">
   <div class="border-b border-slate-800 bg-slate-900 text-slate-100">
-    <div class="mx-auto flex max-w-7xl items-center gap-5 px-4 py-3">
-      <div class="rounded-md bg-sky-500/20 px-2 py-1 text-sm font-semibold text-sky-300">Edge Shield Admin</div>
+    <div class="mx-auto flex max-w-7xl items-center gap-5 px-4 py-3 md:gap-6 md:py-4">
+      <a href="{{ route('dashboard') }}" class="mr-2 flex items-center gap-3 md:gap-4">
+        <img src="{{ asset('Logo.png') }}" alt="Edge Shield" class="h-14 w-14 rounded-xl border border-sky-400/40 bg-slate-800 object-cover shadow-lg shadow-sky-500/20 md:h-16 md:w-16">
+        <span class="text-base font-extrabold tracking-wide text-sky-200 md:text-lg">Edge Shield Admin</span>
+      </a>
       <a class="text-sm text-slate-300 hover:text-white" href="{{ route('dashboard') }}">Overview</a>
       <a class="text-sm text-slate-300 hover:text-white" href="{{ route('domains.index') }}">Domains</a>
       <a class="text-sm text-slate-300 hover:text-white" href="{{ route('logs.index') }}">Logs</a>
