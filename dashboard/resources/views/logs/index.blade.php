@@ -1,12 +1,12 @@
 @extends('layouts.app')
 
 @section('content')
-  <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-    <h2 class="mb-3 text-xl font-semibold">Security Logs</h2>
+  <div class="es-card es-animate mb-4 p-5 md:p-6">
+    <h2 class="es-title mb-3">Security Logs</h2>
     <form method="GET" action="{{ route('logs.index') }}" class="flex flex-col gap-3 md:flex-row md:items-end md:flex-wrap">
       <div class="md:w-72">
-        <label class="mb-1 block text-sm text-slate-600">Filter by domain</label>
-        <select class="w-full rounded-lg border border-slate-300 px-3 py-2" name="domain_name">
+        <label class="mb-1 block text-sm text-sky-100">Filter by domain</label>
+        <select class="es-input" name="domain_name">
           <option value="">All domains</option>
           @foreach(($domainOptions ?? []) as $optionDomain)
             <option value="{{ $optionDomain }}" @selected(($domainName ?? '') === $optionDomain)>{{ $optionDomain }}</option>
@@ -14,8 +14,8 @@
         </select>
       </div>
       <div class="md:w-72">
-        <label class="mb-1 block text-sm text-slate-600">Filter by event type</label>
-        <select class="w-full rounded-lg border border-slate-300 px-3 py-2" name="event_type">
+        <label class="mb-1 block text-sm text-sky-100">Filter by event type</label>
+        <select class="es-input" name="event_type">
           <option value="">All events</option>
           @foreach(($eventTypeOptions ?? []) as $optionEvent)
             <option value="{{ $optionEvent }}" @selected(($eventType ?? '') === $optionEvent)>{{ $optionEvent }}</option>
@@ -23,47 +23,47 @@
         </select>
       </div>
       <div class="md:w-72">
-        <label class="mb-1 block text-sm text-slate-600">Filter by IP</label>
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2" name="ip_address" value="{{ $ipAddress ?? '' }}" placeholder="e.g. 203.0.113.10">
+        <label class="mb-1 block text-sm text-sky-100">Filter by IP</label>
+        <input class="es-input" name="ip_address" value="{{ $ipAddress ?? '' }}" placeholder="e.g. 203.0.113.10">
       </div>
-      <button class="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400" type="submit">Filter</button>
-      <a class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" href="{{ route('logs.index') }}">Reset</a>
+      <button class="es-btn" type="submit">Filter</button>
+      <a class="es-btn es-btn-secondary" href="{{ route('logs.index') }}">Reset</a>
     </form>
-    @if($error)<div class="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ $error }}</div>@endif
+    @if($error)<div class="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/15 px-4 py-3 text-sm text-rose-200">{{ $error }}</div>@endif
   </div>
 
-  <div class="relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="es-card es-animate es-animate-delay relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 p-5 md:p-6">
     <div class="overflow-x-auto">
-    <table class="w-full min-w-[1400px] text-sm">
-      <thead class="bg-slate-50 text-left text-slate-600"><tr><th class="px-3 py-2">Domain</th><th class="px-3 py-2">Event</th><th class="px-3 py-2">IP</th><th class="px-3 py-2">requests</th><th class="px-3 py-2">allow</th><th class="px-3 py-2">ASN</th><th class="px-3 py-2">Country</th><th class="px-3 py-2">Path</th><th class="px-3 py-2">Details</th><th class="px-3 py-2">Time</th></tr></thead>
+    <table class="es-table min-w-[1400px]">
+      <thead><tr><th>Domain</th><th>Event</th><th>IP</th><th>Requests</th><th>Allow</th><th>ASN</th><th>Country</th><th>Path</th><th>Details</th><th>Time</th></tr></thead>
       <tbody>
       @forelse($logs as $row)
-        <tr class="border-b border-slate-100">
-          <td class="px-3 py-2 whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
-          <td class="px-3 py-2 whitespace-nowrap">{{ $row['event_type'] ?? '' }}</td>
-          <td class="px-3 py-2 whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
-          <td class="px-3 py-2 font-semibold text-slate-800">{{ $row['requests'] ?? 0 }}</td>
-          <td class="px-3 py-2">
+        <tr>
+          <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
+          <td class="whitespace-nowrap">{{ $row['event_type'] ?? '' }}</td>
+          <td class="whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
+          <td class="font-semibold text-cyan-200">{{ $row['requests'] ?? 0 }}</td>
+          <td>
             @php($canAllow = !empty($row['ip_address']) && !empty($row['domain']) && ($row['domain'] !== '-'))
             @if($canAllow)
               <form method="POST" action="{{ route('logs.allow_ip') }}">
                 @csrf
                 <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                 <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                <button type="submit" class="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">allow</button>
+                <button type="submit" class="es-btn es-btn-success">Allow</button>
               </form>
             @else
-              <span class="text-xs text-slate-400">غير متاح</span>
+              <span class="text-xs es-muted">N/A</span>
             @endif
           </td>
-          <td class="px-3 py-2 whitespace-nowrap">{{ $row['asn'] ?? '' }}</td>
-          <td class="px-3 py-2 whitespace-nowrap">{{ $row['country'] ?? '' }}</td>
-          <td class="px-3 py-2 max-w-[320px] break-all">{{ $row['target_path'] ?? '' }}</td>
-          <td class="px-3 py-2 max-w-[440px] break-words">{{ $row['details'] ?? '' }}</td>
-          <td class="px-3 py-2 whitespace-nowrap">{{ $row['created_at'] ?? '' }}</td>
+          <td class="whitespace-nowrap">{{ $row['asn'] ?? '' }}</td>
+          <td class="whitespace-nowrap">{{ $row['country'] ?? '' }}</td>
+          <td class="max-w-[320px] break-all">{{ $row['target_path'] ?? '' }}</td>
+          <td class="max-w-[440px] break-words">{{ $row['details'] ?? '' }}</td>
+          <td class="whitespace-nowrap">{{ $row['created_at'] ?? '' }}</td>
         </tr>
       @empty
-        <tr><td colspan="10" class="px-3 py-3 text-slate-500">No logs.</td></tr>
+        <tr><td colspan="10" class="text-slate-300">No logs.</td></tr>
       @endforelse
       </tbody>
     </table>
