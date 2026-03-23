@@ -53,6 +53,7 @@
       <div class="mt-3">
         <label class="mb-1 block text-sm text-sky-100">Expression</label>
         <textarea name="expression" rows="4" class="es-input font-mono text-xs" placeholder='Example: (ip.src in {1.2.3.4 5.6.7.8}) or (http.user_agent contains "python")' required></textarea>
+        <p class="mt-1 text-xs es-muted">Tip: You can paste a raw IP/CIDR (or multiple IPs), and it will be auto-converted to a valid Cloudflare expression.</p>
       </div>
       <label class="mt-3 inline-flex items-center gap-2 text-sm es-muted">
         <input type="checkbox" name="paused" value="1" class="rounded border-white/20 bg-slate-900/70">

@@ -744,7 +744,7 @@ class EdgeShieldService
         bool $paused = false
     ): array {
         $zone = trim($zoneId);
-        $expr = trim($expression);
+        $expr = $this->normalizeFirewallExpression($expression);
         if ($zone === '' || $expr === '') {
             return ['ok' => false, 'error' => 'Zone ID or expression is empty.'];
         }
@@ -763,6 +763,63 @@ class EdgeShieldService
 
         $createdRule = is_array($create['result'][0] ?? null) ? $create['result'][0] : null;
         return ['ok' => true, 'error' => null, 'rule' => $createdRule];
+    }
+
+    private function normalizeFirewallExpression(string $expression): string
+    {
+        $expr = trim($expression);
+        if ($expr === '') {
+            return '';
+        }
+
+        if ($this->isValidIpToken($expr)) {
+            return '(ip.src eq '.$expr.')';
+        }
+
+        if ($this->isValidCidrToken($expr)) {
+            return '(ip.src in {'.$expr.'})';
+        }
+
+        $tokens = preg_split('/[\s,]+/', $expr) ?: [];
+        $tokens = array_values(array_filter(array_map('trim', $tokens), fn (string $t): bool => $t !== ''));
+        if (count($tokens) > 1) {
+            $allIpOrCidr = true;
+            foreach ($tokens as $token) {
+                if (!$this->isValidIpToken($token) && !$this->isValidCidrToken($token)) {
+                    $allIpOrCidr = false;
+                    break;
+                }
+            }
+            if ($allIpOrCidr) {
+                return '(ip.src in {'.implode(' ', $tokens).'})';
+            }
+        }
+
+        return $expr;
+    }
+
+    private function isValidIpToken(string $token): bool
+    {
+        return filter_var($token, FILTER_VALIDATE_IP) !== false;
+    }
+
+    private function isValidCidrToken(string $token): bool
+    {
+        $parts = explode('/', $token, 2);
+        if (count($parts) !== 2) {
+            return false;
+        }
+
+        [$ip, $prefix] = $parts;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+            return ctype_digit($prefix) && (int) $prefix >= 0 && (int) $prefix <= 32;
+        }
+
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            return ctype_digit($prefix) && (int) $prefix >= 0 && (int) $prefix <= 128;
+        }
+
+        return false;
     }
 
     public function setZoneFirewallRulePaused(string $zoneId, string $ruleId, bool $paused): array
