@@ -70,14 +70,13 @@ export async function triggerAIDefense(
   meta: RequestMeta
 ): Promise<void> {
   try {
-    await logAIDefenseEvent(env, meta, "pipeline_start", "AI defense trigger received");
-
     // --- Rate limit: prevent running more than once per cooldown period ---
     const shouldRun = await acquireAILock(env);
     if (!shouldRun) {
-      await logAIDefenseEvent(env, meta, "lock_skip", "Cooldown lock active or KV unavailable");
       return;
     }
+
+    await logAIDefenseEvent(env, meta, "pipeline_start", "AI defense trigger received");
     await logAIDefenseEvent(env, meta, "lock_acquired", "AI cooldown lock acquired");
 
     // --- Fetch recent security logs from D1 ---

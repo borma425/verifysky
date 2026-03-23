@@ -11,6 +11,7 @@
     "deploy": "wrangler deploy && npm run purge:cache",
     "predeploy": "npm run build:slider",
     "purge:cache": "node scripts/purge-cache.mjs",
+    "openrouter:smoke": "node scripts/openrouter-smoke-test.mjs",
     "db:init": "wrangler d1 execute EDGE_SHIELD_DB --file=./schema.sql",
     "db:init:local": "wrangler d1 execute EDGE_SHIELD_DB --local --file=./schema.sql",
     "typecheck": "tsc --noEmit"

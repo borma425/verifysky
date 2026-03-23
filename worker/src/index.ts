@@ -68,8 +68,20 @@ const ADMIN_ALLOW_DEFAULT_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_RATE_PREFIX = "rate:admin:";
 const ADMIN_RATE_WINDOW_SECONDS = 60;
 const ADMIN_RATE_DEFAULT_PER_MIN = 60;
+const IP_ATTACK_DAY_PREFIX = "attack:ip:day:";
+const IP_ATTACK_MONTH_PREFIX = "attack:ip:month:";
+const ATTACK_COUNTER_TTL_SECONDS = 45 * 24 * 60 * 60;
+const HISTORICAL_ATTACK_EVENTS = new Set([
+  "challenge_failed",
+  "turnstile_failed",
+  "replay_detected",
+  "hard_block",
+  "session_rejected",
+]);
 const AI_MODEL_SETTING_KEY = "settings:ai:model";
 const AI_MODEL_FALLBACKS_SETTING_KEY = "settings:ai:fallbacks";
+const AI_LAST_RUN_KEY = "ai:last_run";
+const AI_COOLDOWN_SECONDS = 300;
 const IP_HARD_BAN_RATE_THRESHOLD = 120; // requests/minute per IP
 const CRAWLER_RDNS_CACHE_PREFIX = "crawler:rdns:";
 const CRAWLER_RDNS_OK_TTL_SECONDS = 24 * 60 * 60;
@@ -273,8 +285,48 @@ async function logSecurityEvent(
         details
       )
       .run();
+    await incrementHistoricalAttackCounters(env, eventType, meta.ip);
   } catch {
     // Logging failure must never crash the Worker
+  }
+}
+
+function utcDayKey(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function utcMonthKey(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 7);
+}
+
+async function incrementHistoricalAttackCounters(
+  env: Env,
+  eventType: string,
+  ip: string
+): Promise<void> {
+  if (!ip || !HISTORICAL_ATTACK_EVENTS.has(eventType)) return;
+
+  const dayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${ip}`;
+  const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${ip}`;
+
+  try {
+    const currentDay = await env.SESSION_KV.get(dayKey);
+    const dayCount = currentDay ? parseInt(currentDay, 10) + 1 : 1;
+    await env.SESSION_KV.put(dayKey, String(dayCount), {
+      expirationTtl: ATTACK_COUNTER_TTL_SECONDS,
+    });
+  } catch {
+    // Non-fatal
+  }
+
+  try {
+    const currentMonth = await env.SESSION_KV.get(monthKey);
+    const monthCount = currentMonth ? parseInt(currentMonth, 10) + 1 : 1;
+    await env.SESSION_KV.put(monthKey, String(monthCount), {
+      expirationTtl: ATTACK_COUNTER_TTL_SECONDS,
+    });
+  } catch {
+    // Non-fatal
   }
 }
 
@@ -580,6 +632,34 @@ async function handleAdminIPRoute(
       ip,
       ttl_hours: ttlHours,
       note: "IP allow-listed and unbanned",
+    });
+  }
+
+  if (request.method === "POST" && path === "/es-admin/ip/ban") {
+    const body = await parseAdminBody(request);
+    const ip = (body?.ip || "").trim();
+    if (!ip || !isValidIP(ip)) {
+      return createErrorResponse("INVALID_IP", "Valid IP is required", 400);
+    }
+
+    const requestedHours = Number(body?.ttlHours);
+    const ttlHours = Number.isFinite(requestedHours)
+      ? Math.max(1, Math.min(24 * 30, Math.floor(requestedHours)))
+      : 24;
+    const ttlSeconds = ttlHours * 60 * 60;
+    const reason = sanitizeInput(body?.reason || "manual admin block", 256);
+
+    await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${ip}`, "1", {
+      expirationTtl: ttlSeconds || TEMP_BAN_TTL_SECONDS,
+    });
+    await env.SESSION_KV.delete(`${ADMIN_ALLOW_PREFIX}${ip}`);
+
+    return createJsonResponse({
+      success: true,
+      action: "ban",
+      ip,
+      ttl_hours: ttlHours,
+      note: `IP blocked (${reason})`,
     });
   }
 
@@ -1334,10 +1414,25 @@ async function triggerAIDefenseIfReady(
   meta: RequestMeta
 ): Promise<void> {
   try {
+    if (await isAICooldownLikelyActive(env)) {
+      return;
+    }
     const { triggerAIDefense } = await import("./ai-defense");
     await triggerAIDefense(env, meta);
   } catch {
     // Phase 5 not yet implemented — silently skip
+  }
+}
+
+async function isAICooldownLikelyActive(env: Env): Promise<boolean> {
+  try {
+    const lastRun = await env.SESSION_KV.get(AI_LAST_RUN_KEY);
+    if (!lastRun) return false;
+    const elapsed = Date.now() - parseInt(lastRun, 10);
+    if (!Number.isFinite(elapsed)) return false;
+    return elapsed < AI_COOLDOWN_SECONDS * 1000;
+  } catch {
+    return false;
   }
 }
 

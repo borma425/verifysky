@@ -85,6 +85,16 @@ const MAX_FAILURES_BEFORE_TEMP_BAN = 8;
 const FAILURE_WINDOW_SECONDS = 15 * 60;
 /** Temporary ban TTL (seconds) */
 const TEMP_BAN_TTL_SECONDS = 24 * 60 * 60;
+const IP_ATTACK_DAY_PREFIX = "attack:ip:day:";
+const IP_ATTACK_MONTH_PREFIX = "attack:ip:month:";
+const ATTACK_COUNTER_TTL_SECONDS = 45 * 24 * 60 * 60;
+const HISTORICAL_ATTACK_EVENTS = new Set([
+  "challenge_failed",
+  "turnstile_failed",
+  "replay_detected",
+  "hard_block",
+  "session_rejected",
+]);
 
 /** Pool of challenge icons (randomized per challenge page) */
 const CHALLENGE_ICONS = ["🍔", "🎧", "🧩", "📷", "⚽", "🎁", "🏍️"] as const;
@@ -1030,6 +1040,46 @@ async function logEvent(
     )
       .bind(domainName, eventType, meta.ip, meta.asn, meta.country, meta.path, fingerprintHash, details)
       .run();
+    await incrementHistoricalAttackCounters(env, eventType, meta.ip);
+  } catch {
+    // Non-fatal
+  }
+}
+
+function utcDayKey(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function utcMonthKey(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 7);
+}
+
+async function incrementHistoricalAttackCounters(
+  env: Env,
+  eventType: string,
+  ip: string
+): Promise<void> {
+  if (!ip || !HISTORICAL_ATTACK_EVENTS.has(eventType)) return;
+
+  const dayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${ip}`;
+  const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${ip}`;
+
+  try {
+    const currentDay = await env.SESSION_KV.get(dayKey);
+    const dayCount = currentDay ? parseInt(currentDay, 10) + 1 : 1;
+    await env.SESSION_KV.put(dayKey, String(dayCount), {
+      expirationTtl: ATTACK_COUNTER_TTL_SECONDS,
+    });
+  } catch {
+    // Non-fatal
+  }
+
+  try {
+    const currentMonth = await env.SESSION_KV.get(monthKey);
+    const monthCount = currentMonth ? parseInt(currentMonth, 10) + 1 : 1;
+    await env.SESSION_KV.put(monthKey, String(monthCount), {
+      expirationTtl: ATTACK_COUNTER_TTL_SECONDS,
+    });
   } catch {
     // Non-fatal
   }
@@ -1093,6 +1143,7 @@ async function markIPTemporarilyBanned(
     )
       .bind(domainName, ip, targetPath, `Temporary IP ban (${TEMP_BAN_TTL_SECONDS}s): ${reason}`)
       .run();
+    await incrementHistoricalAttackCounters(env, "hard_block", ip);
   } catch {
     // Non-fatal
   }

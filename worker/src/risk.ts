@@ -79,6 +79,30 @@ const SENSITIVE_PATH_RULES: PathProbeRule[] = [
     strong: true,
   },
   {
+    pattern: /(?:^|\/)\.env(?:$|[._-]|\/)/i,
+    score: 52,
+    reason: "Environment secret file probe",
+    strong: true,
+  },
+  {
+    pattern: /(?:^|\/)\.git(?:\/|$)/i,
+    score: 56,
+    reason: "Git metadata exposure probe",
+    strong: true,
+  },
+  {
+    pattern: /(?:^|\/)(?:\.aws(?:\/|$)|aws-credentials(?:$|\/))/i,
+    score: 54,
+    reason: "Cloud credential file probe",
+    strong: true,
+  },
+  {
+    pattern: /(?:^|\/)\.s3cfg(?:$|\/)/i,
+    score: 52,
+    reason: "S3 credential config probe",
+    strong: true,
+  },
+  {
     pattern: /\/vendor\/phpunit\/phpunit\/src\/util\/php\/eval-stdin\.php$/i,
     score: 45,
     reason: "Known PHPUnit RCE probe",
@@ -120,6 +144,8 @@ const PATH_BURST_SOFT = 120;
 const PATH_BURST_HIGH = 220;
 const ASN_PATH_BURST_SOFT = 25;
 const ASN_PATH_BURST_HIGH = 50;
+const IP_ATTACK_DAY_PREFIX = "attack:ip:day:";
+const IP_ATTACK_MONTH_PREFIX = "attack:ip:month:";
 
 // ---------------------------------------------------------------------------
 // Public: Risk Scoring Engine
@@ -430,6 +456,50 @@ export async function evaluateRisk(
     // KV failure is non-fatal
   }
 
+  // --- Factor 12: Historical IP Attack Reputation (today / yesterday / month) ---
+  // Lightweight KV-only lookups (UTC buckets), no per-request D1 query.
+  // Applied conservatively to avoid hurting normal users.
+  try {
+    const todayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${meta.ip}`;
+    const todayCount = parseInt((await env.SESSION_KV.get(todayKey)) || "0", 10) || 0;
+
+    if (todayCount > 0) {
+      const yesterdayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey(-1)}:${meta.ip}`;
+      const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${meta.ip}`;
+      const yesterdayCount = parseInt((await env.SESSION_KV.get(yesterdayKey)) || "0", 10) || 0;
+      const monthCount = parseInt((await env.SESSION_KV.get(monthKey)) || "0", 10) || 0;
+
+      if (todayCount >= 20) {
+        score += 14;
+        factors.push(`IP historical attacks today: ${todayCount}`);
+      } else if (todayCount >= 8) {
+        score += 8;
+        factors.push(`IP repeated attacks today: ${todayCount}`);
+      } else if (todayCount >= 3) {
+        score += 4;
+        factors.push(`IP attack history detected today: ${todayCount}`);
+      }
+
+      if (yesterdayCount >= 10) {
+        score += 6;
+        factors.push(`IP attacks yesterday: ${yesterdayCount}`);
+      } else if (yesterdayCount >= 4) {
+        score += 3;
+        factors.push(`IP had attack carry-over from yesterday: ${yesterdayCount}`);
+      }
+
+      if (monthCount >= 60) {
+        score += 8;
+        factors.push(`IP monthly attack history is high: ${monthCount}`);
+      } else if (monthCount >= 25) {
+        score += 4;
+        factors.push(`IP monthly attack history is elevated: ${monthCount}`);
+      }
+    }
+  } catch {
+    // KV failure is non-fatal
+  }
+
   // Clamp score to [0, 100]
   score = Math.max(0, Math.min(100, score));
 
@@ -453,6 +523,18 @@ export async function evaluateRisk(
     userAgent: meta.userAgent,
     botScore: meta.botManagementScore,
   };
+}
+
+function utcDayKey(dayOffset = 0): string {
+  const now = new Date();
+  if (dayOffset !== 0) {
+    now.setUTCDate(now.getUTCDate() + dayOffset);
+  }
+  return now.toISOString().slice(0, 10);
+}
+
+function utcMonthKey(): string {
+  return new Date().toISOString().slice(0, 7);
 }
 
 // ---------------------------------------------------------------------------
