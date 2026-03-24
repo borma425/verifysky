@@ -174,3 +174,21 @@ CREATE TABLE IF NOT EXISTS domain_configs (
 -- Fast domain lookup (PRIMARY KEY already covers this, but explicit for clarity)
 CREATE INDEX IF NOT EXISTS idx_domain_configs_status
     ON domain_configs (status);
+
+-- ---------------------------------------------------------------------------
+-- 5. IP ACCESS RULES TABLE
+-- Custom IP block/allow list evaluated directly at the edge by the Worker.
+-- Saves Cloudflare WAF quota on Free plans.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ip_access_rules (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain_name      TEXT    NOT NULL,
+    ip_or_cidr       TEXT    NOT NULL,
+    action           TEXT    NOT NULL DEFAULT 'block',  -- allow | block
+    note             TEXT,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index to quickly load rules for a specific domain
+CREATE INDEX IF NOT EXISTS idx_ip_rules_domain
+    ON ip_access_rules (domain_name);

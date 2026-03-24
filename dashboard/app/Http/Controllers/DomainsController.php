@@ -16,14 +16,10 @@ class DomainsController extends Controller
     public function index(): View
     {
         $this->edgeShield->ensureSecurityModeColumn();
-        $result = $this->edgeShield->queryD1(
-            "SELECT domain_name, zone_id, status, force_captcha, security_mode, created_at FROM domain_configs ORDER BY created_at DESC"
-        );
+        $result = $this->edgeShield->listDomains();
 
         return view('domains.index', [
-            'domains' => $result['ok']
-                ? ($this->edgeShield->parseWranglerJson($result['output'])[0]['results'] ?? [])
-                : [],
+            'domains' => $result['ok'] ? ($result['domains'] ?? []) : [],
             'error' => $result['ok'] ? null : ($result['error'] ?: 'Failed to load domains'),
         ]);
     }

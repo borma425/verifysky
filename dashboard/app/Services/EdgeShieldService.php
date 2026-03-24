@@ -655,6 +655,23 @@ class EdgeShieldService
         );
     }
 
+    public function ensureIpAccessRulesTable(): void
+    {
+        $this->queryD1(
+            "CREATE TABLE IF NOT EXISTS ip_access_rules (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain_name      TEXT    NOT NULL,
+                ip_or_cidr       TEXT    NOT NULL,
+                action           TEXT    NOT NULL DEFAULT 'block',
+                note             TEXT,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"
+        );
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_ip_rules_domain ON ip_access_rules (domain_name)"
+        );
+    }
+
     public function getDomainConfig(string $domainName): array
     {
         $sql = sprintf(
@@ -734,6 +751,87 @@ class EdgeShieldService
         }
 
         return ['ok' => true, 'error' => null, 'rules' => $rules];
+    }
+
+    public function listDomains(): array
+    {
+        $result = $this->queryD1(
+            "SELECT domain_name, zone_id, status, force_captcha, security_mode, created_at FROM domain_configs ORDER BY created_at DESC"
+        );
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load domains.', 'domains' => []];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        return ['ok' => true, 'error' => null, 'domains' => $rows];
+    }
+
+    public function listIpAccessRules(string $domainName): array
+    {
+        $sql = sprintf(
+            "SELECT * FROM ip_access_rules WHERE domain_name = '%s' ORDER BY id DESC",
+            str_replace("'", "''", strtolower(trim($domainName)))
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load IP rules.', 'rules' => []];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        return ['ok' => true, 'error' => null, 'rules' => $rows];
+    }
+
+    public function listAllIpAccessRules(): array
+    {
+        $sql = "SELECT * FROM ip_access_rules ORDER BY id DESC";
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load IP rules.', 'rules' => []];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        return ['ok' => true, 'error' => null, 'rules' => $rows];
+    }
+
+    public function purgeIpRulesCache(string $domainName): array
+    {
+        $cacheKey = 'ipr:' . strtolower(trim($domainName));
+        $cmd = 'kv:key delete --binding=SESSION_KV ' . escapeshellarg($cacheKey);
+        return $this->runWrangler($cmd);
+    }
+
+    public function createIpAccessRule(string $domainName, string $ipOrCidr, string $action, ?string $note): array
+    {
+        $sql = sprintf(
+            "INSERT INTO ip_access_rules (domain_name, ip_or_cidr, action, note) VALUES ('%s', '%s', '%s', '%s')",
+            str_replace("'", "''", strtolower(trim($domainName))),
+            str_replace("'", "''", trim($ipOrCidr)),
+            str_replace("'", "''", trim($action)),
+            str_replace("'", "''", trim($note ?? ''))
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to create IP rule.'];
+        }
+
+        $this->purgeIpRulesCache($domainName);
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function deleteIpAccessRule(string $domainName, int $ruleId): array
+    {
+        $sql = sprintf(
+            "DELETE FROM ip_access_rules WHERE domain_name = '%s' AND id = %d",
+            str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete IP rule.'];
+        }
+
+        $this->purgeIpRulesCache($domainName);
+        return ['ok' => true, 'error' => null];
     }
 
     public function createZoneFirewallRule(

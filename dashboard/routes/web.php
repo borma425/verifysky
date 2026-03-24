@@ -8,6 +8,7 @@ use App\Http\Controllers\LogsController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TrapNetworkController;
+use App\Http\Controllers\IpRulesController;
 use App\Http\Middleware\AdminAuth;
 use App\Http\Middleware\NoIndexSensitivePages;
 use App\Models\DashboardSetting;
@@ -85,6 +86,10 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
     Route::post('/domains/{domain}/rules', [DomainRulesController::class, 'storeFirewallRule'])->name('domains.rules.store');
     Route::post('/domains/{domain}/rules/{ruleId}/toggle', [DomainRulesController::class, 'toggleFirewallRule'])->name('domains.rules.toggle');
     Route::delete('/domains/{domain}/rules/{ruleId}', [DomainRulesController::class, 'destroyFirewallRule'])->name('domains.rules.destroy');
+
+    Route::get('/ip-rules', [IpRulesController::class, 'index'])->name('ip_rules.index');
+    Route::post('/ip-rules', [IpRulesController::class, 'store'])->name('ip_rules.store');
+    Route::delete('/ip-rules/{ruleId}', [IpRulesController::class, 'destroy'])->name('ip_rules.destroy');
 
     Route::get('/logs', [LogsController::class, 'index'])->name('logs.index');
     Route::post('/logs/allow-ip', [LogsController::class, 'allowIp'])->name('logs.allow_ip');

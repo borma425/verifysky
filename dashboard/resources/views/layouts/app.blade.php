@@ -26,6 +26,7 @@
       </a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('dashboard') }}">Overview</a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('domains.index') }}">Domains</a>
+      <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('ip_rules.index') }}">IP Rules</a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('logs.index') }}">Logs</a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('settings.index') }}">Settings</a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('trap_network.index') }}">Trap Leads</a>

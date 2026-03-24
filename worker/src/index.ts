@@ -17,6 +17,7 @@
 import type {
   Env,
   DomainConfigRecord,
+  IpAccessRuleRecord,
   SessionTokenClaims,
   RequestMeta,
   RiskAssessment,
@@ -61,6 +62,11 @@ const DOMAIN_CACHE_PREFIX = "dcfg:";
 
 /** Domain config KV cache TTL (5 minutes) */
 const DOMAIN_CACHE_TTL = 300;
+
+/** KV key prefix for IP rules caching */
+const IP_RULES_CACHE_PREFIX = "ipr:";
+const IP_RULES_CACHE_TTL = 120;
+
 const TEMP_BAN_PREFIX = "ban:ip:";
 const TEMP_BAN_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_ALLOW_PREFIX = "allow:ip:";
@@ -163,6 +169,56 @@ async function resolveDomainConfig(
     return config;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Resolves the custom IP access rules (allow/block) for a domain from D1 with KV caching.
+ */
+async function resolveDomainIpRules(
+  domain: string,
+  env: Env
+): Promise<IpAccessRuleRecord[]> {
+  const normalizedDomain = domain.toLowerCase();
+  const cacheKey = `${IP_RULES_CACHE_PREFIX}${normalizedDomain}`;
+
+  try {
+    const cached = await env.SESSION_KV.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as IpAccessRuleRecord[];
+    }
+  } catch {}
+
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM ip_access_rules WHERE domain_name = ?"
+    )
+      .bind(normalizedDomain)
+      .all<IpAccessRuleRecord>();
+
+    let rules = results || [];
+
+    if (rules.length === 0 && normalizedDomain.startsWith("www.")) {
+      const apexDomain = normalizedDomain.slice(4);
+      const apexRes = await env.DB.prepare(
+        "SELECT * FROM ip_access_rules WHERE domain_name = ?"
+      )
+        .bind(apexDomain)
+        .all<IpAccessRuleRecord>();
+      if (apexRes.results) {
+        rules = apexRes.results;
+      }
+    }
+
+    try {
+      await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
+        expirationTtl: IP_RULES_CACHE_TTL,
+      });
+    } catch {}
+
+    return rules;
+  } catch {
+    return [];
   }
 }
 
@@ -1233,6 +1289,53 @@ const worker: ExportedHandler<Env> = {
     if (domainConfig.status !== "active") {
       // Paused/revoked domains should bypass protection transparently.
       return fetch(request);
+    }
+
+    // --- Custom IP Access Rules (Allow/Block) ---
+    // Evaluated directly at the edge before standard risk checks.
+    const ipRules = await resolveDomainIpRules(domain, env);
+    for (const rule of ipRules) {
+      let isMatch = false;
+      const target = rule.ip_or_cidr.toUpperCase();
+      
+      if (target.startsWith("AS")) {
+        // ASN rule
+        const ruleAsn = target.replace("AS", "");
+        isMatch = (meta.asn === ruleAsn);
+      } else {
+        // IP or CIDR rule
+        isMatch = rule.ip_or_cidr.includes("/") 
+          ? isIPv4InCidr(meta.ip, rule.ip_or_cidr)
+          : (meta.ip === rule.ip_or_cidr);
+      }
+
+      if (isMatch) {
+        if (rule.action === "allow") {
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "session_created",
+              meta,
+              0,
+              null,
+              `Custom IP rule allow-pass (${rule.ip_or_cidr})`
+            )
+          );
+          return fetch(request);
+        } else if (rule.action === "block") {
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "hard_block",
+              meta,
+              100,
+              null,
+              `Custom IP rule blocked (${rule.ip_or_cidr})`
+            )
+          );
+          return handleHardBlock(env);
+        }
+      }
     }
 
     // --- Increment IP rate counter (async, non-blocking) ---

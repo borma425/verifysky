@@ -149,6 +149,16 @@ export interface DomainConfigRecord {
   created_at: string;
 }
 
+/** Row in the `ip_access_rules` table */
+export interface IpAccessRuleRecord {
+  id: number;
+  domain_name: string;
+  ip_or_cidr: string;
+  action: "allow" | "block";
+  note: string | null;
+  created_at: string;
+}
+
 /** Allowed security event types (enforced at application level) */
 export type SecurityEventType =
   | "challenge_issued"
