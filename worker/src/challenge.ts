@@ -453,11 +453,15 @@ export async function handleChallengeSubmission(
   // Return success with session cookie
   const cookieHeader = buildSessionCookie(sessionToken, SESSION_TTL_SECONDS);
 
+  const safeRedirect = (submission.originalPath || "/").startsWith("/") 
+    ? (submission.originalPath || "/") 
+    : "/";
+
   return createJsonResponse(
     {
       success: true,
       message: "Verification complete",
-      redirectUrl: "/",
+      redirectUrl: safeRedirect,
     },
     200,
     { "Set-Cookie": cookieHeader }
@@ -778,6 +782,7 @@ function validateSubmissionPayload(body: unknown): ChallengeSubmission {
     fingerprint: obj.fingerprint as string,
     turnstileToken: (obj.turnstileToken as string | undefined) || "",
     signature: obj.signature as string,
+    originalPath: obj.originalPath ? String(obj.originalPath) : "/",
   };
 }
 
@@ -1959,7 +1964,8 @@ var _tx = {
       sliderX: Math.round(_sl._currentX),
       fingerprint: fp,
       turnstileToken: _tx._turnstileToken,
-      signature: C.signature
+      signature: C.signature,
+      originalPath: C.fallbackSubmitPath
     };
     try {
       var resp = await fetch(C.submitPath, {

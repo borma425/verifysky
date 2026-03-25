@@ -189,6 +189,42 @@ CREATE TABLE IF NOT EXISTS ip_access_rules (
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Index to quickly load rules for a specific domain
 CREATE INDEX IF NOT EXISTS idx_ip_rules_domain
     ON ip_access_rules (domain_name);
+
+-- ---------------------------------------------------------------------------
+-- 5. Custom Firewall Rules
+-- ---------------------------------------------------------------------------
+-- Replaces Cloudflare WAF. Rules evaluated at the edge internally.
+CREATE TABLE IF NOT EXISTS custom_firewall_rules (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain_name      TEXT    NOT NULL,
+    description      TEXT,
+    action           TEXT    NOT NULL,  -- block, challenge, js_challenge, managed_challenge, log, allow, bypass
+    expression_json  TEXT    NOT NULL,  -- Standard JSON format describing the rule conditions
+    paused           INTEGER DEFAULT 0, -- 0 = active, 1 = paused
+    expires_at       INTEGER,           -- Unix timestamp for automatic expiry
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_fw_rules_domain
+    ON custom_firewall_rules (domain_name);
+
+CREATE INDEX IF NOT EXISTS idx_fw_rules_ai_merge
+    ON custom_firewall_rules (domain_name, action, paused, updated_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- 6. Sensitive Paths Table
+-- Dedicated fast string matching WAF for critical URIs
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sensitive_paths (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain_name      TEXT    NOT NULL,
+    path_pattern     TEXT    NOT NULL,
+    match_type       TEXT    NOT NULL,  -- exact, contains, ends_with
+    action           TEXT    NOT NULL,  -- block, challenge
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sensitive_paths_domain
+    ON sensitive_paths (domain_name);

@@ -53,9 +53,6 @@
           <td class="whitespace-nowrap">{{ $d['created_at'] ?? '' }}</td>
           <td>
             <div class="flex flex-wrap items-center gap-2">
-            <a href="{{ route('domains.rules', ['domain' => $d['domain_name']]) }}" class="es-btn es-btn-secondary">
-              WAF Rules
-            </a>
             <form method="POST" action="{{ route('domains.sync_route', ['domain' => $d['domain_name']]) }}">
               @csrf
               <button class="es-btn" type="submit">

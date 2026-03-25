@@ -159,6 +159,19 @@ export interface IpAccessRuleRecord {
   created_at: string;
 }
 
+/** Row in the `custom_firewall_rules` table */
+export interface CustomFirewallRuleRecord {
+  id: number;
+  domain_name: string;
+  description: string | null;
+  action: "block" | "challenge" | "js_challenge" | "managed_challenge" | "log" | "allow" | "bypass";
+  expression_json: string;
+  paused: number;
+  expires_at: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Allowed security event types (enforced at application level) */
 export type SecurityEventType =
   | "challenge_issued"
@@ -203,6 +216,8 @@ export interface ChallengeSubmission {
   turnstileToken?: string;
   /** HMAC signature of the submission payload */
   signature: string;
+  /** Original requested path before challenge redirect */
+  originalPath?: string;
 }
 
 /** JWT claims for the Human Session Token */

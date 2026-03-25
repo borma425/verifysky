@@ -672,6 +672,120 @@ class EdgeShieldService
         );
     }
 
+    public function ensureCustomFirewallRulesTable(): void
+    {
+        $this->queryD1(
+            "CREATE TABLE IF NOT EXISTS custom_firewall_rules (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain_name      TEXT    NOT NULL,
+                description      TEXT,
+                action           TEXT    NOT NULL,
+                expression_json  TEXT    NOT NULL,
+                paused           INTEGER DEFAULT 0,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"
+        );
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_fw_rules_domain ON custom_firewall_rules (domain_name)"
+        );
+    }
+
+    public function ensureSensitivePathsTable(): void
+    {
+        
+        $this->queryD1(
+            "CREATE TABLE IF NOT EXISTS sensitive_paths (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain_name      TEXT    NOT NULL,
+                path_pattern     TEXT    NOT NULL,
+                match_type       TEXT    NOT NULL,
+                action           TEXT    NOT NULL,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"
+        );
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_sensitive_paths_domain ON sensitive_paths (domain_name)"
+        );
+    }
+
+    public function purgeSensitivePathsCache(string $domainName = ''): array
+    {
+        // Since rules can be "global" or domain specific, we must purge them all if none specified
+        // It's easier to just use Wrangler KV API or simply just let them expire...
+        // But for 0ms we need to delete. For simplicity, we'll try to delete the exact domain + global.
+        if ($domainName === 'global' || $domainName === '') {
+             $this->runWrangler('kv:key delete --binding=SESSION_KV "cfr:sensitive_paths:global"');
+             // Purge all domains might be complex via Wrangler bulk, so we leave it to TTL if global changes
+        } else {
+             $this->runWrangler(sprintf('kv:key delete --binding=SESSION_KV "cfr:sensitive_paths:%s"', strtolower(trim($domainName))));
+             $this->runWrangler('kv:key delete --binding=SESSION_KV "cfr:sensitive_paths:global"');
+        }
+        return ['ok' => true];
+    }
+
+    public function listSensitivePaths(): array
+    {
+        $sql = "SELECT * FROM sensitive_paths ORDER BY action ASC, id DESC";
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load sensitive paths.', 'paths' => []];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        return ['ok' => true, 'error' => null, 'paths' => $rows];
+    }
+
+    public function createSensitivePath(string $domainName, string $pathPattern, string $matchType, string $action, bool $autoPurge = true): array
+    {
+        $sql = sprintf(
+            "INSERT INTO sensitive_paths (domain_name, path_pattern, match_type, action) VALUES ('%s', '%s', '%s', '%s')",
+            str_replace("'", "''", trim($domainName)),
+            str_replace("'", "''", trim($pathPattern)),
+            str_replace("'", "''", trim($matchType)),
+            str_replace("'", "''", trim($action))
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to create sensitive path.'];
+        }
+
+        if ($autoPurge) {
+            $this->purgeSensitivePathsCache($domainName);
+        }
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function deleteSensitivePath(int $id): array
+    {
+        $sql = sprintf("DELETE FROM sensitive_paths WHERE id = %d", $id);
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete sensitive path.'];
+        }
+
+        $this->purgeSensitivePathsCache();
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function deleteBulkSensitivePaths(array $pathIds): array
+    {
+        if (empty($pathIds)) {
+            return ['ok' => true, 'error' => null];
+        }
+
+        $safeIds = array_map('intval', $pathIds);
+        $inClause = implode(',', $safeIds);
+        
+        $sql = sprintf("DELETE FROM sensitive_paths WHERE id IN (%s)", $inClause);
+
+        $result = $this->queryD1($sql);
+        if ($result['ok']) {
+            $this->purgeSensitivePathsCache();
+            return ['ok' => true, 'error' => null];
+        }
+        return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete selected sensitive paths.'];
+    }
+
     public function getDomainConfig(string $domainName): array
     {
         $sql = sprintf(
@@ -724,33 +838,205 @@ class EdgeShieldService
         return ['ok' => true, 'error' => null, 'routes' => $routes];
     }
 
-    public function listZoneFirewallRules(string $zoneId): array
+    public function purgeCustomFirewallRulesCache(string $domainName): array
     {
-        $zone = trim($zoneId);
-        if ($zone === '') {
-            return ['ok' => false, 'error' => 'Zone ID is empty.', 'rules' => []];
+        $cacheKey = 'cfr:' . strtolower(trim($domainName));
+        $cmd = 'kv:key delete --binding=SESSION_KV ' . escapeshellarg($cacheKey);
+        return $this->runWrangler($cmd);
+    }
+
+    public function getCustomFirewallRules(string $domainName): array
+    {
+        $sql = sprintf(
+            "SELECT * FROM custom_firewall_rules WHERE domain_name = '%s' ORDER BY id DESC",
+            str_replace("'", "''", strtolower(trim($domainName)))
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load firewall rules.', 'rules' => []];
         }
 
-        $rules = [];
-        $page = 1;
-        while (true) {
-            $list = $this->cloudflareRequest('GET', '/zones/'.$zone.'/firewall/rules', [
-                'page' => $page,
-                'per_page' => 100,
-            ]);
-            if (!$list['ok']) {
-                return ['ok' => false, 'error' => $list['error'], 'rules' => []];
-            }
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        return ['ok' => true, 'error' => null, 'rules' => $rows];
+    }
 
-            $pageRules = is_array($list['result']) ? $list['result'] : [];
-            $rules = array_merge($rules, $pageRules);
-            if (count($pageRules) < 100 || $page > 20) {
-                break;
-            }
-            $page++;
+    public function listPaginatedCustomFirewallRules(int $limit = 20, int $offset = 0): array
+    {
+        $sql = sprintf("SELECT * FROM custom_firewall_rules ORDER BY domain_name ASC, id DESC LIMIT %d OFFSET %d", $limit, $offset);
+        $result = $this->queryD1($sql);
+        
+        $countSql = "SELECT COUNT(*) as total FROM custom_firewall_rules";
+        $countResult = $this->queryD1($countSql);
+        
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load global firewall rules.', 'rules' => [], 'total' => 0];
         }
 
-        return ['ok' => true, 'error' => null, 'rules' => $rules];
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        $total = 0;
+        if ($countResult['ok']) {
+            $totalRows = $this->parseWranglerJson($countResult['output'])[0]['results'] ?? [];
+            $total = $totalRows[0]['total'] ?? 0;
+        }
+
+        return ['ok' => true, 'error' => null, 'rules' => $rows, 'total' => $total];
+    }
+
+    public function listAllCustomFirewallRules(): array
+    {
+        return $this->listPaginatedCustomFirewallRules(1000, 0);
+    }
+
+    public function createCustomFirewallRule(
+        string $domainName,
+        string $description,
+        string $action,
+        string $expressionJson,
+        bool $paused,
+        ?int $expiresAt = null
+    ): array {
+        $expiresAtStr = $expiresAt !== null ? (string)$expiresAt : 'NULL';
+        $sql = sprintf(
+            "INSERT INTO custom_firewall_rules (domain_name, description, action, expression_json, paused, expires_at) VALUES ('%s', '%s', '%s', '%s', %d, %s)",
+            str_replace("'", "''", strtolower(trim($domainName))),
+            str_replace("'", "''", trim($description)),
+            str_replace("'", "''", trim($action)),
+            str_replace("'", "''", trim($expressionJson)),
+            $paused ? 1 : 0,
+            $expiresAtStr
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to create firewall rule.'];
+        }
+
+        $this->purgeCustomFirewallRulesCache($domainName);
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function getCustomFirewallRuleById(string $domainName, int $ruleId): array
+    {
+        $sql = sprintf(
+            "SELECT * FROM custom_firewall_rules WHERE domain_name = '%s' AND id = %d LIMIT 1",
+            str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load firewall rule.', 'rule' => null];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        $row = is_array($rows[0] ?? null) ? $rows[0] : null;
+        if (!$row) {
+            return ['ok' => false, 'error' => 'Firewall Rule not found.', 'rule' => null];
+        }
+
+        return ['ok' => true, 'error' => null, 'rule' => $row];
+    }
+
+    public function updateCustomFirewallRule(
+        string $domainName,
+        int $ruleId,
+        string $description,
+        string $action,
+        string $expressionJson,
+        bool $paused,
+        ?int $expiresAt = null
+    ): array {
+        $expiresAtStr = $expiresAt !== null ? (string)$expiresAt : 'NULL';
+        $sql = sprintf(
+            "UPDATE custom_firewall_rules SET description = '%s', action = '%s', expression_json = '%s', paused = %d, expires_at = %s WHERE domain_name = '%s' AND id = %d",
+            str_replace("'", "''", trim($description)),
+            str_replace("'", "''", trim($action)),
+            str_replace("'", "''", trim($expressionJson)),
+            $paused ? 1 : 0,
+            $expiresAtStr,
+            str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to update firewall rule.'];
+        }
+
+        $this->purgeCustomFirewallRulesCache($domainName);
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function deleteExpiredCustomFirewallRules(): array
+    {
+        // Executes a silent Cleanup on the database. 
+        // We do NOT need to purge KV cache here because the Worker already naturally ignores expired timestamps, 
+        // so removing them physically changes nothing about the Edge execution sequence! Fast and lightweight.
+        $sql = "DELETE FROM custom_firewall_rules WHERE expires_at IS NOT NULL AND expires_at < " . time();
+        return $this->queryD1($sql);
+    }
+
+    public function toggleCustomFirewallRule(string $domainName, int $ruleId, bool $paused): array
+    {
+        $sql = sprintf(
+            "UPDATE custom_firewall_rules SET paused = %d WHERE domain_name = '%s' AND id = %d",
+            $paused ? 1 : 0,
+            str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to update firewall rule.'];
+        }
+
+        $this->purgeCustomFirewallRulesCache($domainName);
+        $this->purgeCustomFirewallRulesCache($domainName);
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function deleteCustomFirewallRule(string $domainName, int $ruleId): array
+    {
+        $domainSanitized = str_replace("'", "''", strtolower(trim($domainName)));
+        $sql = sprintf("DELETE FROM custom_firewall_rules WHERE id = %d AND domain_name = '%s'", $ruleId, $domainSanitized);
+
+        $result = $this->queryD1($sql);
+        if ($result['ok']) {
+            $this->purgeCustomFirewallRulesCache($domainName);
+            return ['ok' => true, 'error' => null];
+        }
+        return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete custom firewall rule.'];
+    }
+
+    public function deleteBulkCustomFirewallRules(array $ruleIds): array
+    {
+        if (empty($ruleIds)) {
+            return ['ok' => true, 'error' => null];
+        }
+
+        // Validate IDs are integers to prevent SQL injection
+        $safeIds = array_map('intval', $ruleIds);
+        $inClause = implode(',', $safeIds);
+        
+        // Fetch domains first to eagerly purge their caches
+        $fetchSql = sprintf("SELECT DISTINCT domain_name FROM custom_firewall_rules WHERE id IN (%s)", $inClause);
+        $fetchResult = $this->queryD1($fetchSql);
+        $domainsToPurge = [];
+        if ($fetchResult['ok']) {
+            $rows = $this->parseWranglerJson($fetchResult['output'])[0]['results'] ?? [];
+            foreach ($rows as $row) {
+                if (!empty($row['domain_name'])) {
+                    $domainsToPurge[] = $row['domain_name'];
+                }
+            }
+        }
+
+        $sql = sprintf("DELETE FROM custom_firewall_rules WHERE id IN (%s)", $inClause);
+
+        $result = $this->queryD1($sql);
+        if ($result['ok']) {
+            foreach ($domainsToPurge as $domainName) {
+                $this->purgeCustomFirewallRulesCache($domainName);
+            }
+            return ['ok' => true, 'error' => null];
+        }
+        return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete selected rules.'];
     }
 
     public function listDomains(): array
@@ -818,6 +1104,46 @@ class EdgeShieldService
         return ['ok' => true, 'error' => null];
     }
 
+    public function getIpAccessRuleById(string $domainName, int $ruleId): array
+    {
+        $sql = sprintf(
+            "SELECT * FROM ip_access_rules WHERE domain_name = '%s' AND id = %d LIMIT 1",
+            str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load IP rule.', 'rule' => null];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        $row = is_array($rows[0] ?? null) ? $rows[0] : null;
+        if (!$row) {
+            return ['ok' => false, 'error' => 'IP Rule not found.', 'rule' => null];
+        }
+
+        return ['ok' => true, 'error' => null, 'rule' => $row];
+    }
+
+    public function updateIpAccessRule(string $domainName, int $ruleId, string $ipOrCidr, string $action, ?string $note): array
+    {
+        $sql = sprintf(
+            "UPDATE ip_access_rules SET ip_or_cidr = '%s', action = '%s', note = '%s' WHERE domain_name = '%s' AND id = %d",
+            str_replace("'", "''", trim($ipOrCidr)),
+            str_replace("'", "''", trim($action)),
+            str_replace("'", "''", trim($note ?? '')),
+            str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to update IP rule.'];
+        }
+
+        $this->purgeIpRulesCache($domainName);
+        return ['ok' => true, 'error' => null];
+    }
+
     public function deleteIpAccessRule(string $domainName, int $ruleId): array
     {
         $sql = sprintf(
@@ -832,237 +1158,6 @@ class EdgeShieldService
 
         $this->purgeIpRulesCache($domainName);
         return ['ok' => true, 'error' => null];
-    }
-
-    public function createZoneFirewallRule(
-        string $zoneId,
-        string $expression,
-        string $action,
-        ?string $description = null,
-        bool $paused = false
-    ): array {
-        $zone = trim($zoneId);
-        $expr = $this->normalizeFirewallExpression($expression);
-        if ($zone === '' || $expr === '') {
-            return ['ok' => false, 'error' => 'Zone ID or expression is empty.'];
-        }
-
-        $payload = [[
-            'description' => trim((string) ($description ?? 'Edge Shield rule')),
-            'action' => $action,
-            'paused' => $paused,
-            'filter' => ['expression' => $expr],
-        ]];
-
-        $create = $this->cloudflareRequest('POST', '/zones/'.$zone.'/firewall/rules', [], $payload);
-        if (!$create['ok']) {
-            return ['ok' => false, 'error' => $create['error']];
-        }
-
-        $createdRule = is_array($create['result'][0] ?? null) ? $create['result'][0] : null;
-        return ['ok' => true, 'error' => null, 'rule' => $createdRule];
-    }
-
-    private function normalizeFirewallExpression(string $expression): string
-    {
-        $expr = trim($expression);
-        if ($expr === '') {
-            return '';
-        }
-
-        if ($this->isValidIpToken($expr)) {
-            return '(ip.src eq '.$expr.')';
-        }
-
-        if ($this->isValidCidrToken($expr)) {
-            return '(ip.src in {'.$expr.'})';
-        }
-
-        $tokens = preg_split('/[\s,]+/', $expr) ?: [];
-        $tokens = array_values(array_filter(array_map('trim', $tokens), fn (string $t): bool => $t !== ''));
-        if (count($tokens) > 1) {
-            $allIpOrCidr = true;
-            foreach ($tokens as $token) {
-                if (!$this->isValidIpToken($token) && !$this->isValidCidrToken($token)) {
-                    $allIpOrCidr = false;
-                    break;
-                }
-            }
-            if ($allIpOrCidr) {
-                return '(ip.src in {'.implode(' ', $tokens).'})';
-            }
-        }
-
-        return $expr;
-    }
-
-    private function isValidIpToken(string $token): bool
-    {
-        return filter_var($token, FILTER_VALIDATE_IP) !== false;
-    }
-
-    private function isValidCidrToken(string $token): bool
-    {
-        $parts = explode('/', $token, 2);
-        if (count($parts) !== 2) {
-            return false;
-        }
-
-        [$ip, $prefix] = $parts;
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
-            return ctype_digit($prefix) && (int) $prefix >= 0 && (int) $prefix <= 32;
-        }
-
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
-            return ctype_digit($prefix) && (int) $prefix >= 0 && (int) $prefix <= 128;
-        }
-
-        return false;
-    }
-
-    public function setZoneFirewallRulePaused(string $zoneId, string $ruleId, bool $paused): array
-    {
-        $zone = trim($zoneId);
-        $rule = trim($ruleId);
-        if ($zone === '' || $rule === '') {
-            return ['ok' => false, 'error' => 'Zone ID or rule ID is empty.'];
-        }
-
-        $current = $this->getZoneFirewallRuleById($zone, $rule);
-        if (!($current['ok'] ?? false)) {
-            return ['ok' => false, 'error' => $current['error'] ?? 'Failed to load current rule before update.'];
-        }
-        if (!is_array($current['rule'] ?? null)) {
-            return ['ok' => false, 'error' => 'Firewall rule was not found in zone.'];
-        }
-        $currentRule = $current['rule'];
-
-        $action = trim((string) ($currentRule['action'] ?? ''));
-        $description = trim((string) ($currentRule['description'] ?? ''));
-        $filterId = trim((string) (($currentRule['filter']['id'] ?? '')));
-        $filterExpr = trim((string) (($currentRule['filter']['expression'] ?? '')));
-
-        $fullPayload = [
-            'paused' => $paused,
-            'action' => $action,
-            'description' => $description,
-        ];
-        if ($filterId !== '' || $filterExpr !== '') {
-            $fullPayload['filter'] = array_filter([
-                'id' => $filterId !== '' ? $filterId : null,
-                'expression' => $filterExpr !== '' ? $filterExpr : null,
-            ], fn ($v) => $v !== null);
-        }
-
-        $attempts = [
-            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => ['paused' => $paused]],
-            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => $fullPayload],
-            ['method' => 'PUT', 'path' => '/zones/'.$zone.'/firewall/rules/'.$rule, 'json' => $fullPayload],
-            ['method' => 'PATCH', 'path' => '/zones/'.$zone.'/firewall/rules', 'json' => [array_merge(['id' => $rule], $fullPayload)]],
-        ];
-
-        $lastError = 'Failed to update firewall rule.';
-        foreach ($attempts as $attempt) {
-            $update = $this->cloudflareRequest(
-                (string) $attempt['method'],
-                (string) $attempt['path'],
-                [],
-                is_array($attempt['json']) ? $attempt['json'] : null
-            );
-            if (!$update['ok']) {
-                $lastError = (string) ($update['error'] ?? $lastError);
-                continue;
-            }
-
-            $state = $this->getZoneFirewallRuleState($zone, $rule);
-            if (!$state['ok']) {
-                return ['ok' => false, 'error' => $state['error'] ?? 'Rule update may have applied, but verification failed.'];
-            }
-            if (($state['found'] ?? false) !== true) {
-                return ['ok' => false, 'error' => 'Rule update request succeeded, but rule was not found during verification.'];
-            }
-            if (($state['paused'] ?? null) !== $paused) {
-                $actual = ($state['paused'] ?? false) ? 'paused' : 'enabled';
-                $expected = $paused ? 'paused' : 'enabled';
-                $lastError = 'Rule state mismatch after update. Expected '.$expected.' but API returned '.$actual.'.';
-                continue;
-            }
-
-            return ['ok' => true, 'error' => null];
-        }
-
-        return ['ok' => false, 'error' => $lastError];
-    }
-
-    public function deleteZoneFirewallRule(string $zoneId, string $ruleId): array
-    {
-        $zone = trim($zoneId);
-        $rule = trim($ruleId);
-        if ($zone === '' || $rule === '') {
-            return ['ok' => false, 'error' => 'Zone ID or rule ID is empty.'];
-        }
-
-        $delete = $this->cloudflareRequest('DELETE', '/zones/'.$zone.'/firewall/rules/'.$rule);
-        if (!$delete['ok']) {
-            return ['ok' => false, 'error' => $delete['error']];
-        }
-
-        $state = $this->getZoneFirewallRuleState($zone, $rule);
-        if (!($state['ok'] ?? false)) {
-            return ['ok' => false, 'error' => $state['error'] ?? 'Rule delete request succeeded, but verification failed.'];
-        }
-        if (($state['found'] ?? false) === true) {
-            return ['ok' => false, 'error' => 'Delete request succeeded, but rule still exists in Cloudflare.'];
-        }
-
-        return ['ok' => true, 'error' => null];
-    }
-
-    private function getZoneFirewallRuleState(string $zoneId, string $ruleId): array
-    {
-        $list = $this->listZoneFirewallRules($zoneId);
-        if (!($list['ok'] ?? false)) {
-            return ['ok' => false, 'error' => $list['error'] ?? 'Failed to read firewall rules for verification.'];
-        }
-
-        $rules = is_array($list['rules'] ?? null) ? $list['rules'] : [];
-        foreach ($rules as $rule) {
-            if (!is_array($rule)) {
-                continue;
-            }
-            if ((string) ($rule['id'] ?? '') !== $ruleId) {
-                continue;
-            }
-            return [
-                'ok' => true,
-                'found' => true,
-                'paused' => (bool) ($rule['paused'] ?? false),
-            ];
-        }
-
-        return ['ok' => true, 'found' => false, 'paused' => null];
-    }
-
-    private function getZoneFirewallRuleById(string $zoneId, string $ruleId): array
-    {
-        $list = $this->listZoneFirewallRules($zoneId);
-        if (!($list['ok'] ?? false)) {
-            return ['ok' => false, 'error' => $list['error'] ?? 'Failed to read firewall rules.', 'rule' => null];
-        }
-
-        $rules = is_array($list['rules'] ?? null) ? $list['rules'] : [];
-        foreach ($rules as $rule) {
-            if (!is_array($rule)) {
-                continue;
-            }
-            if ((string) ($rule['id'] ?? '') !== $ruleId) {
-                continue;
-            }
-
-            return ['ok' => true, 'error' => null, 'rule' => $rule];
-        }
-
-        return ['ok' => true, 'error' => null, 'rule' => null];
     }
 
     public function runInProject(string $command, int $timeout = 60): array

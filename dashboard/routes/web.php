@@ -3,12 +3,12 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DomainsController;
-use App\Http\Controllers\DomainRulesController;
+use App\Http\Controllers\FirewallRulesController;
 use App\Http\Controllers\LogsController;
 use App\Http\Controllers\MarketingController;
+use App\Http\Controllers\SensitivePathsController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TrapNetworkController;
-use App\Http\Controllers\IpRulesController;
 use App\Http\Middleware\AdminAuth;
 use App\Http\Middleware\NoIndexSensitivePages;
 use App\Models\DashboardSetting;
@@ -82,14 +82,18 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
     Route::post('/domains/{domain}/security-mode', [DomainsController::class, 'updateSecurityMode'])->name('domains.security_mode');
     Route::post('/domains/{domain}/sync-route', [DomainsController::class, 'syncRoute'])->name('domains.sync_route');
     Route::delete('/domains/{domain}', [DomainsController::class, 'destroy'])->name('domains.destroy');
-    Route::get('/domains/{domain}/rules', [DomainRulesController::class, 'index'])->name('domains.rules');
-    Route::post('/domains/{domain}/rules', [DomainRulesController::class, 'storeFirewallRule'])->name('domains.rules.store');
-    Route::post('/domains/{domain}/rules/{ruleId}/toggle', [DomainRulesController::class, 'toggleFirewallRule'])->name('domains.rules.toggle');
-    Route::delete('/domains/{domain}/rules/{ruleId}', [DomainRulesController::class, 'destroyFirewallRule'])->name('domains.rules.destroy');
+    Route::get('/firewall', [FirewallRulesController::class, 'index'])->name('firewall.index');
+    Route::post('/firewall', [FirewallRulesController::class, 'store'])->name('firewall.store');
+    Route::get('/firewall/{domain}/{ruleId}/edit', [FirewallRulesController::class, 'edit'])->name('firewall.edit');
+    Route::put('/firewall/{domain}/{ruleId}', [FirewallRulesController::class, 'update'])->name('firewall.update');
+    Route::post('/firewall/{domain}/{ruleId}/toggle', [FirewallRulesController::class, 'toggle'])->name('firewall.toggle');
+    Route::delete('/firewall/bulk', [FirewallRulesController::class, 'bulkDestroy'])->name('firewall.bulk_destroy');
+    Route::delete('/firewall/{domain}/{ruleId}', [FirewallRulesController::class, 'destroy'])->name('firewall.destroy');
 
-    Route::get('/ip-rules', [IpRulesController::class, 'index'])->name('ip_rules.index');
-    Route::post('/ip-rules', [IpRulesController::class, 'store'])->name('ip_rules.store');
-    Route::delete('/ip-rules/{ruleId}', [IpRulesController::class, 'destroy'])->name('ip_rules.destroy');
+    Route::get('/sensitive-paths', [SensitivePathsController::class, 'index'])->name('sensitive_paths.index');
+    Route::post('/sensitive-paths', [SensitivePathsController::class, 'store'])->name('sensitive_paths.store');
+    Route::delete('/sensitive-paths/bulk', [SensitivePathsController::class, 'bulkDestroy'])->name('sensitive_paths.bulk_destroy');
+    Route::delete('/sensitive-paths/{pathId}', [SensitivePathsController::class, 'destroy'])->name('sensitive_paths.destroy');
 
     Route::get('/logs', [LogsController::class, 'index'])->name('logs.index');
     Route::post('/logs/allow-ip', [LogsController::class, 'allowIp'])->name('logs.allow_ip');

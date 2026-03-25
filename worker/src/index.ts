@@ -18,6 +18,7 @@ import type {
   Env,
   DomainConfigRecord,
   IpAccessRuleRecord,
+  CustomFirewallRuleRecord,
   SessionTokenClaims,
   RequestMeta,
   RiskAssessment,
@@ -205,6 +206,87 @@ async function resolveDomainIpRules(
       )
         .bind(apexDomain)
         .all<IpAccessRuleRecord>();
+      if (apexRes.results) {
+        rules = apexRes.results;
+      }
+    }
+
+    try {
+      await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
+        expirationTtl: IP_RULES_CACHE_TTL,
+      });
+    } catch {}
+
+    return rules;
+  } catch {
+    return [];
+  }
+}
+
+interface SensitivePathRecord {
+  id: number;
+  domain_name: string;
+  path_pattern: string;
+  match_type: string;
+  action: string;
+}
+
+async function resolveSensitivePaths(domain: string, env: Env): Promise<SensitivePathRecord[]> {
+  const normalizedDomain = domain.toLowerCase();
+  const cacheKey = `cfr:sensitive_paths:${normalizedDomain}`;
+  try {
+    const cached = await env.SESSION_KV.get(cacheKey);
+    if (cached) return JSON.parse(cached) as SensitivePathRecord[];
+  } catch {}
+
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM sensitive_paths WHERE (domain_name = ? OR domain_name = 'global') ORDER BY id DESC"
+    ).bind(normalizedDomain).all<SensitivePathRecord>();
+
+    const rules = results || [];
+    try {
+      await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
+        expirationTtl: IP_RULES_CACHE_TTL,
+      });
+    } catch {}
+    
+    return rules;
+  } catch {
+    return [];
+  }
+}
+
+async function resolveCustomFirewallRules(
+  domain: string,
+  env: Env
+): Promise<CustomFirewallRuleRecord[]> {
+  const normalizedDomain = domain.toLowerCase();
+  const cacheKey = `cfr:${normalizedDomain}`;
+
+  try {
+    const cached = await env.SESSION_KV.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as CustomFirewallRuleRecord[];
+    }
+  } catch {}
+
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM custom_firewall_rules WHERE (domain_name = ? OR domain_name = 'global') AND paused = 0 ORDER BY id DESC"
+    )
+      .bind(normalizedDomain)
+      .all<CustomFirewallRuleRecord>();
+
+    let rules = results || [];
+
+    if (rules.length === 0 && normalizedDomain.startsWith("www.")) {
+      const apexDomain = normalizedDomain.slice(4);
+      const apexRes = await env.DB.prepare(
+        "SELECT * FROM custom_firewall_rules WHERE (domain_name = ? OR domain_name = 'global') AND paused = 0 ORDER BY id DESC"
+      )
+        .bind(apexDomain)
+        .all<CustomFirewallRuleRecord>();
       if (apexRes.results) {
         rules = apexRes.results;
       }
@@ -1291,51 +1373,180 @@ const worker: ExportedHandler<Env> = {
       return fetch(request);
     }
 
-    // --- Custom IP Access Rules (Allow/Block) ---
-    // Evaluated directly at the edge before standard risk checks.
-    const ipRules = await resolveDomainIpRules(domain, env);
-    for (const rule of ipRules) {
+    // --- Sensitive Paths WAF Module ---
+    // High-priority evaluation for critical internal URIs (.env, wp-login, etc.)
+    const sensitivePaths = await resolveSensitivePaths(domain, env);
+    const lowercasePath = meta.path.toLowerCase();
+    
+    for (const rule of sensitivePaths) {
       let isMatch = false;
-      const target = rule.ip_or_cidr.toUpperCase();
+      const pattern = rule.path_pattern.toLowerCase();
       
-      if (target.startsWith("AS")) {
-        // ASN rule
-        const ruleAsn = target.replace("AS", "");
-        isMatch = (meta.asn === ruleAsn);
-      } else {
-        // IP or CIDR rule
-        isMatch = rule.ip_or_cidr.includes("/") 
-          ? isIPv4InCidr(meta.ip, rule.ip_or_cidr)
-          : (meta.ip === rule.ip_or_cidr);
+      if (rule.match_type === "exact") {
+        isMatch = (lowercasePath === pattern);
+      } else if (rule.match_type === "contains") {
+        isMatch = lowercasePath.includes(pattern);
+      } else if (rule.match_type === "ends_with") {
+        isMatch = lowercasePath.endsWith(pattern);
+      }
+      
+      if (isMatch) {
+         const isBlock = rule.action === "block";
+         const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
+         
+         const logAction = isBlock ? "hard_block" : (isChallenge ? "challenge_issued" : "session_created");
+         
+         ctx.waitUntil(
+            logSecurityEvent(
+               env,
+               logAction as any,
+               meta,
+               isBlock ? 100 : 0,
+               null,
+               `Sensitive Path Protection: ${pattern} (${rule.match_type})`
+            )
+         );
+
+         if (isBlock) {
+             return handleHardBlock(env);
+         } else if (isChallenge) {
+             return serveChallengePagePlaceholder(meta, domainConfig || {
+                domain_name: domain,
+                zone_id: "test",
+                turnstile_sitekey: "test",
+                turnstile_secret: "test",
+                force_captcha: 0,
+                security_mode: "balanced",
+                status: "active",
+                created_at: new Date().toISOString()
+             }, env);
+         }
+      }
+    }
+
+    // --- Global Custom Firewall Rules ---
+    // Evaluated directly at the edge, BEFORE any session or risk checks.
+    // Replaces the legacy ip_access_rules because it natively supports complex combinations.
+    const fwRules = await resolveCustomFirewallRules(domain, env);
+    const nowSecs = Math.floor(Date.now() / 1000);
+
+    for (const rule of fwRules) {
+      // Lazy Expiration: Skip this rule instantly if it has expired
+      if (rule.expires_at !== null && rule.expires_at < nowSecs) {
+        continue;
       }
 
-      if (isMatch) {
-        if (rule.action === "allow") {
-          ctx.waitUntil(
-            logSecurityEvent(
-              env,
-              "session_created",
-              meta,
-              0,
-              null,
-              `Custom IP rule allow-pass (${rule.ip_or_cidr})`
-            )
-          );
-          return fetch(request);
-        } else if (rule.action === "block") {
-          ctx.waitUntil(
-            logSecurityEvent(
-              env,
-              "hard_block",
-              meta,
-              100,
-              null,
-              `Custom IP rule blocked (${rule.ip_or_cidr})`
-            )
-          );
-          return handleHardBlock(env);
+      let conditionMatch = false;
+      try {
+        const expr = JSON.parse(rule.expression_json);
+        const field = expr.field;
+        const operator = expr.operator;
+        const targetValue = String(expr.value).toLowerCase();
+        
+        let actualValue = "";
+        if (field === "ip.src") {
+            actualValue = meta.ip.toLowerCase();
+        } else if (field === "ip.src.country") {
+            actualValue = (meta.country || "").toLowerCase();
+        } else if (field === "ip.src.asnum") {
+            actualValue = (meta.asn || "").toLowerCase();
+        } else if (field === "http.request.uri.path") {
+            actualValue = meta.path.toLowerCase();
+        } else if (field === "http.request.method") {
+            actualValue = meta.method.toLowerCase();
+        } else if (field === "http.user_agent") {
+            actualValue = meta.userAgent.toLowerCase();
         }
+
+        if (operator === "eq") {
+            conditionMatch = (actualValue === targetValue);
+        } else if (operator === "ne") {
+            conditionMatch = (actualValue !== targetValue);
+        } else if (operator === "contains") {
+            conditionMatch = actualValue.includes(targetValue);
+        } else if (operator === "not_contains") {
+            conditionMatch = !actualValue.includes(targetValue);
+        } else if (operator === "starts_with") {
+            conditionMatch = actualValue.startsWith(targetValue);
+        } else if (operator === "in") {
+            const list = targetValue.split(",").map((v: string) => v.trim());
+            if (field === "ip.src") {
+                 conditionMatch = list.some((target: string) => target.includes("/") ? isIPv4InCidr(meta.ip, target) : meta.ip === target);
+            } else {
+                 conditionMatch = list.includes(actualValue);
+            }
+        }
+      } catch (e) {
+         // Silently ignore corrupted rules so they don't break the worker flow
       }
+
+      if (conditionMatch) {
+         const isBlock = rule.action === "block";
+         const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
+         const isAllow = rule.action === "allow" || rule.action === "bypass";
+         
+         const logAction = isBlock ? "hard_block" : (isChallenge ? "challenge_issued" : "session_created");
+         
+         ctx.waitUntil(
+            logSecurityEvent(
+               env,
+               logAction as any,
+               meta,
+               isBlock ? 100 : 0,
+               null,
+               `Custom FW rule: ${rule.description || ("Action " + rule.action)}`
+            )
+         );
+
+         if (isBlock) {
+             return handleHardBlock(env);
+         } else if (isAllow) {
+             return fetch(request);
+         } else if (isChallenge) {
+             // Pass generic config or the resolved domain config if test mode allows
+             return serveChallengePagePlaceholder(meta, domainConfig || {
+                domain_name: domain,
+                zone_id: "test",
+                turnstile_sitekey: "test",
+                turnstile_secret: "test",
+                force_captcha: 0,
+                security_mode: "balanced",
+                status: "active",
+                created_at: new Date().toISOString()
+             }, env);
+         }
+         // if action is "log", we just continue checking next rules.
+      }
+    }
+
+    // --- KV Session Fast-Pass ---
+    // If the user has a valid, signed session cookie, skip all checks.
+    const session = await validateSession(request, meta, env);
+    if (session) {
+      // Valid session — transparent pass.
+      // Pass the request to the origin server.
+      return fetch(request);
+    }
+
+    // Do not issue interactive challenges for static assets.
+    if (isStaticAssetPath(meta.path)) {
+      return fetch(request);
+    }
+
+    // --- Forced CAPTCHA Mode (per-domain) ---
+    // If enabled in domain config, every request must pass challenge first.
+    if (Number(domainConfig.force_captcha ?? 0) === 1) {
+      ctx.waitUntil(
+        logSecurityEvent(
+          env,
+          "challenge_issued",
+          meta,
+          65,
+          null,
+          "Forced CAPTCHA mode enabled for this domain"
+        )
+      );
+      return serveChallengePagePlaceholder(meta, domainConfig, env);
     }
 
     // --- Increment IP rate counter (async, non-blocking) ---
@@ -1372,15 +1583,6 @@ const worker: ExportedHandler<Env> = {
     // --- Handle Dynamic Challenge Submission (POST) ---
     if (request.method === "POST" && (isDynamicSubmitPath(meta.path) || isFallbackSubmitRequest(request))) {
       return handleSubmission(request, meta, domainConfig, env, ctx);
-    }
-
-    // --- KV Session Fast-Pass ---
-    // If the user has a valid, signed session cookie, skip all checks.
-    const session = await validateSession(request, meta, env);
-    if (session) {
-      // Valid session — transparent pass.
-      // Pass the request to the origin server.
-      return fetch(request);
     }
 
     // Do not issue interactive challenges for static assets.

@@ -178,7 +178,10 @@ class LogsController extends Controller
                      WHEN 'challenge_issued' THEN 70
                      WHEN 'mode_escalated' THEN 65
                      WHEN 'waf_rule_created' THEN 60
+                     WHEN 'WAF_MERGE_NEW' THEN 60
+                     WHEN 'WAF_MERGE_UPDATED' THEN 58
                      WHEN 'ai_defense' THEN 55
+                     WHEN 'WAF_MERGE_SKIPPED' THEN 50
                      WHEN 'challenge_solved' THEN 20
                      WHEN 'session_created' THEN 10
                      ELSE 30
@@ -201,7 +204,10 @@ class LogsController extends Controller
                      WHEN 'challenge_issued' THEN 70
                      WHEN 'mode_escalated' THEN 65
                      WHEN 'waf_rule_created' THEN 60
+                     WHEN 'WAF_MERGE_NEW' THEN 60
+                     WHEN 'WAF_MERGE_UPDATED' THEN 58
                      WHEN 'ai_defense' THEN 55
+                     WHEN 'WAF_MERGE_SKIPPED' THEN 50
                      WHEN 'challenge_solved' THEN 20
                      WHEN 'session_created' THEN 10
                      ELSE 30

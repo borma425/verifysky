@@ -505,50 +505,50 @@ async function resolveOpenRouterModelCandidates(env: Env): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
-// WAF Rule Deployment
+// Internal WAF Rule Deployment (D1 Custom Firewall Rules)
 // ---------------------------------------------------------------------------
 
+const EDGE_SHIELD_AUTO_DESC_PREFIX = "[AI-DEFENSE]";
+
 /**
- * Deploys a WAF rule to Cloudflare based on the AI's recommendation.
- * The rule is applied to all zones where the attack targets are relevant.
- *
- * Steps:
- *   1. Construct the WAF expression (from AI or built manually)
- *   2. Fetch relevant zone IDs from domain_configs
- *   3. Create a WAF custom rule via Cloudflare API for each zone
- *   4. Log the action to D1
+ * Deploys an internal WAF rule by inserting or updating the custom_firewall_rules table.
+ * The rule is applied to the specific domain or globally if no domain is matched.
  */
 async function deployWAFRule(
   env: Env,
   analysis: ThreatAnalysisResponse,
   meta: RequestMeta
 ): Promise<void> {
-  const domainName = extractDomainFromMeta(meta);
-  // Build a strictly validated WAF expression.
-  // Never trust free-form LLM expressions without safety checks.
-  const aiExpression = analysis.wafExpression?.trim() || null;
-  const safeAIExpression = aiExpression && isSafeWAFExpression(aiExpression) ? aiExpression : null;
-  const expression = safeAIExpression || buildWAFExpression(analysis);
-  if (!expression) return;
-
-  // Construct the rule description
-  const description = `[Edge Shield Auto] ${analysis.threatType} - ${analysis.reasoning.substring(0, 100)} (confidence: ${(analysis.confidence * 100).toFixed(0)}%)`;
-
+  const domainName = extractDomainFromMeta(meta) || "global";
   // Determine the WAF action based on confidence
   const action = analysis.confidence >= 0.9 ? "block" : "managed_challenge";
 
-  // Fetch all active zone IDs from domain_configs
-  const zones = await getActiveZoneIds(env);
+  if (!analysis.targets || analysis.targets.length === 0) return;
 
-  for (const zoneId of zones) {
-    try {
-      await createCloudflareWAFRule(env, zoneId, {
-        description,
-        expression,
-        action,
-      });
-    } catch {
-      // Individual zone failure should not stop other zones
+  // Process targets depending on the recommended action
+  switch (analysis.recommendedAction) {
+    case "block_ip": {
+      const ips = analysis.targets.filter((t) => /^[\d.:a-fA-F]+$/.test(t));
+      if (ips.length > 0) {
+        await upsertInternalFirewallRule(env, domainName, "ip.src", ips, action, analysis, meta);
+      }
+      break;
+    }
+    case "block_asn": {
+      const asns = analysis.targets
+        .map((t) => t.replace(/^AS/i, ""))
+        .filter((t) => /^\d+$/.test(t));
+      if (asns.length > 0) {
+        await upsertInternalFirewallRule(env, domainName, "ip.src.asnum", asns, action, analysis, meta);
+      }
+      break;
+    }
+    case "block_country": {
+      const countries = analysis.targets.filter((t) => /^[A-Z]{2}$/.test(t));
+      if (countries.length > 0) {
+        await upsertInternalFirewallRule(env, domainName, "ip.src.country", countries, action, analysis, meta);
+      }
+      break;
     }
   }
 
@@ -559,7 +559,7 @@ async function deployWAFRule(
        VALUES (?, 'waf_rule_created', ?, ?, ?, ?, NULL, NULL, ?)`
     )
       .bind(
-        domainName,
+        domainName === "global" ? null : domainName,
         meta.ip,
         meta.asn,
         meta.country,
@@ -568,10 +568,9 @@ async function deployWAFRule(
           threatType: analysis.threatType,
           confidence: analysis.confidence,
           action,
-          expression,
           targets: analysis.targets,
           reasoning: analysis.reasoning,
-          zonesUpdated: zones.length,
+          destination: "internal_d1",
         })
       )
       .run();
@@ -581,442 +580,175 @@ async function deployWAFRule(
 }
 
 /**
- * Builds a WAF expression from the AI analysis targets.
- * Used as a fallback when the AI doesn't provide a valid wafExpression.
+ * Smart merging logic for creating or updating internal firewall rules.
+ * Enforces a strict limit (MAX_TARGETS_PER_RULE) to prevent JSON parsing bloat & slow queries at the Edge.
+ * When a rule fills up, it intelligently spills over into a brand-new rule.
  */
-function buildWAFExpression(analysis: ThreatAnalysisResponse): string | null {
-  if (!analysis.targets || analysis.targets.length === 0) return null;
+const MAX_TARGETS_PER_RULE = 500;
+const OPTIMISTIC_LOCK_RETRIES = 3;
+const RULE_TTL_SECONDS = 7 * 86400; // 7 days auto-expiration
 
-  switch (analysis.recommendedAction) {
-    case "block_ip": {
-      // Filter valid IPs and build expression
-      const ips = analysis.targets.filter((t) => /^[\d.:a-fA-F]+$/.test(t));
-      if (ips.length === 0) return null;
-      if (ips.length === 1) {
-        return `(ip.src eq ${ips[0]})`;
-      }
-      const ipList = ips.map((ip) => `"${ip}"`).join(" ");
-      return `(ip.src in {${ipList}})`;
-    }
-
-    case "block_asn": {
-      const asns = analysis.targets
-        .map((t) => t.replace(/^AS/i, ""))
-        .filter((t) => /^\d+$/.test(t));
-      if (asns.length === 0) return null;
-      if (asns.length === 1) {
-        return `(ip.geoip.asnum eq ${asns[0]})`;
-      }
-      const asnList = asns.join(" ");
-      return `(ip.geoip.asnum in {${asnList}})`;
-    }
-
-    case "block_country": {
-      const countries = analysis.targets.filter((t) => /^[A-Z]{2}$/.test(t));
-      if (countries.length === 0) return null;
-      if (countries.length === 1) {
-        return `(ip.geoip.country eq "${countries[0]}")`;
-      }
-      const countryList = countries.map((c) => `"${c}"`).join(" ");
-      return `(ip.geoip.country in {${countryList}})`;
-    }
-
-    default:
-      return null;
-  }
+// Quick safeguard to prevent the AI from accidentally blocking internal network or loopback IPs
+function isPublicRoutableIP(ip: string): boolean {
+  if (ip === "127.0.0.1" || ip === "::1") return false;
+  if (/^10\./.test(ip)) return false;
+  if (/^192\.168\./.test(ip)) return false;
+  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return false;
+  if (/^169\.254\./.test(ip)) return false;
+  if (/^fc00:/i.test(ip) || /^fd00:/i.test(ip)) return false; // IPv6 Unique Local Address
+  if (/^fe80:/i.test(ip)) return false; // IPv6 Link-Local
+  return true;
 }
 
-/**
- * Strict allow-list for Cloudflare WAF expressions generated by AI.
- * Rejects broad predicates (e.g., "true") and only accepts narrow IP/ASN/country filters.
- */
-function isSafeWAFExpression(expression: string): boolean {
-  if (!expression || expression.length > 300) return false;
-  if (/^\s*true\s*$/i.test(expression)) return false;
-
-  const ipEq = /^\(\s*ip\.src\s+eq\s+((\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+)\s*\)$/;
-  const ipIn = /^\(\s*ip\.src\s+in\s+\{\s*("[^"]+"\s*)+\}\s*\)$/;
-  const asnEq = /^\(\s*ip\.geoip\.asnum\s+eq\s+\d+\s*\)$/;
-  const asnIn = /^\(\s*ip\.geoip\.asnum\s+in\s+\{\s*(\d+\s*)+\}\s*\)$/;
-  const countryEq = /^\(\s*ip\.geoip\.country\s+eq\s+"[A-Z]{2}"\s*\)$/;
-  const countryIn = /^\(\s*ip\.geoip\.country\s+in\s+\{\s*("[A-Z]{2}"\s*)+\}\s*\)$/;
-
-  return (
-    ipEq.test(expression) ||
-    ipIn.test(expression) ||
-    asnEq.test(expression) ||
-    asnIn.test(expression) ||
-    countryEq.test(expression) ||
-    countryIn.test(expression)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Cloudflare API: WAF Rule Creation
-// ---------------------------------------------------------------------------
-
-interface WAFRuleConfig {
-  description: string;
-  expression: string;
-  action: string;
-}
-
-type MergeableField = "ip.src" | "ip.geoip.asnum" | "ip.geoip.country";
-
-interface ParsedMergeableExpression {
-  field: MergeableField;
-  values: string[];
-}
-
-interface RulesetRule {
-  id?: string;
-  action?: string;
-  expression?: string;
-  description?: string;
-  enabled?: boolean;
-}
-
-const EDGE_SHIELD_AUTO_DESC_PREFIX = "[Edge Shield Auto]";
-const MAX_MERGED_TARGETS = 200;
-
-/**
- * Creates a custom WAF rule on a specific Cloudflare zone using
- * the Rulesets API (the modern replacement for Firewall Rules).
- *
- * Uses the zone-level custom rulesets endpoint.
- */
-async function createCloudflareWAFRule(
+async function upsertInternalFirewallRule(
   env: Env,
-  zoneId: string,
-  rule: WAFRuleConfig
+  domainName: string,
+  field: string,
+  rawTargets: string[],
+  action: string,
+  analysis: ThreatAnalysisResponse,
+  meta: RequestMeta
 ): Promise<void> {
-  // First, get existing zone-level custom ruleset (or identify the phase)
-  const rulesetId = await getOrCreateCustomRuleset(env, zoneId);
-  if (!rulesetId) return;
+  // NORMALIZATION & VALIDATION: Clean, lower, and filter private IPs if it's an IP rule
+  let pendingTargets = Array.from(new Set(
+    rawTargets
+      .map(t => t.trim().toLowerCase())
+      .filter(Boolean)
+      .filter(t => field === "ip.src" ? isPublicRoutableIP(t) : true)
+  )).sort();
 
-  // Smart dedupe/merge:
-  // 1) Skip exact duplicates.
-  // 2) Merge compatible Edge Shield rules (e.g., multiple single-IP blocks)
-  //    into one compact `in { ... }` expression.
-  const existingRules = await listCustomRulesetRules(env, zoneId, rulesetId);
-  if (existingRules) {
-    const existingMatch = findEquivalentRule(existingRules, rule);
-    if (existingMatch) {
-      return;
-    }
+  if (pendingTargets.length === 0) return;
 
-    const mergeCandidate = findMergeCandidate(existingRules, rule);
-    if (mergeCandidate) {
-      const mergedValues = mergeValueSets(
-        mergeCandidate.parsed.values,
-        mergeCandidate.incoming.values
-      );
-      if (mergedValues.length <= MAX_MERGED_TARGETS) {
-        const mergedExpression = serializeMergeableExpression(
-          mergeCandidate.incoming.field,
-          mergedValues
-        );
-        await updateCustomRulesetRule(env, zoneId, rulesetId, mergeCandidate.ruleId, {
-          action: rule.action,
-          expression: mergedExpression,
-          description: mergeCandidate.description || rule.description,
-          enabled: true,
-        });
+  const nowSecs = Math.floor(Date.now() / 1000);
+
+  for (let attempt = 1; attempt <= OPTIMISTIC_LOCK_RETRIES; attempt++) {
+    try {
+      // PERFORMANCE: Only fetch active and unexpired rules to prevent Pass 1 from parsing thousands of dead rules
+      const existingRules = await env.DB.prepare(
+        `SELECT id, expression_json 
+         FROM custom_firewall_rules 
+         WHERE domain_name = ? 
+           AND action = ? 
+           AND paused = 0 
+           AND (expires_at IS NULL OR expires_at > ?)
+           AND description LIKE ?
+         ORDER BY updated_at DESC`
+      )
+        .bind(domainName, action, nowSecs, `${EDGE_SHIELD_AUTO_DESC_PREFIX}%`)
+        .all<{ id: number; expression_json: string }>();
+
+      const parsedRules: { id: number; expression_json: string; targets: string[] }[] = [];
+
+      // PASS 1: Identify existing targets to prevent duplication
+      if (existingRules.results) {
+        for (const rule of existingRules.results) {
+          try {
+            const expr = JSON.parse(rule.expression_json);
+            if (expr.field === field && expr.operator === "in") {
+              const existingTargets = String(expr.value)
+                .split(",")
+                .map((v) => v.trim().toLowerCase())
+                .filter(Boolean);
+              
+              parsedRules.push({ id: rule.id, expression_json: rule.expression_json, targets: existingTargets });
+              
+              // Remove targets that are already blocked ANYWHERE to guarantee 0 duplication
+              pendingTargets = pendingTargets.filter(t => !existingTargets.includes(t));
+            }
+          } catch {
+            // Ignore invalid JSON
+          }
+        }
+      }
+
+      if (pendingTargets.length === 0) {
+        // AUDIT TRAIL: Log that no action was needed
+        await logAIDefenseEvent(env, meta, "WAF_MERGE_SKIPPED", `Targets already present across rules for ${field}`);
         return;
       }
-    }
-  }
 
-  // Add a new rule when no duplicate/merge path is available.
-  const response = await fetch(
-    `${CF_API_BASE}/zones/${zoneId}/rulesets/${rulesetId}/rules`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.CF_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        description: rule.description,
-        expression: rule.expression,
-        action: rule.action,
-        enabled: true,
-      }),
-    }
-  );
+      let optimisticLockConflict = false;
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`WAF rule creation failed (${response.status}): ${errorBody}`);
-  }
-}
+      // PASS 2: Fill existing non-full rules
+      for (const pRule of parsedRules) {
+        if (pendingTargets.length === 0) break;
 
-async function listCustomRulesetRules(
-  env: Env,
-  zoneId: string,
-  rulesetId: string
-): Promise<RulesetRule[] | null> {
-  try {
-    const response = await fetch(
-      `${CF_API_BASE}/zones/${zoneId}/rulesets/${rulesetId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${env.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
+        const spaceLeft = MAX_TARGETS_PER_RULE - pRule.targets.length;
+        if (spaceLeft > 0) {
+          const toAdd = pendingTargets.splice(0, spaceLeft);
+          const mergedValues = Array.from(new Set([...pRule.targets, ...toAdd])).sort();
+          
+          const newExpression = JSON.stringify({
+            field,
+            operator: "in",
+            value: mergedValues.join(", ")
+          });
+          
+          const newDescription = `${EDGE_SHIELD_AUTO_DESC_PREFIX} ${analysis.threatType} mitigation (${field}) - Updated ${new Date().toISOString().slice(0, 10)}`;
+          const slidingExpiresAt = nowSecs + RULE_TTL_SECONDS; // SLIDING EXPIRATION: Extend rule life because it's still being heavily hit
+          
+          // OPTIMISTIC LOCKING: Ensure expression_json hasn't changed since we queried it
+          const updateRes = await env.DB.prepare(
+            `UPDATE custom_firewall_rules 
+             SET expression_json = ?, description = ?, updated_at = CURRENT_TIMESTAMP, expires_at = ?
+             WHERE id = ? AND expression_json = ?`
+          )
+            .bind(newExpression, newDescription, slidingExpiresAt, pRule.id, pRule.expression_json)
+            .run();
+            
+          if (updateRes.meta.changes === 0) {
+            optimisticLockConflict = true;
+            // Rollback pendingTargets for retry logic
+            pendingTargets = pendingTargets.concat(toAdd).sort();
+            break; // Break the filling pass and trigger a retry
+          } else {
+             // AUDIT TRAIL: Log the successful merge
+             await logAIDefenseEvent(env, meta, "WAF_MERGE_UPDATED", `Merged ${toAdd.length} targets into Rule ID ${pRule.id}. Total targets now ${mergedValues.length}/${MAX_TARGETS_PER_RULE}. Expiry extended.`);
+          }
+        }
       }
-    );
-    if (!response.ok) return null;
 
-    const payload = await response.json() as {
-      result?: { rules?: RulesetRule[] };
-    };
-    return payload.result?.rules || [];
-  } catch {
-    return null;
-  }
-}
-
-async function updateCustomRulesetRule(
-  env: Env,
-  zoneId: string,
-  rulesetId: string,
-  ruleId: string,
-  rule: {
-    action: string;
-    expression: string;
-    description: string;
-    enabled: boolean;
-  }
-): Promise<void> {
-  const response = await fetch(
-    `${CF_API_BASE}/zones/${zoneId}/rulesets/${rulesetId}/rules/${ruleId}`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${env.CF_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(rule),
-    }
-  );
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`WAF rule update failed (${response.status}): ${errorBody}`);
-  }
-}
-
-function findEquivalentRule(existingRules: RulesetRule[], incoming: WAFRuleConfig): RulesetRule | null {
-  const incomingKey = canonicalizeExpression(incoming.expression);
-  const incomingAction = incoming.action.trim();
-
-  for (const rule of existingRules) {
-    if (!rule.expression || !rule.action) continue;
-    if (rule.action.trim() !== incomingAction) continue;
-    if (canonicalizeExpression(rule.expression) === incomingKey) {
-      return rule;
-    }
-  }
-  return null;
-}
-
-function findMergeCandidate(
-  existingRules: RulesetRule[],
-  incoming: WAFRuleConfig
-): { ruleId: string; description: string; parsed: ParsedMergeableExpression; incoming: ParsedMergeableExpression } | null {
-  const parsedIncoming = parseMergeableExpression(incoming.expression);
-  if (!parsedIncoming) return null;
-
-  for (const rule of existingRules) {
-    if (!rule.id || !rule.expression || !rule.action) continue;
-    if ((rule.description || "").startsWith(EDGE_SHIELD_AUTO_DESC_PREFIX) === false) continue;
-    if (rule.action.trim() !== incoming.action.trim()) continue;
-
-    const parsedExisting = parseMergeableExpression(rule.expression);
-    if (!parsedExisting) continue;
-    if (parsedExisting.field !== parsedIncoming.field) continue;
-
-    return {
-      ruleId: rule.id,
-      description: rule.description || incoming.description,
-      parsed: parsedExisting,
-      incoming: parsedIncoming,
-    };
-  }
-  return null;
-}
-
-function canonicalizeExpression(expression: string): string {
-  const parsed = parseMergeableExpression(expression);
-  if (parsed) {
-    return serializeMergeableExpression(parsed.field, parsed.values);
-  }
-  return expression.replace(/\s+/g, " ").trim();
-}
-
-function parseMergeableExpression(expression: string): ParsedMergeableExpression | null {
-  const raw = expression.trim();
-
-  let match = raw.match(/^\(\s*(ip\.src|ip\.geoip\.asnum|ip\.geoip\.country)\s+eq\s+("?)([^"\s\)]+)\2\s*\)$/i);
-  if (match) {
-    const field = match[1].toLowerCase() as MergeableField;
-    const value = normalizeMergeValue(field, match[3]);
-    if (!value) return null;
-    return { field, values: [value] };
-  }
-
-  match = raw.match(/^\(\s*(ip\.src|ip\.geoip\.asnum|ip\.geoip\.country)\s+in\s+\{(.+)\}\s*\)$/i);
-  if (!match) return null;
-
-  const field = match[1].toLowerCase() as MergeableField;
-  const tokenPart = match[2];
-  const tokens = tokenPart.match(/"[^"]+"|[^\s]+/g) || [];
-  const normalized: string[] = [];
-
-  for (const token of tokens) {
-    const stripped = token.startsWith("\"") && token.endsWith("\"")
-      ? token.slice(1, -1)
-      : token;
-    const value = normalizeMergeValue(field, stripped);
-    if (!value) return null;
-    normalized.push(value);
-  }
-
-  const unique = Array.from(new Set(normalized)).sort();
-  if (unique.length === 0) return null;
-  return { field, values: unique };
-}
-
-function normalizeMergeValue(field: MergeableField, rawValue: string): string | null {
-  const value = rawValue.trim();
-  if (value === "") return null;
-
-  if (field === "ip.src") {
-    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return value;
-    if (/^[0-9a-fA-F:]+$/.test(value)) return value.toLowerCase();
-    return null;
-  }
-
-  if (field === "ip.geoip.asnum") {
-    if (!/^\d+$/.test(value)) return null;
-    return String(parseInt(value, 10));
-  }
-
-  if (field === "ip.geoip.country") {
-    const upper = value.toUpperCase();
-    return /^[A-Z]{2}$/.test(upper) ? upper : null;
-  }
-
-  return null;
-}
-
-function mergeValueSets(existing: string[], incoming: string[]): string[] {
-  return Array.from(new Set([...existing, ...incoming])).sort();
-}
-
-function serializeMergeableExpression(field: MergeableField, values: string[]): string {
-  const normalized = Array.from(new Set(values)).sort();
-  if (normalized.length === 1) {
-    const single = normalized[0];
-    if (field === "ip.geoip.country") {
-      return `(${field} eq "${single}")`;
-    }
-    return `(${field} eq ${single})`;
-  }
-
-  if (field === "ip.geoip.country") {
-    const list = normalized.map((v) => `"${v}"`).join(" ");
-    return `(${field} in {${list}})`;
-  }
-
-  const list = normalized.join(" ");
-  return `(${field} in {${list}})`;
-}
-
-/**
- * Retrieves the zone-level custom ruleset ID, or creates one if it doesn't exist.
- * Cloudflare zones have a single "http_request_firewall_custom" phase ruleset.
- */
-async function getOrCreateCustomRuleset(
-  env: Env,
-  zoneId: string
-): Promise<string | null> {
-  try {
-    // List existing rulesets for this zone
-    const listResponse = await fetch(
-      `${CF_API_BASE}/zones/${zoneId}/rulesets`,
-      {
-        headers: {
-          Authorization: `Bearer ${env.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
+      if (optimisticLockConflict) {
+         if (attempt < OPTIMISTIC_LOCK_RETRIES) {
+            await new Promise(res => setTimeout(res, 50 * attempt)); // Exponential-ish backoff
+            continue; // Retry the entire process
+         } else {
+            // Max retries hit, proceed to dump remaining into new rules (safety fallback)
+         }
       }
-    );
 
-    if (!listResponse.ok) return null;
+      // PASS 3: Generate new rules for any remaining targets (chunked)
+      while (pendingTargets.length > 0) {
+        const chunk = pendingTargets.splice(0, MAX_TARGETS_PER_RULE);
+        
+        const newExpression = JSON.stringify({
+          field,
+          operator: "in",
+          value: chunk.join(", ")
+        });
 
-    const listData = await listResponse.json() as {
-      result?: Array<{ id: string; phase: string }>;
-    };
+        const description = `${EDGE_SHIELD_AUTO_DESC_PREFIX} ${analysis.threatType} phase deployment (${field})`;
+        const expiresAt = nowSecs + RULE_TTL_SECONDS;
 
-    // Find the custom firewall ruleset
-    const customRuleset = listData.result?.find(
-      (rs) => rs.phase === "http_request_firewall_custom"
-    );
-
-    if (customRuleset) {
-      return customRuleset.id;
-    }
-
-    // Create a new custom ruleset if none exists
-    const createResponse = await fetch(
-      `${CF_API_BASE}/zones/${zoneId}/rulesets`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.CF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Edge Shield Auto-Defense Rules",
-          description: "Automatically managed by Edge Shield AI defense engine",
-          kind: "zone",
-          phase: "http_request_firewall_custom",
-          rules: [],
-        }),
+        const insertRes = await env.DB.prepare(
+          `INSERT INTO custom_firewall_rules (domain_name, description, action, expression_json, paused, expires_at)
+           VALUES (?, ?, ?, ?, 0, ?)
+           RETURNING id`
+        )
+          .bind(domainName, description, action, newExpression, expiresAt)
+          .all<{ id: number }>();
+          
+        if (insertRes.results && insertRes.results.length > 0) {
+            // AUDIT TRAIL: Log new rule creation
+            await logAIDefenseEvent(env, meta, "WAF_MERGE_NEW", `Created new rule ID ${insertRes.results[0].id} containing ${chunk.length} targets. Auto-expires in 7 days.`);
+        }
       }
-    );
 
-    if (!createResponse.ok) return null;
-
-    const createData = await createResponse.json() as {
-      result?: { id: string };
-    };
-
-    return createData.result?.id || null;
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Domain Config Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Fetches all unique active zone IDs from the domain_configs table.
- * WAF rules are deployed to every active zone to ensure global coverage.
- */
-async function getActiveZoneIds(env: Env): Promise<string[]> {
-  try {
-    const result = await env.DB.prepare(
-      "SELECT DISTINCT zone_id FROM domain_configs WHERE status = 'active'"
-    ).all<{ zone_id: string }>();
-
-    return (result.results || []).map((r) => r.zone_id);
-  } catch {
-    return [];
+      break; // Success! Break the retry loop
+    } catch {
+      // If DB operations fail, we silently recover
+      break;
+    }
   }
 }
 

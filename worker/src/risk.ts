@@ -52,86 +52,7 @@ const BOT_UA_PATTERNS: RegExp[] = [
   /libwww|lwp-|mechanize/i,
 ];
 
-type PathProbeRule = {
-  pattern: RegExp;
-  score: number;
-  reason: string;
-  strong?: boolean;
-};
 
-const SENSITIVE_PATH_RULES: PathProbeRule[] = [
-  {
-    pattern: /^\/xmlrpc\.php$/i,
-    score: 28,
-    reason: "XML-RPC abuse pattern probe",
-    strong: true,
-  },
-  {
-    pattern: /^\/wp-login\.php$/i,
-    score: 20,
-    reason: "WordPress login brute-force target",
-    strong: true,
-  },
-  {
-    pattern: /^\/(?:wp-config\.php(?:\..*)?|\.env(?:[._-].*)?)$/i,
-    score: 45,
-    reason: "Sensitive config file probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)\.env(?:$|[._-]|\/)/i,
-    score: 52,
-    reason: "Environment secret file probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)\.git(?:\/|$)/i,
-    score: 56,
-    reason: "Git metadata exposure probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)(?:\.aws(?:\/|$)|aws-credentials(?:$|\/))/i,
-    score: 54,
-    reason: "Cloud credential file probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)\.s3cfg(?:$|\/)/i,
-    score: 52,
-    reason: "S3 credential config probe",
-    strong: true,
-  },
-  {
-    pattern: /\/vendor\/phpunit\/phpunit\/src\/util\/php\/eval-stdin\.php$/i,
-    score: 45,
-    reason: "Known PHPUnit RCE probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)\.well-known\/.*\.(?:php|phtml?)$/i,
-    score: 32,
-    reason: "Hidden webshell drop-path probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)(?:phpinfo|info|test|admin|upload|shell|cmd|ahax|bless|bolt|txets|ioxi-o|class-t\.api)\.php$/i,
-    score: 26,
-    reason: "Generic webshell/scanner PHP probe",
-    strong: true,
-  },
-  {
-    pattern: /(?:^|\/)(?:feed|rss)(?:\/|\.|$)/i,
-    score: 8,
-    reason: "Feed/rss scraping probe",
-  },
-  {
-    pattern: /(?:\.\.|%2e%2e|%252e%252e)/i,
-    score: 30,
-    reason: "Path traversal signature detected",
-    strong: true,
-  },
-];
 
 // User-Agents that are too short or clearly malformed
 const MIN_UA_LENGTH = 20;
@@ -246,39 +167,7 @@ export async function evaluateRisk(
     factors.push("Missing ASN information");
   }
 
-  // --- Factor 6: Request Path Attack Signatures ---
-  // Detect common exploit/scanner probes (WordPress, config leaks, webshell paths).
-  const normalizedPath = (meta.path || "").toLowerCase();
-  for (const rule of SENSITIVE_PATH_RULES) {
-    if (!rule.pattern.test(normalizedPath)) continue;
-    score += rule.score;
-    factors.push(rule.reason);
-    if (rule.strong) strongBotSignal = true;
-  }
 
-  // Escalate suspicious PHP probes except for explicit allow-listed endpoints.
-  if (normalizedPath.endsWith(".php")) {
-    const allowedPhpPaths = new Set([
-      "/index.php",
-      "/wp-cron.php",
-      "/wp-login.php",
-      "/wp-admin/admin-ajax.php",
-    ]);
-    const isLikelyBenignPhp =
-      allowedPhpPaths.has(normalizedPath) ||
-      normalizedPath.startsWith("/wp-json/") ||
-      normalizedPath.startsWith("/wp-admin/") ||
-      normalizedPath.startsWith("/wp-content/plugins/litespeed-cache/") ||
-      normalizedPath.startsWith("/wp-content/plugins/elementor/") ||
-      normalizedPath.startsWith("/wp-content/plugins/seo-by-rank-math/") ||
-      normalizedPath.startsWith("/wp-content/plugins/wordpress-seo/");
-
-    if (!isLikelyBenignPhp) {
-      score += 14;
-      factors.push(`Unexpected PHP endpoint probe: ${meta.path}`);
-      strongBotSignal = true;
-    }
-  }
 
   // --- Factor 7: Historical Fingerprint Data (D1 lookup) ---
   if (fingerprintHash) {

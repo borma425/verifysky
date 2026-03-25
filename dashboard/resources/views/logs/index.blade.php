@@ -53,8 +53,11 @@
             'turnstile_failed' => 55,
             'replay_detected' => 75,
             'waf_rule_created' => 80,
+            'WAF_MERGE_NEW' => 80,
+            'WAF_MERGE_UPDATED' => 75,
             'mode_escalated' => 65,
             'ai_defense' => 55,
+            'WAF_MERGE_SKIPPED' => 45,
           ];
           $fallbackScore = $eventScoreDefaults[$eventTypeValue] ?? 50;
           $rawScore = $row['worst_event_score'] ?? ($row['max_risk_score'] ?? $row['risk_score'] ?? null);
@@ -91,7 +94,7 @@
             </div>
           </td>
           <td>
-            @php($canAllow = !empty($row['ip_address']) && !empty($row['domain']) && ($row['domain'] !== '-'))
+            @php($canAllow = !empty($row['ip_address']) && $row['ip_address'] !== 'N/A' && !empty($row['domain']) && ($row['domain'] !== '-'))
             @if($canAllow)
               @if(($row['prefer_block_action'] ?? false) === true)
                 <form method="POST" action="{{ route('logs.block_ip') }}">
