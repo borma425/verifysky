@@ -344,16 +344,51 @@ class LogsController extends Controller
             return back()->with('error', 'Allow action did not stabilize as expected (allowed=true, banned=false).');
         }
 
+        // 1. Delete the IP from security logs
         $deleteResult = $this->edgeShield->queryD1(
             "DELETE FROM security_logs
              WHERE ip_address = '".str_replace("'", "''", $ip)."'"
         );
 
+        // 2. Remove any IP access rules (Global Firewall) that explicitly block this IP
+        $this->edgeShield->queryD1(
+            "DELETE FROM ip_access_rules
+             WHERE ip_or_cidr = '".str_replace("'", "''", $ip)."'"
+        );
+
+        // 3. Remove any custom WAF/AI rules that are explicitly targeting this IP
+        $this->edgeShield->queryD1(
+            "DELETE FROM custom_firewall_rules
+             WHERE expression_json LIKE '%\"" . str_replace("'", "''", $ip) . "\"%'"
+        );
+
+        // 4. Add persistent ALLOW rule to Manual Firewall (so it shows in UI)
+        $this->edgeShield->createIpAccessRule(
+            $domain,
+            $ip,
+            'allow',
+            'Manually allow-listed from security logs page'
+        );
+
+        // 5. Add persistent ALLOW rule to Custom Firewall Rules (so worker applies it globally)
+        $this->edgeShield->createCustomFirewallRule(
+            $domain,
+            "Allow IP: $ip (From Logs)",
+            "allow",
+            json_encode(["field" => "ip.src", "operator" => "eq", "value" => $ip]),
+            false
+        );
+
+        // 6. Purge the Edge KV cache so the worker sees the changes immediately
+        $this->edgeShield->purgeIpRulesCache($domain);
+        $this->edgeShield->purgeCustomFirewallRulesCache($domain);
+        $this->edgeShield->purgeCustomFirewallRulesCache('global');
+
         if (!($deleteResult['ok'] ?? false)) {
             return back()->with('error', 'IP was allow-listed, but failed to reset visit counters: '.((string) ($deleteResult['error'] ?? 'unknown error')));
         }
 
-        return back()->with('status', 'IP '.$ip.' was allow-listed, unbanned, and its visit counters were reset.');
+        return back()->with('status', 'IP '.$ip.' was allow-listed, unbanned, and added to Manual Firewall Rules.');
     }
 
     public function blockIp(Request $request): RedirectResponse
@@ -390,7 +425,34 @@ class LogsController extends Controller
             return back()->with('error', 'Block action did not stabilize as expected (allowed=false, banned=true).');
         }
 
-        return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours.');
+        // Persist the block in the D1 Global Firewall rules so it shows up in Manual rules
+        $this->edgeShield->queryD1(
+            "DELETE FROM ip_access_rules
+             WHERE domain_name = '".str_replace("'", "''", $domain)."'
+             AND ip_or_cidr = '".str_replace("'", "''", $ip)."'"
+        );
+        $this->edgeShield->queryD1(
+            "DELETE FROM custom_firewall_rules
+             WHERE expression_json LIKE '%\"" . str_replace("'", "''", $ip) . "\"%'"
+        );
+
+        $this->edgeShield->createIpAccessRule(
+            $domain,
+            $ip,
+            'block',
+            'Manually blocked from security logs page'
+        );
+
+        // Add persistent BLOCK rule to Custom Firewall Rules (so worker applies it globally)
+        $this->edgeShield->createCustomFirewallRule(
+            $domain,
+            "Block IP: $ip (From Logs)",
+            "block",
+            json_encode(["field" => "ip.src", "operator" => "eq", "value" => $ip]),
+            false
+        );
+
+        return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours and added to Manual Firewall Rules.');
     }
 
     private function resolveLogDomain(array $row): string

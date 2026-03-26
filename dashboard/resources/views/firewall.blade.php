@@ -179,14 +179,22 @@
             </td>
               <td>
                 <div class="mb-1">
-                  <span class="es-chip {{ $paused ? 'border-amber-400/35 bg-amber-500/20 text-amber-100' : 'border-indigo-400/35 bg-indigo-500/20 text-indigo-100' }}">
-                    {{ $paused ? 'Paused' : 'Active Defense' }}
-                  </span>
+                  @if($isExpired)
+                    <span class="es-chip border-rose-400/35 bg-rose-500/20 text-rose-100">Expired</span>
+                  @else
+                    <span class="es-chip {{ $paused ? 'border-amber-400/35 bg-amber-500/20 text-amber-100' : 'border-indigo-400/35 bg-indigo-500/20 text-indigo-100' }}">
+                      {{ $paused ? 'Paused' : 'Active Defense' }}
+                    </span>
+                  @endif
                 </div>
-                @if($expiresAt)
-                  <div class="text-[10px] {{ $isExpired ? 'text-rose-400' : 'text-indigo-300' }}">
-                    {{ $isExpired ? 'Expired' : 'Expires' }}: {{ gmdate('Y-m-d H:i', $expiresAt) }} UTC
-                  </div>
+                @if(!$isExpired)
+                  @if($expiresAt)
+                    <div class="text-[10px] text-indigo-300" title="{{ gmdate('Y-m-d H:i', $expiresAt) }} UTC">
+                      Expires {{ \Carbon\Carbon::createFromTimestamp($expiresAt)->diffForHumans() }}
+                    </div>
+                  @else
+                    <div class="text-[10px] text-indigo-300/70">Forever (No Expiry)</div>
+                  @endif
                 @endif
               </td>
             <td>
@@ -205,9 +213,11 @@
             </td>
               <td>
                 <div class="flex flex-wrap justify-end gap-2">
-                  <button type="button" onclick="document.getElementById('toggle-form-{{ $rule['id'] ?? '' }}').submit()" class="es-btn {{ $paused ? 'es-btn-success' : 'es-btn-warning' }} px-3 py-1.5 text-xs">
-                    {{ $paused ? 'Enable' : 'Pause' }}
-                  </button>
+                  @if(!$isExpired)
+                    <button type="button" onclick="document.getElementById('toggle-form-{{ $rule['id'] ?? '' }}').submit()" class="es-btn {{ $paused ? 'es-btn-success' : 'es-btn-warning' }} px-3 py-1.5 text-xs">
+                      {{ $paused ? 'Enable' : 'Pause' }}
+                    </button>
+                  @endif
                 </div>
               </td>
             </tr>
@@ -282,14 +292,22 @@
             </td>
               <td>
                 <div class="mb-1">
-                  <span class="es-chip {{ $paused ? 'border-amber-400/35 bg-amber-500/20 text-amber-100' : 'border-emerald-400/35 bg-emerald-500/20 text-emerald-100' }}">
-                    {{ $paused ? 'Paused' : 'Enabled' }}
-                  </span>
+                  @if($isExpired)
+                    <span class="es-chip border-rose-400/35 bg-rose-500/20 text-rose-100">Expired</span>
+                  @else
+                    <span class="es-chip {{ $paused ? 'border-amber-400/35 bg-amber-500/20 text-amber-100' : 'border-emerald-400/35 bg-emerald-500/20 text-emerald-100' }}">
+                      {{ $paused ? 'Paused' : 'Enabled' }}
+                    </span>
+                  @endif
                 </div>
-                @if($expiresAt)
-                  <div class="text-[10px] {{ $isExpired ? 'text-rose-400' : 'text-sky-300' }}">
-                    {{ $isExpired ? 'Expired' : 'Expires' }}: {{ gmdate('Y-m-d H:i', $expiresAt) }} UTC
-                  </div>
+                @if(!$isExpired)
+                  @if($expiresAt)
+                    <div class="text-[10px] text-sky-300" title="{{ gmdate('Y-m-d H:i', $expiresAt) }} UTC">
+                      Expires {{ \Carbon\Carbon::createFromTimestamp($expiresAt)->diffForHumans() }}
+                    </div>
+                  @else
+                    <div class="text-[10px] text-sky-300/70">Forever (No Expiry)</div>
+                  @endif
                 @endif
               </td>
             <td>
@@ -301,10 +319,12 @@
             </td>
               <td>
                 <div class="flex flex-wrap justify-end gap-2">
-                  <a href="{{ route('firewall.edit', ['domain' => $domainName, 'ruleId' => $rule['id'] ?? '']) }}" class="es-btn es-btn-secondary px-3 py-1.5 text-xs">Edit</a>
-                  <button type="button" onclick="document.getElementById('toggle-form-{{ $rule['id'] ?? '' }}').submit()" class="es-btn {{ $paused ? 'es-btn-success' : 'es-btn-warning' }} px-3 py-1.5 text-xs">
-                    {{ $paused ? 'Enable' : 'Pause' }}
-                  </button>
+                  @if(!$isExpired)
+                    <a href="{{ route('firewall.edit', ['domain' => $domainName, 'ruleId' => $rule['id'] ?? '']) }}" class="es-btn es-btn-secondary px-3 py-1.5 text-xs">Edit</a>
+                    <button type="button" onclick="document.getElementById('toggle-form-{{ $rule['id'] ?? '' }}').submit()" class="es-btn {{ $paused ? 'es-btn-success' : 'es-btn-warning' }} px-3 py-1.5 text-xs">
+                      {{ $paused ? 'Enable' : 'Pause' }}
+                    </button>
+                  @endif
                 </div>
               </td>
             </tr>

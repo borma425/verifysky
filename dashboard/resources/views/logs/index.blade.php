@@ -36,7 +36,21 @@
     <div class="overflow-x-auto">
     <table class="es-table min-w-[1400px]">
       <thead><tr><th>Domain</th><th>Event</th><th>IP</th><th>Attacks</th><th>Action</th><th>ASN</th><th>Country</th><th>Path</th><th>Details</th><th>Time</th></tr></thead>
-      <tbody>
+      @php
+        $formatDetails = function($str) {
+            $str = is_array($str) ? implode(', ', $str) : (string) $str;
+            $map = [
+                'Temporarily banned IP' => 'Blocked IP Automatically',
+                '86400s window' => 'for 24 hours',
+                'Auto-banned by IP rate policy' => 'Blocked for exceeding requests limit (DDoS)',
+                'hard_block' => 'Hard Blocked',
+                'Auto-banned by malicious signature' => 'Blocked due to malicious payload',
+                'challenge_issued' => 'Challenged User Verification',
+            ];
+            $str = str_replace(array_keys($map), array_values($map), $str);
+            return preg_replace('/\((\d+)s window\)/', '(for $1 seconds)', $str);
+        };
+      @endphp
       @forelse($logs as $row)
         @php
           $eventTypeValue = trim((string) ($row['worst_event_type'] ?? ''));
@@ -102,10 +116,11 @@
                   <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                   <input type="hidden" name="domain" value="{{ $row['domain'] }}">
                   <button type="submit" class="es-icon-btn es-icon-btn-danger" title="Block IP for 24h" aria-label="Block IP">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="5" y="11" width="14" height="10" rx="2"></rect>
-                      <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
-                      <path d="M12 15v2"></path>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5c-2 0-4 1.8-4 4v2"></path>
+                      <circle cx="8.5" cy="7" r="4"></circle>
+                      <line x1="18" y1="8" x2="23" y2="13"></line>
+                      <line x1="23" y1="8" x2="18" y2="13"></line>
                     </svg>
                   </button>
                 </form>
@@ -152,7 +167,22 @@
               </details>
             @endif
           </td>
-          <td class="max-w-[440px] break-words">{{ $row['details'] ?? '' }}</td>
+          <td class="max-w-[440px] break-words">
+            @if(is_array($parsed = json_decode($row['details'] ?? '', true)))
+              <div class="space-y-1 text-[11.5px] leading-snug">
+                @foreach($parsed as $k => $v)
+                  @if((is_scalar($v) || is_array($v)) && $v !== '')
+                    <div>
+                      <span class="font-bold text-sky-200">{{ ucwords(str_replace(['_', '-'], ' ', $k)) }}:</span> 
+                      <span class="text-slate-300">{{ $formatDetails($v) }}</span>
+                    </div>
+                  @endif
+                @endforeach
+              </div>
+            @else
+              <span class="text-[11.5px] leading-snug">{{ $formatDetails($row['details'] ?? '') }}</span>
+            @endif
+          </td>
           <td class="whitespace-nowrap">{{ $row['created_at'] ?? '' }}</td>
         </tr>
       @empty
