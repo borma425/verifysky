@@ -104,7 +104,22 @@ class FirewallRulesController extends Controller
             'paused' => ['required', 'in:0,1'],
         ]);
 
-        $toggle = $this->edgeShield->toggleCustomFirewallRule($domain, $ruleId, ((int) $validated['paused']) === 1);
+        $isPausing = ((int) $validated['paused']) === 1;
+
+        // When pausing a rule, revoke the corresponding KV admin entry
+        if ($isPausing) {
+            $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
+            if ($ruleRes['ok'] && !empty($ruleRes['rule'])) {
+                $rule = $ruleRes['rule'];
+                $this->edgeShield->syncKvForFirewallRuleAction(
+                    $domain,
+                    (string) ($rule['expression_json'] ?? ''),
+                    (string) ($rule['action'] ?? '')
+                );
+            }
+        }
+
+        $toggle = $this->edgeShield->toggleCustomFirewallRule($domain, $ruleId, $isPausing);
 
         return back()->with(
             $toggle['ok'] ? 'status' : 'error',
@@ -114,6 +129,17 @@ class FirewallRulesController extends Controller
 
     public function destroy(string $domain, string $ruleId): RedirectResponse
     {
+        // Revoke KV entry before deleting the D1 rule
+        $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, (int) $ruleId);
+        if ($ruleRes['ok'] && !empty($ruleRes['rule'])) {
+            $rule = $ruleRes['rule'];
+            $this->edgeShield->syncKvForFirewallRuleAction(
+                $domain,
+                (string) ($rule['expression_json'] ?? ''),
+                (string) ($rule['action'] ?? '')
+            );
+        }
+
         $delete = $this->edgeShield->deleteCustomFirewallRule($domain, (int) $ruleId);
 
         return back()->with(
@@ -128,6 +154,19 @@ class FirewallRulesController extends Controller
             'rule_ids' => ['required', 'array'],
             'rule_ids.*' => ['integer'],
         ]);
+
+        // Revoke KV entries for all rules before bulk-deleting from D1
+        foreach ($validated['rule_ids'] as $id) {
+            $ruleRes = $this->edgeShield->getCustomFirewallRuleByIdGlobal((int) $id);
+            if ($ruleRes['ok'] && !empty($ruleRes['rule'])) {
+                $rule = $ruleRes['rule'];
+                $this->edgeShield->syncKvForFirewallRuleAction(
+                    (string) ($rule['domain_name'] ?? ''),
+                    (string) ($rule['expression_json'] ?? ''),
+                    (string) ($rule['action'] ?? '')
+                );
+            }
+        }
 
         $delete = $this->edgeShield->deleteBulkCustomFirewallRules($validated['rule_ids']);
 
@@ -172,6 +211,25 @@ class FirewallRulesController extends Controller
             'value' => $validated['value'],
         ]);
 
+        $isPaused = ((int) ($validated['paused'] ?? 0)) === 1;
+
+        // Sync KV: revoke old action before applying updates
+        $oldRuleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
+        if ($oldRuleRes['ok'] && !empty($oldRuleRes['rule'])) {
+            $oldRule = $oldRuleRes['rule'];
+            $oldAction = (string) ($oldRule['action'] ?? '');
+            $newAction = $validated['action'];
+
+            // Revoke old KV if: action changed, or rule is being paused
+            if ($isPaused || $oldAction !== $newAction) {
+                $this->edgeShield->syncKvForFirewallRuleAction(
+                    $domain,
+                    (string) ($oldRule['expression_json'] ?? ''),
+                    $oldAction
+                );
+            }
+        }
+
         $expiresAt = null;
         if (!empty($validated['duration']) && $validated['duration'] !== 'forever') {
             $seconds = match ($validated['duration']) {
@@ -187,11 +245,13 @@ class FirewallRulesController extends Controller
                 $expiresAt = time() + $seconds;
             }
         } elseif (!empty($validated['preserve_expiry'])) {
-            // Keep the previous expiry! To do this without a new query simply pass null and the UI won't send preserve_expiry if modified duration.
-            // Wait, to keep DB expiry we must fetch it.
-            $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
-            if ($ruleRes['ok'] && !empty($ruleRes['rule']['expires_at'])) {
-                $expiresAt = $ruleRes['rule']['expires_at'];
+            if (isset($oldRuleRes) && ($oldRuleRes['ok'] ?? false) && !empty($oldRuleRes['rule']['expires_at'])) {
+                $expiresAt = $oldRuleRes['rule']['expires_at'];
+            } else {
+                $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
+                if ($ruleRes['ok'] && !empty($ruleRes['rule']['expires_at'])) {
+                    $expiresAt = $ruleRes['rule']['expires_at'];
+                }
             }
         }
 
@@ -201,7 +261,7 @@ class FirewallRulesController extends Controller
             $validated['description'] ?? '',
             $validated['action'],
             $expressionJson,
-            ((int) ($validated['paused'] ?? 0)) === 1,
+            $isPaused,
             $expiresAt
         );
 

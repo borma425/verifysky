@@ -293,4 +293,8 @@ export interface RequestMeta {
   method: string;
   path: string;
   url: string;
+  acceptLanguage: string | null;
+  secFetchSite: string | null;
+  secFetchMode: string | null;
+  isPrefetch: boolean;
 }

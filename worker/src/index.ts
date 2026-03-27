@@ -33,6 +33,7 @@ import {
   createHtmlResponse,
   sanitizeInput,
   isValidIP,
+  getDailyHoneypotPaths,
 } from "./utils";
 import {
   evaluateRisk,
@@ -41,6 +42,8 @@ import {
   incrementSubnetRate,
   incrementPathRate,
   getIPRateCount,
+  incrementFloodCounters,
+  getFloodStatus,
 } from "./risk";
 
 // Forward declarations — these modules will be created in Phases 4 and 5.
@@ -55,8 +58,8 @@ import {
 /** Name of the session cookie set after successful challenge completion */
 const SESSION_COOKIE_NAME = "es_session";
 
-/** Session token validity duration (4 hours) */
-const SESSION_TTL_SECONDS = 4 * 60 * 60;
+/** Session token validity duration (1 hour) */
+const SESSION_TTL_SECONDS = 1 * 60 * 60;
 
 /** KV key prefix for domain config caching */
 const DOMAIN_CACHE_PREFIX = "dcfg:";
@@ -111,6 +114,24 @@ const AUTO_AGGR_ACTIVE_PREFIX = "mode:auto_aggr:active:";
 const AUTO_AGGR_PRESSURE_TTL_SECONDS = 3 * 60;
 const AUTO_AGGR_ACTIVE_TTL_SECONDS = 10 * 60;
 const AUTO_AGGR_TRIGGER_COUNT = 8;
+
+// Dynamic log sampling — reduces D1 pressure for normal-pass events
+const TRAFFIC_COUNTER_KEY = "traffic:current_minute";
+const TRAFFIC_COUNTER_TTL = 60;
+const SAMPLE_RATE_LOW = 0.20;   // 20% when traffic < 500/min
+const SAMPLE_RATE_MED = 0.05;   // 5%  when traffic 500-2000/min
+const SAMPLE_RATE_HIGH = 0.01;  // 1%  when traffic > 2000/min
+const TRAFFIC_THRESHOLD_MED = 500;
+const TRAFFIC_THRESHOLD_HIGH = 2000;
+
+// Trusted IP decision cache — skip risk engine for recently-safe IPs
+const TRUSTED_IP_PREFIX = "trusted:";
+const TRUSTED_IP_TTL_SECONDS = 2 * 60; // 2 minutes
+
+// Visit counter — CAPTCHA after N page views in a rolling window
+const VISIT_COUNTER_PREFIX = "vc:";
+const VISIT_COUNTER_TTL = 180;           // 3-minute rolling window
+const VISIT_CAPTCHA_THRESHOLD = 6;       // CAPTCHA after 6 page views
 
 // ---------------------------------------------------------------------------
 // Multi-Tenant Domain Resolution
@@ -474,6 +495,109 @@ function extractDomainFromMeta(meta: RequestMeta): string | null {
     return host === "" ? null : host;
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Log Sampling — reduces D1 write pressure for normal-pass events
+// ---------------------------------------------------------------------------
+
+/**
+ * Increments the global per-minute traffic counter and returns the current count.
+ * Used to determine optimal sampling rate.
+ */
+async function getTrafficLevel(env: Env): Promise<number> {
+  try {
+    const current = await env.SESSION_KV.get(TRAFFIC_COUNTER_KEY);
+    const count = current ? parseInt(current, 10) + 1 : 1;
+    await env.SESSION_KV.put(TRAFFIC_COUNTER_KEY, String(count), {
+      expirationTtl: TRAFFIC_COUNTER_TTL,
+    });
+    return count;
+  } catch {
+    return 0; // Fail-open: unknown traffic → sample at default rate
+  }
+}
+
+/**
+ * Dynamically samples normal-pass log events.
+ * - Block/Challenge: always 100% (not handled here)
+ * - Normal pass: 20% at low traffic, 5% at medium, 1% at high
+ *
+ * When sampled, the log details include "[sampled]" marker for clarity.
+ */
+async function samplePassLog(
+  env: Env,
+  meta: RequestMeta,
+  riskScore: number,
+  details: string
+): Promise<void> {
+  const trafficLevel = await getTrafficLevel(env);
+
+  let sampleRate: number;
+  if (trafficLevel > TRAFFIC_THRESHOLD_HIGH) {
+    sampleRate = SAMPLE_RATE_HIGH;
+  } else if (trafficLevel > TRAFFIC_THRESHOLD_MED) {
+    sampleRate = SAMPLE_RATE_MED;
+  } else {
+    sampleRate = SAMPLE_RATE_LOW;
+  }
+
+  if (Math.random() >= sampleRate) return; // Skip this event
+
+  await logSecurityEvent(
+    env,
+    "session_created",
+    meta,
+    riskScore,
+    null,
+    `[sampled ${Math.round(sampleRate * 100)}%] ${details}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Visit Counter — per-IP+UA page view tracking for CAPTCHA triggering
+// ---------------------------------------------------------------------------
+
+/**
+ * SHA-256 shortened hash (first 8 hex chars) for UA fingerprinting.
+ * Used to build composite visit counter keys (IP + UA).
+ */
+async function visitCounterUAHash(userAgent: string): Promise<string> {
+  const data = new TextEncoder().encode(userAgent || "unknown");
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = new Uint8Array(hashBuffer);
+  let hex = "";
+  for (let i = 0; i < 4; i++) {
+    hex += hashArray[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+/**
+ * Reads the visit counter for an IP+UA composite key, increments it,
+ * and returns the new count. The counter auto-expires after VISIT_COUNTER_TTL.
+ *
+ * Returns the count AFTER increment. If count >= VISIT_CAPTCHA_THRESHOLD,
+ * the caller should serve a CAPTCHA.
+ */
+async function checkAndIncrementVisitCounter(
+  meta: RequestMeta,
+  env: Env
+): Promise<number> {
+  const uaHash = await visitCounterUAHash(meta.userAgent);
+  const key = `${VISIT_COUNTER_PREFIX}${meta.ip}:${uaHash}`;
+
+  try {
+    const current = await env.SESSION_KV.get(key);
+    const count = current ? parseInt(current, 10) + 1 : 1;
+    await env.SESSION_KV.put(key, String(count), {
+      expirationTtl: VISIT_COUNTER_TTL,
+    });
+    return count;
+  } catch {
+    // KV failure — fail-open to avoid blocking legitimate users
+    return 0;
   }
 }
 
@@ -1025,6 +1149,19 @@ function shouldAutoBanMalicious(risk: RiskAssessment): boolean {
   );
 }
 
+function getIpSubnet(ip: string): string {
+  if (!ip) return "unknown";
+  if (ip.includes(":")) {
+    const parts = ip.split(":");
+    return parts.slice(0, 4).join(":") + "::/64";
+  }
+  const parts = ip.split(".");
+  if (parts.length === 4) {
+    return parts.slice(0, 3).join(".") + ".0/24";
+  }
+  return ip;
+}
+
 async function resolveEffectiveSecurityMode(
   domainConfig: DomainConfigRecord,
   risk: RiskAssessment,
@@ -1047,12 +1184,27 @@ async function resolveEffectiveSecurityMode(
 
     if (!hasAttackPressureSignal(risk)) return configured;
 
-    const current = parseInt((await env.SESSION_KV.get(pressureKey)) || "0", 10) || 0;
-    const next = current + 1;
-    await env.SESSION_KV.put(pressureKey, String(next), {
-      expirationTtl: AUTO_AGGR_PRESSURE_TTL_SECONDS,
-    });
+    let subnets: string[] = [];
+    const stored = await env.SESSION_KV.get(pressureKey);
+    if (stored) {
+      try {
+        subnets = JSON.parse(stored);
+        if (!Array.isArray(subnets)) subnets = [];
+      } catch {
+        subnets = [];
+      }
+    }
 
+    const subnet = getIpSubnet(meta.ip);
+    if (!subnets.includes(subnet)) {
+      subnets.push(subnet);
+      if (subnets.length > 20) subnets.shift();
+      await env.SESSION_KV.put(pressureKey, JSON.stringify(subnets), {
+        expirationTtl: AUTO_AGGR_PRESSURE_TTL_SECONDS,
+      });
+    }
+
+    const next = subnets.length;
     if (next >= AUTO_AGGR_TRIGGER_COUNT) {
       await env.SESSION_KV.put(activeKey, "1", {
         expirationTtl: AUTO_AGGR_ACTIVE_TTL_SECONDS,
@@ -1064,7 +1216,7 @@ async function resolveEffectiveSecurityMode(
           meta,
           risk.score,
           null,
-          `Auto-escalated domain to aggressive for ${AUTO_AGGR_ACTIVE_TTL_SECONDS}s (pressure=${next})`
+          `Auto-escalated domain to aggressive for ${AUTO_AGGR_ACTIVE_TTL_SECONDS}s (distributed pressure, ${next} unique subnets)`
         )
       );
       return "aggressive";
@@ -1297,6 +1449,24 @@ const worker: ExportedHandler<Env> = {
       return fetch(request);
     }
 
+    // --- Trusted IP Decision Cache ---
+    // If this IP was recently assessed as safe (score ≤ 15), skip the
+    // expensive risk scoring engine (14 factors + D1 queries).
+    // IMPORTANT: Flood protection and IP rate hard-ban STILL apply even
+    // for trusted IPs to prevent abuse of the trust window for click fraud.
+    let isTrustedIP = false;
+    try {
+      const cachedDecision = await env.SESSION_KV.get(
+        `${TRUSTED_IP_PREFIX}${meta.ip}`
+      );
+      if (cachedDecision === "1") {
+        isTrustedIP = true;
+        // Do NOT return early — continue to flood protection below
+      }
+    } catch {
+      // Cache miss is fine — continue normal flow
+    }
+
     // Fast hard-stop for known abusive IPs (temporary ban window).
     if (await isTemporarilyBanned(meta.ip, env)) {
       ctx.waitUntil(
@@ -1408,6 +1578,11 @@ const worker: ExportedHandler<Env> = {
          );
 
          if (isBlock) {
+             try {
+                await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+                  expirationTtl: TEMP_BAN_TTL_SECONDS,
+                });
+             } catch {}
              return handleHardBlock(env);
          } else if (isChallenge) {
              return serveChallengePagePlaceholder(meta, domainConfig || {
@@ -1501,7 +1676,7 @@ const worker: ExportedHandler<Env> = {
          if (isBlock) {
              return handleHardBlock(env);
          } else if (isAllow) {
-             return fetch(request);
+             return fetchWithHoneypot(request, meta, env);
          } else if (isChallenge) {
              // Pass generic config or the resolved domain config if test mode allows
              return serveChallengePagePlaceholder(meta, domainConfig || {
@@ -1519,18 +1694,223 @@ const worker: ExportedHandler<Env> = {
       }
     }
 
-    // --- KV Session Fast-Pass ---
-    // If the user has a valid, signed session cookie, skip all checks.
+    // --- Handle Dynamic Challenge Submission (POST) — EARLY CHECK ---
+    // Must run BEFORE session/flood/visit counter checks. Otherwise the
+    // counters that triggered the CAPTCHA will also block the solve attempt.
+    if (request.method === "POST" && (isDynamicSubmitPath(meta.path) || isFallbackSubmitRequest(request))) {
+      return handleSubmission(request, meta, domainConfig, env, ctx);
+    }
+
+    // --- KV Session Validation ---
+    // If the user has a valid, signed session cookie, they passed CAPTCHA before.
+    // Still enforce visit counter + flood protection to prevent post-CAPTCHA abuse.
     const session = await validateSession(request, meta, env);
     if (session) {
-      // Valid session — transparent pass.
-      // Pass the request to the origin server.
-      return fetch(request);
+      // Skip static assets — no need to count CSS/JS/images
+      if (isStaticAssetPath(meta.path)) return fetch(request);
+
+      if (!meta.isPrefetch) {
+        // Check grace marker first (set by challenge.ts after successful CAPTCHA solve).
+        // During the 2-minute grace window, the user just proved they're human.
+        const uaHash = await visitCounterUAHash(meta.userAgent);
+        const graceKey = `vc_grace:${meta.ip}:${uaHash}`;
+        let hasGrace = false;
+        try {
+          hasGrace = (await env.SESSION_KV.get(graceKey)) === "1";
+        } catch {}
+
+        // Layer 1: Flood protection (catches burst attacks — rapid requests)
+        // Skip counter increment during grace — user just proved human.
+        // Without this, normal browsing during grace accumulates counters
+        // that immediately trigger hard-block when grace expires.
+        if (!hasGrace) {
+          ctx.waitUntil(incrementFloodCounters(meta.ip, meta.userAgent, env.SESSION_KV));
+        }
+        const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV);
+        if (floodStatus.action !== "pass") {
+          const floodDetails = `Post-session flood ${floodStatus.action} (burst=${floodStatus.burst}/15s, sustained=${floodStatus.sustained}/60s, grace=${hasGrace})`;
+
+          if (hasGrace) {
+            // Grace window active — user JUST proved human.
+            // Only enforce hard-block level floods (extreme abuse).
+            // Skip "challenge" level to avoid CAPTCHA loop caused by
+            // flood counters persisting from pre-solve requests.
+            if (floodStatus.action === "block") {
+              try {
+                await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+                  expirationTtl: TEMP_BAN_TTL_SECONDS,
+                });
+              } catch {}
+              ctx.waitUntil(logSecurityEvent(env, "flood_blocked" as any, meta, 90, null, floodDetails));
+              return handleHardBlock(env);
+            }
+            // "challenge" level during grace → pass through (user just proved human)
+          } else {
+            // No grace — session holder continuing to flood = confirmed abuse.
+            // Escalate ALL flood triggers to hard block (no more CAPTCHAs).
+            // They already proved human once; continued flooding = bot/abuse.
+            try {
+              await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+                expirationTtl: TEMP_BAN_TTL_SECONDS,
+              });
+            } catch {}
+            ctx.waitUntil(logSecurityEvent(env, "flood_blocked" as any, meta, 90, null,
+              `Post-CAPTCHA abuse: ${floodDetails} — 24h ban applied`));
+            return handleHardBlock(env);
+          }
+        }
+
+        // Layer 2: Visit counter (catches slow attacks — many pages over time)
+        if (!hasGrace) {
+          const visitCount = await checkAndIncrementVisitCounter(meta, env);
+          if (visitCount >= VISIT_CAPTCHA_THRESHOLD) {
+            // Session holder exceeded visit threshold outside grace window.
+            // A legitimate user would never hit 6 pages in 3 minutes after proving human.
+            // Hard ban for 24 hours.
+            try {
+              await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+                expirationTtl: TEMP_BAN_TTL_SECONDS,
+              });
+            } catch {}
+            ctx.waitUntil(
+              logSecurityEvent(
+                env,
+                "hard_block",
+                meta,
+                95,
+                null,
+                `Post-CAPTCHA abuse: session holder exceeded visit threshold (${visitCount}/${VISIT_CAPTCHA_THRESHOLD} in ${VISIT_COUNTER_TTL}s) — 24h ban applied`
+              )
+            );
+            return handleHardBlock(env);
+          }
+        }
+      }
+      return fetchWithHoneypot(request, meta, env);
     }
 
     // Do not issue interactive challenges for static assets.
     if (isStaticAssetPath(meta.path)) {
       return fetch(request);
+    }
+
+    // --- Trusted IP Path: Visit Counter + Flood Read-Only ---
+    // Trusted IPs skip expensive risk engine but are still monitored.
+    // Visit counter catches slow attacks (6 pages/3 min).
+    // Flood read-only catches burst attacks during trust-transition window.
+    if (isTrustedIP && !meta.isPrefetch) {
+      // Layer 1: Visit counter (1 read + 1 write)
+      const visitCount = await checkAndIncrementVisitCounter(meta, env);
+      if (visitCount >= VISIT_CAPTCHA_THRESHOLD) {
+        // Invalidate trust — this IP is suspicious
+        try {
+          await env.SESSION_KV.delete(`${TRUSTED_IP_PREFIX}${meta.ip}`);
+        } catch {}
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            "challenge_issued",
+            meta,
+            50,
+            null,
+            `Trusted IP exceeded visit threshold (${visitCount}/${VISIT_CAPTCHA_THRESHOLD} in ${VISIT_COUNTER_TTL}s) — trust revoked`
+          )
+        );
+        return serveChallengePagePlaceholder(meta, domainConfig, env);
+      }
+
+      // Layer 2: Flood read-only (5 reads, 0 writes — free safety net)
+      // Counters may still be alive from the pre-trust phase (~60s overlap)
+      const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV);
+      if (floodStatus.action !== "pass") {
+        // Burst detected — invalidate trust
+        try {
+          await env.SESSION_KV.delete(`${TRUSTED_IP_PREFIX}${meta.ip}`);
+        } catch {}
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            floodStatus.action === "block" ? "flood_blocked" as any : "flood_challenged" as any,
+            meta,
+            floodStatus.action === "block" ? 90 : 55,
+            null,
+            `Flood detected on trusted IP (burst=${floodStatus.burst}, sustained=${floodStatus.sustained}) — trust revoked`
+          )
+        );
+        if (floodStatus.action === "block") {
+          try {
+            await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+              expirationTtl: TEMP_BAN_TTL_SECONDS,
+            });
+          } catch {}
+          return handleHardBlock(env);
+        }
+        return serveChallengePagePlaceholder(meta, domainConfig, env);
+      }
+
+      // Both layers passed — trusted, continue to origin
+      return fetchWithHoneypot(request, meta, env);
+    }
+
+    // --- Flood Protection (Full Read+Write — new visitors only) ---
+    // Uses composite IP + UA hash to avoid punishing shared-NAT users.
+    // Two thresholds: burst (15s) and sustained (60s).
+    if (!meta.isPrefetch) {
+      // Increment counters in the background (non-blocking)
+      ctx.waitUntil(incrementFloodCounters(meta.ip, meta.userAgent, env.SESSION_KV));
+
+      const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV);
+      const floodMode = getSecurityMode(domainConfig);
+
+      if (floodStatus.action !== "pass") {
+        const referrer = request.headers.get("Referer") || "none";
+        const floodDetails = `Flood ${floodStatus.action} (window=${floodStatus.triggerWindow}, burst=${floodStatus.burst}/15s, sustained=${floodStatus.sustained}/60s, ipBurst=${floodStatus.ipBurst}, ipSustained=${floodStatus.ipSustained}, uaEntropy=${floodStatus.uaEntropy}, path=${meta.path}, referrer=${referrer}, UA=${meta.userAgent.slice(0, 120)})`;
+
+        if (floodMode === "monitor") {
+          // Monitor mode: log only, do not enforce
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "flood_monitor" as any,
+              meta,
+              floodStatus.action === "block" ? 90 : 55,
+              null,
+              floodDetails
+            )
+          );
+        } else if (floodStatus.action === "block") {
+          // Block: temp-ban + hard block
+          try {
+            await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
+              expirationTtl: TEMP_BAN_TTL_SECONDS,
+            });
+          } catch {}
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "flood_blocked" as any,
+              meta,
+              90,
+              null,
+              floodDetails
+            )
+          );
+          return handleHardBlock(env);
+        } else {
+          // Challenge
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "flood_challenged" as any,
+              meta,
+              55,
+              null,
+              floodDetails
+            )
+          );
+          return serveChallengePagePlaceholder(meta, domainConfig, env);
+        }
+      }
     }
 
     // --- Forced CAPTCHA Mode (per-domain) ---
@@ -1580,31 +1960,49 @@ const worker: ExportedHandler<Env> = {
       // KV errors are non-fatal; continue normal flow
     }
 
-    // --- Handle Dynamic Challenge Submission (POST) ---
-    if (request.method === "POST" && (isDynamicSubmitPath(meta.path) || isFallbackSubmitRequest(request))) {
-      return handleSubmission(request, meta, domainConfig, env, ctx);
-    }
-
     // Do not issue interactive challenges for static assets.
     if (isStaticAssetPath(meta.path)) {
       return fetch(request);
     }
 
-    // --- Forced CAPTCHA Mode (per-domain) ---
-    // If enabled in domain config, every request must pass challenge first.
-    if (Number(domainConfig.force_captcha ?? 0) === 1) {
-      ctx.waitUntil(
-        logSecurityEvent(
-          env,
-          "challenge_issued",
-          meta,
-          65,
-          null,
-          "Forced CAPTCHA mode enabled for this domain"
-        )
-      );
-      return serveChallengePagePlaceholder(meta, domainConfig, env);
+    // --- Visit Counter for New Visitors (before risk engine) ---
+    if (!meta.isPrefetch) {
+      const visitCount = await checkAndIncrementVisitCounter(meta, env);
+      if (visitCount >= VISIT_CAPTCHA_THRESHOLD) {
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            "challenge_issued",
+            meta,
+            45,
+            null,
+            `New visitor exceeded visit threshold (${visitCount}/${VISIT_CAPTCHA_THRESHOLD} in ${VISIT_COUNTER_TTL}s)`
+          )
+        );
+        return serveChallengePagePlaceholder(meta, domainConfig, env);
+      }
     }
+
+    // --- Pending Challenge Failures Check ---
+    // If this IP has ANY recent CAPTCHA failures, force re-challenge.
+    // Without this, a borderline risk score could flip from SUSPICIOUS to NORMAL
+    // between requests, allowing the user through after a failed solve.
+    try {
+      const failCount = await env.SESSION_KV.get(`failrate:${meta.ip}`);
+      if (failCount && parseInt(failCount, 10) > 0) {
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            "challenge_issued",
+            meta,
+            55,
+            null,
+            `Re-challenge: IP has ${failCount} recent CAPTCHA failure(s)`
+          )
+        );
+        return serveChallengePagePlaceholder(meta, domainConfig, env);
+      }
+    } catch {}
 
     // --- Risk Scoring Engine ---
     const fingerprintHint = await getSessionFingerprintHint(request, env);
@@ -1621,21 +2019,28 @@ const worker: ExportedHandler<Env> = {
     // --- Three-Tier Dispatch ---
     switch (effectiveRiskLevel) {
       case RiskLevel.NORMAL: {
-        // Score 0-30: Transparent pass with invisible Turnstile only.
-        // In production, this would inject the Turnstile widget into the
-        // origin response or validate a pre-existing Turnstile token.
-        // For now, pass the request to the origin server.
+        // Score 0-30: Transparent pass.
+        // Dynamic sampling: log only a % of pass events to reduce D1 pressure.
         ctx.waitUntil(
-          logSecurityEvent(
+          samplePassLog(
             env,
-            "session_created",
             meta,
             risk.score,
-            null,
             `Normal risk — transparent pass (mode=${securityMode})`
           )
         );
-        return fetch(request);
+        // Cache this IP as trusted if very low risk — subsequent requests
+        // will skip the risk engine but flood protection remains active.
+        if (risk.score <= 15) {
+          ctx.waitUntil(
+            env.SESSION_KV.put(
+              `${TRUSTED_IP_PREFIX}${meta.ip}`,
+              "1",
+              { expirationTtl: TRUSTED_IP_TTL_SECONDS }
+            ).catch(() => {})
+          );
+        }
+        return fetchWithHoneypot(request, meta, env);
       }
 
       case RiskLevel.SUSPICIOUS: {
@@ -1698,6 +2103,18 @@ const worker: ExportedHandler<Env> = {
           ctx.waitUntil(triggerAIDefenseIfReady(env, meta));
         }
 
+        // Track ASN daily attack reputation
+        if (meta.asn) {
+           ctx.waitUntil((async () => {
+              try {
+                const asnAttackKey = `attack:asn:day:${new Date().toISOString().slice(0, 10)}:${meta.asn}`;
+                const currentStr = await env.SESSION_KV.get(asnAttackKey);
+                const current = currentStr ? parseInt(currentStr, 10) : 0;
+                await env.SESSION_KV.put(asnAttackKey, String(current + 1), { expirationTtl: 86400 });
+              } catch {}
+           })());
+        }
+
         return handleHardBlock(env);
       }
     }
@@ -1739,6 +2156,31 @@ async function isAICooldownLikelyActive(env: Env): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+class HoneypotInjector {
+  constructor(private paths: string[]) {}
+
+  element(el: Element) {
+    // Multi-Trap Strategy with varying stealth techniques
+    const trap1 = `<a href="${this.paths[0]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:1px; height:1px; left:-9999px; opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">API Metrics</a>`;
+    const trap2 = `<a href="${this.paths[1]}" aria-hidden="true" tabindex="-1" style="display:none; visibility:hidden;" rel="nofollow">Fallback Style</a>`;
+    const trap3 = `<a href="${this.paths[2]}" aria-hidden="true" tabindex="-1" style="position:absolute; pointer-events:none; opacity:0; width:0; height:0;" rel="nofollow">Legacy Script</a>`;
+    
+    el.append(trap1 + trap2 + trap3, { html: true });
+  }
+}
+
+async function fetchWithHoneypot(request: Request, meta: RequestMeta, env: Env): Promise<Response> {
+  let response = await fetch(request);
+  if (response.status === 200 && !meta.verifiedBot) {
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("text/html")) {
+      const paths = await getDailyHoneypotPaths(env);
+      response = new HTMLRewriter().on("body", new HoneypotInjector(paths)).transform(response);
+    }
+  }
+  return response;
 }
 
 // ---------------------------------------------------------------------------

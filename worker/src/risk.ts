@@ -19,6 +19,7 @@ import type {
   FingerprintRecord,
 } from "./types";
 import { RiskLevel } from "./types";
+import { getDailyHoneypotPaths } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Known datacenter/hosting ASN prefixes (commonly used by bots)
@@ -168,6 +169,27 @@ export async function evaluateRisk(
   }
 
 
+
+  // --- Factor 6: Header Anomaly & Protocol Profiling ---
+  if (!meta.verifiedBot && meta.userAgent) {
+    const isModernBrowserClaim = /Chrome|Firefox|Safari|Edge|Opera/i.test(meta.userAgent) && !/bot|crawl|spider/i.test(meta.userAgent);
+    
+    if (isModernBrowserClaim) {
+      if (!meta.acceptLanguage) {
+         score += 25;
+         factors.push("Missing Accept-Language header in claimed modern browser");
+         strongBotSignal = true;
+      }
+      if (meta.httpProtocol && (meta.httpProtocol === "HTTP/1.1" || meta.httpProtocol === "HTTP/1.0")) {
+         score += 15;
+         factors.push(`Suspicious protocol (${meta.httpProtocol}) for claimed modern browser`);
+      }
+      if (meta.method === "GET" && !meta.secFetchSite && !meta.secFetchMode && /Chrome|Edge/i.test(meta.userAgent)) {
+         score += 10;
+         factors.push("Missing Fetch Metadata headers in claimed Chromium browser");
+      }
+    }
+  }
 
   // --- Factor 7: Historical Fingerprint Data (D1 lookup) ---
   if (fingerprintHash) {
@@ -389,6 +411,47 @@ export async function evaluateRisk(
     // KV failure is non-fatal
   }
 
+  // --- Factor 13: Dynamic Honeypot Trap Analysis ---
+  const dailyHoneypots = await getDailyHoneypotPaths(env);
+  if (dailyHoneypots.includes(meta.path)) {
+    if (!meta.isPrefetch) {
+      try {
+        const trapKey = `trap_hit:${meta.ip}`;
+        const currentStr = await env.SESSION_KV.get(trapKey);
+        const currentCount = currentStr ? parseInt(currentStr, 10) : 0;
+        const newCount = currentCount + 1;
+        await env.SESSION_KV.put(trapKey, String(newCount), { expirationTtl: 86400 });
+
+        if (newCount >= 2) {
+          score += 45;
+          factors.push(`Repeated Honeypot hits (${newCount}) — strong scraper signal`);
+          strongBotSignal = true;
+        } else {
+          score += 25;
+          factors.push(`Initial Honeypot hit — suspicious crawler activity`);
+        }
+      } catch {
+        score += 25;
+        factors.push(`Honeypot hit (KV tracking failed)`);
+      }
+    }
+  }
+
+  // --- Factor 14: ASN Network Reputation ---
+  if (meta.asn) {
+    try {
+      const asnAttackKey = `attack:asn:day:${utcDayKey()}:${meta.asn}`;
+      const asnAttackCount = parseInt((await env.SESSION_KV.get(asnAttackKey)) || "0", 10) || 0;
+      if (asnAttackCount > 50) {
+        score += 10;
+        factors.push(`ASN exhibits sustained malicious behavior today (${asnAttackCount} blocks)`);
+      } else if (asnAttackCount > 20) {
+        score += 5;
+        factors.push(`ASN exhibits elevated malicious behavior today (${asnAttackCount} blocks)`);
+      }
+    } catch {}
+  }
+
   // Clamp score to [0, 100]
   score = Math.max(0, Math.min(100, score));
 
@@ -430,6 +493,12 @@ function utcMonthKey(): string {
 // Public: IP Rate Counter (Increment)
 // ---------------------------------------------------------------------------
 
+// Probabilistic write sampling rate: 0.2 = 20% of requests write,
+// each write adds 5 (1/0.2) to keep counters accurate on average.
+// This reduces KV writes by ~80% with negligible accuracy loss.
+const RATE_WRITE_SAMPLE = 0.2;
+const RATE_WRITE_BOOST = Math.round(1 / RATE_WRITE_SAMPLE); // = 5
+
 /**
  * Increments the request counter for an IP address in KV.
  * The counter auto-expires after 60 seconds (sliding window).
@@ -439,10 +508,10 @@ export async function incrementIPRate(
   ip: string,
   kv: KVNamespace
 ): Promise<void> {
+  if (Math.random() >= RATE_WRITE_SAMPLE) return; // Probabilistic skip
   const key = `rate:${ip}`;
   const current = await kv.get(key);
-  const count = current ? parseInt(current, 10) + 1 : 1;
-  // TTL of 60 seconds creates a rolling 1-minute window
+  const count = current ? parseInt(current, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(key, String(count), { expirationTtl: 60 });
 }
 
@@ -468,9 +537,10 @@ export async function incrementASNRate(
   asn: string,
   kv: KVNamespace
 ): Promise<void> {
+  if (Math.random() >= RATE_WRITE_SAMPLE) return;
   const key = `rate:asn:${asn}`;
   const current = await kv.get(key);
-  const count = current ? parseInt(current, 10) + 1 : 1;
+  const count = current ? parseInt(current, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(key, String(count), { expirationTtl: 60 });
 }
 
@@ -482,6 +552,7 @@ export async function incrementSubnetRate(
   ip: string,
   kv: KVNamespace
 ): Promise<void> {
+  if (Math.random() >= RATE_WRITE_SAMPLE) return;
   const v4 = extractIPv4Subnets(ip);
   if (!v4) return;
 
@@ -489,11 +560,11 @@ export async function incrementSubnetRate(
   const key16 = `rate:subnet4:${v4.subnet16}`;
 
   const current24 = await kv.get(key24);
-  const count24 = current24 ? parseInt(current24, 10) + 1 : 1;
+  const count24 = current24 ? parseInt(current24, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(key24, String(count24), { expirationTtl: 60 });
 
   const current16 = await kv.get(key16);
-  const count16 = current16 ? parseInt(current16, 10) + 1 : 1;
+  const count16 = current16 ? parseInt(current16, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(key16, String(count16), { expirationTtl: 60 });
 }
 
@@ -506,16 +577,17 @@ export async function incrementPathRate(
   asn: string | null,
   kv: KVNamespace
 ): Promise<void> {
+  if (Math.random() >= RATE_WRITE_SAMPLE) return;
   const bucket = normalizePathForRate(path);
   const globalKey = `rate:path:${bucket}`;
   const globalCurrent = await kv.get(globalKey);
-  const globalCount = globalCurrent ? parseInt(globalCurrent, 10) + 1 : 1;
+  const globalCount = globalCurrent ? parseInt(globalCurrent, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(globalKey, String(globalCount), { expirationTtl: 60 });
 
   if (!asn) return;
   const asnKey = `rate:asnpath:${asn}:${bucket}`;
   const asnCurrent = await kv.get(asnKey);
-  const asnCount = asnCurrent ? parseInt(asnCurrent, 10) + 1 : 1;
+  const asnCount = asnCurrent ? parseInt(asnCurrent, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(asnKey, String(asnCount), { expirationTtl: 60 });
 }
 
@@ -565,3 +637,201 @@ function getASNSimilarity(currentAsn: string, historicalAsn: string): "exact" | 
   if (minLen >= 2 && cur.slice(0, 2) === hist.slice(0, 2)) return "near";
   return "far";
 }
+
+// ---------------------------------------------------------------------------
+// Flood Protection — Smart Dual-Window Visitor Rate Limiting (Hardened)
+// ---------------------------------------------------------------------------
+// Composite key (IP + SHA-256(UA)) to avoid punishing shared-NAT users.
+// Dual windows: burst (15s) + sustained (60s).
+// UA entropy detection: IP-only fallback activates when bots rotate UAs.
+// ---------------------------------------------------------------------------
+
+const FLOOD_BURST_WINDOW_SECONDS = 15;
+const FLOOD_SUSTAINED_WINDOW_SECONDS = 60;
+const FLOOD_BURST_CHALLENGE_THRESHOLD = 8;
+const FLOOD_BURST_BLOCK_THRESHOLD = 15;
+const FLOOD_SUSTAINED_CHALLENGE_THRESHOLD = 8;
+const FLOOD_SUSTAINED_BLOCK_THRESHOLD = 40;
+
+// IP-only fallback thresholds (2x composite — NAT safety margin)
+const FLOOD_IP_BURST_CHALLENGE_THRESHOLD = 16;
+const FLOOD_IP_BURST_BLOCK_THRESHOLD = 30;
+const FLOOD_IP_SUSTAINED_CHALLENGE_THRESHOLD = 50;
+const FLOOD_IP_SUSTAINED_BLOCK_THRESHOLD = 80;
+
+// UA entropy: if 5+ distinct UAs from same IP in 60s → suspicious rotation
+const FLOOD_UA_ENTROPY_THRESHOLD = 5;
+
+export type FloodAction = "pass" | "challenge" | "block";
+
+export interface FloodStatus {
+  burst: number;
+  sustained: number;
+  ipBurst: number;
+  ipSustained: number;
+  uaEntropy: number;
+  action: FloodAction;
+  /** Which window/layer triggered the action */
+  triggerWindow: "none" | "burst" | "sustained" | "ip_burst" | "ip_sustained";
+}
+
+/**
+ * SHA-256 based UA fingerprint.
+ * Takes first 12 hex characters (6 bytes) — collision resistance: 2^48.
+ * Uses Web Crypto API available in Cloudflare Workers.
+ */
+async function sha256Short(str: string): Promise<string> {
+  const data = new TextEncoder().encode(str);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = new Uint8Array(hashBuffer);
+  let hex = "";
+  for (let i = 0; i < 6; i++) {
+    hex += hashArray[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+/**
+ * Increments all flood counters in one async call (ctx.waitUntil'd).
+ *
+ * Counters tracked:
+ *   - Composite (IP+UA): burst + sustained
+ *   - IP-only: burst + sustained (fallback for UA-rotating bots)
+ *   - UA diversity: distinct UA count per IP (entropy detection)
+ */
+export async function incrementFloodCounters(
+  ip: string,
+  userAgent: string,
+  kv: KVNamespace
+): Promise<void> {
+  const uaHash = await sha256Short(userAgent || "unknown");
+  const composite = `${ip}:${uaHash}`;
+
+  // Fire all increments in parallel for max throughput
+  const ops: Promise<void>[] = [];
+
+  // 1. Composite counters (IP+UA)
+  ops.push(kvIncrement(kv, `flood:b:${composite}`, FLOOD_BURST_WINDOW_SECONDS));
+  ops.push(kvIncrement(kv, `flood:s:${composite}`, FLOOD_SUSTAINED_WINDOW_SECONDS));
+
+  // 2. IP-only counters (fallback layer)
+  ops.push(kvIncrement(kv, `flood:ib:${ip}`, FLOOD_BURST_WINDOW_SECONDS));
+  ops.push(kvIncrement(kv, `flood:is:${ip}`, FLOOD_SUSTAINED_WINDOW_SECONDS));
+
+  // 3. UA diversity tracking per IP
+  const uaSeenKey = `flood:uas:${ip}:${uaHash}`;
+  ops.push(
+    (async () => {
+      try {
+        const alreadySeen = await kv.get(uaSeenKey);
+        if (!alreadySeen) {
+          await kv.put(uaSeenKey, "1", {
+            expirationTtl: FLOOD_SUSTAINED_WINDOW_SECONDS,
+          });
+          await kvIncrement(kv, `flood:uac:${ip}`, FLOOD_SUSTAINED_WINDOW_SECONDS);
+        }
+      } catch {
+        // Non-fatal
+      }
+    })()
+  );
+
+  await Promise.allSettled(ops);
+}
+
+/**
+ * Reads all flood counters in a single parallel batch and returns a decision.
+ * Only performs reads — zero writes, zero blocking side-effects.
+ */
+export async function getFloodStatus(
+  ip: string,
+  userAgent: string,
+  kv: KVNamespace
+): Promise<FloodStatus> {
+  const uaHash = await sha256Short(userAgent || "unknown");
+  const composite = `${ip}:${uaHash}`;
+
+  // Single parallel batch — 5 KV reads simultaneously
+  const [burstStr, sustainedStr, ipBurstStr, ipSustainedStr, uaCountStr] =
+    await Promise.all([
+      kv.get(`flood:b:${composite}`).catch(() => null),
+      kv.get(`flood:s:${composite}`).catch(() => null),
+      kv.get(`flood:ib:${ip}`).catch(() => null),
+      kv.get(`flood:is:${ip}`).catch(() => null),
+      kv.get(`flood:uac:${ip}`).catch(() => null),
+    ]);
+
+  const burst = safeParseInt(burstStr);
+  const sustained = safeParseInt(sustainedStr);
+  const ipBurst = safeParseInt(ipBurstStr);
+  const ipSustained = safeParseInt(ipSustainedStr);
+  const uaEntropy = safeParseInt(uaCountStr);
+
+  const base: Omit<FloodStatus, "action" | "triggerWindow"> = {
+    burst,
+    sustained,
+    ipBurst,
+    ipSustained,
+    uaEntropy,
+  };
+
+  // --- Layer 1: Composite key (IP+UA) — primary protection ---
+  if (burst >= FLOOD_BURST_BLOCK_THRESHOLD) {
+    return { ...base, action: "block", triggerWindow: "burst" };
+  }
+  if (sustained >= FLOOD_SUSTAINED_BLOCK_THRESHOLD) {
+    return { ...base, action: "block", triggerWindow: "sustained" };
+  }
+  if (burst >= FLOOD_BURST_CHALLENGE_THRESHOLD) {
+    return { ...base, action: "challenge", triggerWindow: "burst" };
+  }
+  if (sustained >= FLOOD_SUSTAINED_CHALLENGE_THRESHOLD) {
+    return { ...base, action: "challenge", triggerWindow: "sustained" };
+  }
+
+  // --- Layer 2: IP-only fallback (activates on UA rotation) ---
+  // Only enforced when high UA entropy is detected, to protect NAT users.
+  if (uaEntropy >= FLOOD_UA_ENTROPY_THRESHOLD) {
+    if (ipBurst >= FLOOD_IP_BURST_BLOCK_THRESHOLD) {
+      return { ...base, action: "block", triggerWindow: "ip_burst" };
+    }
+    if (ipSustained >= FLOOD_IP_SUSTAINED_BLOCK_THRESHOLD) {
+      return { ...base, action: "block", triggerWindow: "ip_sustained" };
+    }
+    if (ipBurst >= FLOOD_IP_BURST_CHALLENGE_THRESHOLD) {
+      return { ...base, action: "challenge", triggerWindow: "ip_burst" };
+    }
+    if (ipSustained >= FLOOD_IP_SUSTAINED_CHALLENGE_THRESHOLD) {
+      return { ...base, action: "challenge", triggerWindow: "ip_sustained" };
+    }
+  }
+
+  return { ...base, action: "pass", triggerWindow: "none" };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Atomic-style KV increment with probabilistic sampling. Non-fatal. */
+async function kvIncrement(
+  kv: KVNamespace,
+  key: string,
+  ttl: number
+): Promise<void> {
+  if (Math.random() >= RATE_WRITE_SAMPLE) return; // Probabilistic skip
+  try {
+    const current = await kv.get(key);
+    const count = current ? parseInt(current, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
+    await kv.put(key, String(count), { expirationTtl: ttl });
+  } catch {
+    // KV failure is non-fatal
+  }
+}
+
+function safeParseInt(value: string | null): number {
+  if (!value) return 0;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+

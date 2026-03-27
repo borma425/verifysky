@@ -655,7 +655,8 @@
         sliderX: Math.round(_sl._currentX),
         fingerprint: fp,
         turnstileToken: _tx._turnstileToken,
-        signature: C.signature
+        signature: C.signature,
+        originalPath: C.originalPath || C.fallbackSubmitPath || window.location.pathname || '/'
       };
 
       try {

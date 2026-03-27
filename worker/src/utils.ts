@@ -89,6 +89,12 @@ export function extractRequestMeta(request: Request): RequestMeta {
   const url = new URL(request.url);
   const ip = extractClientIP(request);
   const userAgent = request.headers.get("User-Agent") || "unknown";
+  const acceptLanguage = request.headers.get("Accept-Language");
+  const secFetchSite = request.headers.get("Sec-Fetch-Site");
+  const secFetchMode = request.headers.get("Sec-Fetch-Mode");
+  
+  const purpose = request.headers.get("Purpose") || request.headers.get("X-Purpose") || request.headers.get("Sec-Purpose");
+  const isPrefetch = purpose === "prefetch" || purpose === "preview";
 
   // Safely extract the cf object — may be undefined in local dev
   const cf = (request as unknown as { cf?: CfProperties }).cf;
@@ -112,6 +118,10 @@ export function extractRequestMeta(request: Request): RequestMeta {
       method: request.method,
       path: url.pathname,
       url: url.toString(),
+      acceptLanguage,
+      secFetchSite,
+      secFetchMode,
+      isPrefetch,
     };
   }
 
@@ -133,6 +143,10 @@ export function extractRequestMeta(request: Request): RequestMeta {
     method: request.method,
     path: url.pathname,
     url: url.toString(),
+    acceptLanguage,
+    secFetchSite,
+    secFetchMode,
+    isPrefetch,
   };
 }
 
@@ -268,4 +282,30 @@ export function isValidIP(ip: string): boolean {
   // IPv6: contains at least one colon and valid hex characters
   const ipv6Regex = /^[0-9a-fA-F:]+$/;
   return ipv6Regex.test(ip) && ip.includes(":");
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Honeypot (Level 3 Anti-Bot)
+// ---------------------------------------------------------------------------
+
+export async function getDailyHoneypotPaths(env: { JWT_SECRET: string }): Promise<string[]> {
+  const dateStr = new Date().toISOString().slice(0, 10); // "2023-10-25"
+  const encoder = new TextEncoder();
+  
+  // Create a daily varying seed using the secret + date
+  const data = encoder.encode(env.JWT_SECRET + dateStr);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  
+  // Use snippets of the hash for unique but stable daily trap paths
+  const h1 = hashHex.slice(0, 6);
+  const h2 = hashHex.slice(6, 12);
+  const h3 = hashHex.slice(12, 18);
+  
+  return [
+    `/api/v1/internal-metrics/es-${h1}.json`, // API-like trap
+    `/assets/css/fallback-es-${h2}.css`,      // Asset-like trap
+    `/wp-includes/js/jquery-migrate-es-${h3}.js` // Admin/Legacy trap
+  ];
 }

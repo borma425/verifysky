@@ -72,8 +72,8 @@ const SESSION_COOKIE_NAME = "es_session";
 /** Short-lived challenge binding cookie (binds solve request to issuer context) */
 const CHALLENGE_COOKIE_NAME = "es_challenge";
 
-/** Session token validity (4 hours, in seconds) */
-const SESSION_TTL_SECONDS = 4 * 60 * 60;
+/** Session token validity (1 hour, in seconds) */
+const SESSION_TTL_SECONDS = 1 * 60 * 60;
 /** Turnstile verification endpoint */
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -430,6 +430,28 @@ export async function handleChallengeSubmission(
 
   // Update fingerprint record
   ctx.waitUntil(upsertFingerprint(env, submission.fingerprint, meta));
+
+  // CRITICAL: Reset the visit counter SYNCHRONOUSLY before sending response.
+  // This must be awaited (not ctx.waitUntil) to ensure the counter is deleted
+  // before the client redirects. Without this, KV eventual consistency causes
+  // the redirected request to read the old high counter value.
+  await resetVisitCounter(meta, env);
+
+  // Set a post-solve grace marker (2 minutes). Even after the delete above,
+  // KV eventual consistency may cause the counter read to return a stale value.
+  // This grace marker tells the main handler to skip visit-counter checks.
+  try {
+    const uaData = new TextEncoder().encode(meta.userAgent || "unknown");
+    const uaHashBuffer = await crypto.subtle.digest("SHA-256", uaData);
+    const uaHashArray = new Uint8Array(uaHashBuffer);
+    let uaHex = "";
+    for (let i = 0; i < 4; i++) {
+      uaHex += uaHashArray[i].toString(16).padStart(2, "0");
+    }
+    await env.SESSION_KV.put(`vc_grace:${meta.ip}:${uaHex}`, "1", {
+      expirationTtl: 120,
+    });
+  } catch {}
 
   // Generate session token (JWT bound to IP + fingerprint)
   const now = Math.floor(Date.now() / 1000);
@@ -1090,6 +1112,26 @@ async function incrementHistoricalAttackCounters(
   }
 }
 
+/**
+ * Resets the visit counter for an IP+UA composite key after successful CAPTCHA solve.
+ * This prevents the counter from persisting and re-triggering CAPTCHA on the redirect.
+ */
+async function resetVisitCounter(meta: RequestMeta, env: Env): Promise<void> {
+  try {
+    const data = new TextEncoder().encode(meta.userAgent || "unknown");
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = new Uint8Array(hashBuffer);
+    let hex = "";
+    for (let i = 0; i < 4; i++) {
+      hex += hashArray[i].toString(16).padStart(2, "0");
+    }
+    const key = `vc:${meta.ip}:${hex}`;
+    await env.SESSION_KV.delete(key);
+  } catch {
+    // Non-fatal — the session age fallback in index.ts will catch this
+  }
+}
+
 async function isSubmissionRateLimited(ip: string, env: Env): Promise<boolean> {
   const key = `submitrate:${ip}`;
   try {
@@ -1504,6 +1546,7 @@ function buildChallengeHtml(
       nonce: "${nonce}",
       submitPath: "${submitPath}",
       fallbackSubmitPath: ${JSON.stringify(fallbackSubmitPath)},
+      originalPath: ${JSON.stringify(fallbackSubmitPath)},
       signature: "${signature}",
       siteKey: "${turnstileSiteKey}",
       targetHint: "${targetHint}",
@@ -1965,7 +2008,7 @@ var _tx = {
       fingerprint: fp,
       turnstileToken: _tx._turnstileToken,
       signature: C.signature,
-      originalPath: C.fallbackSubmitPath
+      originalPath: C.originalPath || C.fallbackSubmitPath
     };
     try {
       var resp = await fetch(C.submitPath, {

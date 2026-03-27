@@ -375,13 +375,23 @@ class EdgeShieldService
             return ['ok' => false, 'error' => 'Automatic provisioning completed partially. Missing Zone ID or Turnstile keys.'];
         }
 
+        // --- NEW: Automatically create the Cache Rule to prevent Click Fraud on Edge Cache ---
+        $cacheRuleResult = $this->ensureCacheRuleForEdgeShield($resolvedZoneId, $domain);
+        // We log or handle the error, but we don't fail the whole provisioning if it fails
+        // so the user still gets the worker route and turnstile.
+        $finalError = null;
+        if (!$cacheRuleResult['ok']) {
+            $finalError = 'Turnstile created, but Cache Rule failed: ' . ($cacheRuleResult['error'] ?? 'Unknown error');
+        }
+
         return [
             'ok' => true,
-            'error' => null,
+            'error' => $finalError,
             'domain_name' => $domain,
             'zone_id' => $resolvedZoneId,
             'turnstile_sitekey' => $resolvedSiteKey,
             'turnstile_secret' => $resolvedSecret,
+            'cache_rule_action' => $cacheRuleResult['action'] ?? null,
         ];
     }
 
@@ -432,6 +442,11 @@ class EdgeShieldService
         if ($zone === '' || $domain === '') {
             return ['ok' => false, 'error' => 'Zone ID or domain is empty.'];
         }
+
+        // Sync Cache Rules at the same time as worker routes
+        $cacheRuleResult = $this->ensureCacheRuleForEdgeShield($zone, $domain);
+        $cacheRuleFailed = !$cacheRuleResult['ok'];
+        $cacheRuleError = $cacheRuleResult['error'] ?? null;
 
         $primaryDomain = $domain;
         $secondaryDomain = str_starts_with($domain, 'www.')
@@ -517,7 +532,16 @@ class EdgeShieldService
             $actions[] = $pattern.':created';
         }
 
-        return ['ok' => true, 'error' => null, 'action' => implode(', ', $actions)];
+        // Append Cache Rule sync status
+        if (isset($cacheRuleResult['action'])) {
+            $actions[] = 'cache_rule:' . $cacheRuleResult['action'];
+        }
+
+        return [
+            'ok' => !$cacheRuleFailed, 
+            'error' => $cacheRuleFailed ? 'Worker routes synced, but Cache Rule sync failed: ' . $cacheRuleError : null, 
+            'action' => implode(', ', $actions)
+        ];
     }
 
     public function removeWorkerRoutes(string $zoneId, string $domainName): array
@@ -919,6 +943,29 @@ class EdgeShieldService
         $sql = sprintf(
             "SELECT * FROM custom_firewall_rules WHERE domain_name = '%s' AND id = %d LIMIT 1",
             str_replace("'", "''", strtolower(trim($domainName))),
+            $ruleId
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load firewall rule.', 'rule' => null];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        $row = is_array($rows[0] ?? null) ? $rows[0] : null;
+        if (!$row) {
+            return ['ok' => false, 'error' => 'Firewall Rule not found.', 'rule' => null];
+        }
+
+        return ['ok' => true, 'error' => null, 'rule' => $row];
+    }
+
+    /**
+     * Fetch a single firewall rule by ID without domain constraint (for bulk operations).
+     */
+    public function getCustomFirewallRuleByIdGlobal(int $ruleId): array
+    {
+        $sql = sprintf(
+            "SELECT * FROM custom_firewall_rules WHERE id = %d LIMIT 1",
             $ruleId
         );
         $result = $this->queryD1($sql);
@@ -1453,6 +1500,99 @@ class EdgeShieldService
         ];
     }
 
+    /**
+     * Revoke an admin allow-list entry from KV via the worker admin API.
+     */
+    public function revokeAllowIpViaWorkerAdmin(string $domain, string $ip): array
+    {
+        return $this->workerAdminPost($domain, '/es-admin/ip/revoke-allow', ['ip' => $ip]);
+    }
+
+    /**
+     * Revoke an admin ban entry from KV via the worker admin API.
+     */
+    public function unbanIpViaWorkerAdmin(string $domain, string $ip): array
+    {
+        return $this->workerAdminPost($domain, '/es-admin/ip/unban', ['ip' => $ip]);
+    }
+
+    /**
+     * Given a firewall rule's expression_json and action, sync KV by revoking the
+     * corresponding admin allow/ban entry. Best-effort: failures are silently ignored.
+     */
+    public function syncKvForFirewallRuleAction(string $domain, string $expressionJson, string $action): void
+    {
+        $ip = $this->extractIpFromExpression($expressionJson);
+        if ($ip === null || trim($domain) === '') {
+            return;
+        }
+
+        if ($action === 'allow') {
+            $this->revokeAllowIpViaWorkerAdmin($domain, $ip);
+        } elseif ($action === 'block') {
+            $this->unbanIpViaWorkerAdmin($domain, $ip);
+        }
+    }
+
+    /**
+     * Extract a single IP from a firewall rule expression_json (ip.src eq "x.x.x.x").
+     */
+    private function extractIpFromExpression(string $expressionJson): ?string
+    {
+        $decoded = json_decode($expressionJson, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $field = trim((string) ($decoded['field'] ?? ''));
+        $operator = trim((string) ($decoded['operator'] ?? ''));
+        $value = trim((string) ($decoded['value'] ?? ''));
+
+        if ($field === 'ip.src' && $operator === 'eq' && $value !== '' && filter_var($value, FILTER_VALIDATE_IP)) {
+            return $value;
+        }
+
+        return null;
+    }
+
+    /**
+     * Generic helper to POST to a worker admin endpoint.
+     */
+    private function workerAdminPost(string $domain, string $path, array $payload): array
+    {
+        $host = strtolower(trim($domain));
+        $host = preg_replace('#^https?://#i', '', $host) ?? $host;
+        $host = explode('/', $host, 2)[0] ?? $host;
+        $host = trim($host);
+        if ($host === '') {
+            return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];
+        }
+
+        $token = (string) ($this->getDashboardSetting('es_admin_token') ?? '');
+        if (trim($token) === '') {
+            return ['ok' => false, 'error' => 'ES Admin Token is missing in settings.'];
+        }
+
+        $url = 'https://'.$host.$path;
+
+        try {
+            $response = Http::timeout(20)
+                ->acceptJson()
+                ->withHeaders(['X-ES-Admin-Token' => $token])
+                ->post($url, $payload);
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => 'Worker admin request failed: '.$e->getMessage()];
+        }
+
+        $data = $response->json();
+        if (!$response->ok() || !is_array($data) || (($data['success'] ?? false) !== true)) {
+            $message = is_array($data) ? (string) ($data['error']['message'] ?? $data['message'] ?? 'Worker admin reported failure.') : 'Unexpected response.';
+            return ['ok' => false, 'error' => $message];
+        }
+
+        return ['ok' => true, 'error' => null, 'result' => $data];
+    }
+
     private function normalizeDomain(string $domainName): string
     {
         $domain = strtolower(trim($domainName));
@@ -1517,6 +1657,153 @@ class EdgeShieldService
         }
 
         return ['ok' => true, 'error' => null];
+    }
+
+    /**
+     * Creates or updates a SINGLE consolidated Zone Cache Rule (via Rulesets API) to bypass edge cache
+     * if the visitor does not have an Edge Shield session cookie (es_session).
+     * This forces attackers to hit the Worker's flood protection instead of spinning
+     * on cached pages for click fraud.
+     *
+     * It consolidates ALL active domains for this zone into one rule:
+     * (http.host in {"d1.com" "d2.com"} and not http.cookie contains "es_session=")
+     * This avoids hitting Cloudflare Free Plan limits (max 10 rules per zone).
+     */
+    public function ensureCacheRuleForEdgeShield(string $zoneId, string $triggeringDomain): array
+    {
+        $zone = trim($zoneId);
+        if ($zone === '') {
+            return ['ok' => false, 'error' => 'Zone ID is empty.'];
+        }
+
+        // Fetch all active domains for this zone from our DB to consolidate them into ONE rule
+        $sql = sprintf(
+            "SELECT domain_name FROM domain_configs WHERE zone_id = '%s' AND status = 'active'",
+            str_replace("'", "''", $zone)
+        );
+        $result = $this->queryD1($sql);
+        
+        $domains = [];
+        if ($result['ok']) {
+            $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+            foreach ($rows as $row) {
+                if (!empty($row['domain_name'])) {
+                    $domains[] = strtolower(trim($row['domain_name']));
+                    // Add www version if strictly needed, though usually http.host matches exactly what's requested
+                    if (!str_starts_with($row['domain_name'], 'www.')) {
+                        $domains[] = 'www.' . strtolower(trim($row['domain_name']));
+                    }
+                }
+            }
+        }
+        
+        // Always include the triggering domain just in case D1 replication is delayed
+        $triggeringDomain = strtolower(trim($triggeringDomain));
+        if ($triggeringDomain !== '') {
+            $domains[] = $triggeringDomain;
+            if (!str_starts_with($triggeringDomain, 'www.')) {
+                $domains[] = 'www.' . $triggeringDomain;
+            }
+        }
+        
+        $domains = array_values(array_unique($domains));
+        
+        if (empty($domains)) {
+            // Nothing to protect
+            return ['ok' => true, 'action' => 'skipped'];
+        }
+
+        $ruleDescription = 'Edge Shield Cache Protection - Bypass Cache without Session';
+        
+        // Build the consolidated expression: (http.host in {"domain1.com" "domain2.com"} and not http.cookie contains "es_session=")
+        $hostList = implode(' ', array_map(fn($d) => '"' . $d . '"', $domains));
+        $expression = sprintf('(http.host in {%s} and not http.cookie contains "es_session=")', $hostList);
+
+        $newRule = [
+            'description' => $ruleDescription,
+            'expression' => $expression,
+            'action' => 'set_cache_settings',
+            'action_parameters' => [
+                'cache' => false
+            ]
+        ];
+
+        // 1. Get the http_request_cache_settings ruleset for this zone
+        $lookup = $this->cloudflareRequest('GET', '/zones/'.$zone.'/rulesets', ['phase' => 'http_request_cache_settings']);
+        
+        if (!$lookup['ok']) {
+            return ['ok' => false, 'error' => 'Failed to lookup Cache Rulesets phase: ' . $lookup['error']];
+        }
+
+        $rulesets = $lookup['result'] ?? [];
+        $targetRulesetId = null;
+        
+        foreach ($rulesets as $rs) {
+            if (is_array($rs) && ($rs['phase'] ?? '') === 'http_request_cache_settings' && ($rs['kind'] ?? '') === 'zone') {
+                $targetRulesetId = $rs['id'] ?? null;
+                break;
+            }
+        }
+
+        // 2. If it doesn't exist, create it with our rule
+        if (!$targetRulesetId) {
+            $createPayload = [
+                'name' => 'default',
+                'description' => 'Zone Cache Rules created by Edge Shield',
+                'kind' => 'zone',
+                'phase' => 'http_request_cache_settings',
+                'rules' => [$newRule]
+            ];
+            
+            $create = $this->cloudflareRequest('POST', '/zones/'.$zone.'/rulesets', [], $createPayload);
+            if (!$create['ok']) {
+                return ['ok' => false, 'error' => 'Failed to create Cache Ruleset: ' . $create['error']];
+            }
+            return ['ok' => true, 'error' => null, 'action' => 'created'];
+        }
+
+        // 3. If ruleset exists, fetch it to check existing rules
+        $rulesetDetails = $this->cloudflareRequest('GET', '/zones/'.$zone.'/rulesets/'.$targetRulesetId);
+        if (!$rulesetDetails['ok']) {
+            return ['ok' => false, 'error' => 'Failed to fetch existing Cache Ruleset details: ' . $rulesetDetails['error']];
+        }
+        
+        $rules = $rulesetDetails['result']['rules'] ?? [];
+        $existingRuleId = null;
+        $isExactlySame = false;
+
+        foreach ($rules as $rule) {
+            if (($rule['description'] ?? '') === $ruleDescription) {
+                $existingRuleId = $rule['id'] ?? null;
+                if (($rule['expression'] ?? '') === $expression && ($rule['action'] ?? '') === 'set_cache_settings' && ($rule['action_parameters']['cache'] ?? null) === false) {
+                    $isExactlySame = true;
+                }
+                break;
+            }
+        }
+
+        if ($isExactlySame && $existingRuleId) {
+            return ['ok' => true, 'error' => null, 'action' => 'already_exists'];
+        }
+
+        // 4. Update or Add the rule to the ruleset
+        if ($existingRuleId) {
+            // Update existing rule
+            $update = $this->cloudflareRequest('PATCH', '/zones/'.$zone.'/rulesets/'.$targetRulesetId.'/rules/'.$existingRuleId, [], $newRule);
+            if (!$update['ok']) {
+                return ['ok' => false, 'error' => 'Failed to update Cache Rule: ' . $update['error']];
+            }
+            return ['ok' => true, 'error' => null, 'action' => 'updated'];
+        } else {
+            // Append new rule
+            // Cloudflare API doesn't support appending nicely to rules arrays via POST to /rulesets.
+            // We use POST /zones/:zone_identifier/rulesets/:ruleset_id/rules to add a new rule.
+            $add = $this->cloudflareRequest('POST', '/zones/'.$zone.'/rulesets/'.$targetRulesetId.'/rules', [], $newRule);
+            if (!$add['ok']) {
+                return ['ok' => false, 'error' => 'Failed to add Cache Rule to existing ruleset: ' . $add['error']];
+            }
+            return ['ok' => true, 'error' => null, 'action' => 'appended'];
+        }
     }
 
     private function getDashboardSetting(string $key): ?string
