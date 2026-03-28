@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS domain_configs (
     force_captcha     INTEGER NOT NULL DEFAULT 0, -- 0 | 1
     security_mode     TEXT    NOT NULL DEFAULT 'balanced', -- monitor | balanced | aggressive
     status            TEXT    NOT NULL DEFAULT 'active',  -- active | paused | revoked
+    thresholds_json   TEXT,
     created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

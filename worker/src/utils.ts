@@ -11,7 +11,7 @@
 //   createErrorResponse() — Standardized error response builder
 // ============================================================================
 
-import type { RequestMeta } from "./types";
+import type { RequestMeta, DomainConfigRecord, DomainThresholds } from "./types";
 
 // ---------------------------------------------------------------------------
 // Type assertion for Cloudflare's IncomingRequestCfProperties
@@ -90,6 +90,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
   const ip = extractClientIP(request);
   const userAgent = request.headers.get("User-Agent") || "unknown";
   const acceptLanguage = request.headers.get("Accept-Language");
+  const referer = request.headers.get("Referer");
   const secFetchSite = request.headers.get("Sec-Fetch-Site");
   const secFetchMode = request.headers.get("Sec-Fetch-Mode");
   
@@ -119,6 +120,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
       path: url.pathname,
       url: url.toString(),
       acceptLanguage,
+      referer,
       secFetchSite,
       secFetchMode,
       isPrefetch,
@@ -144,6 +146,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
     path: url.pathname,
     url: url.toString(),
     acceptLanguage,
+    referer,
     secFetchSite,
     secFetchMode,
     isPrefetch,
@@ -308,4 +311,80 @@ export async function getDailyHoneypotPaths(env: { JWT_SECRET: string }): Promis
     `/assets/css/fallback-es-${h2}.css`,      // Asset-like trap
     `/wp-includes/js/jquery-migrate-es-${h3}.js` // Admin/Legacy trap
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Public: Configuration Parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses the dynamic thresholds JSON from the DomainConfigRecord.
+ * Provides safe fallback defaults if parsing fails or fields are missing.
+ */
+export function parseThresholds(config: DomainConfigRecord | null): DomainThresholds {
+  const defaults: DomainThresholds = {
+    visit_captcha_threshold: 6,
+    daily_visit_limit: 15,
+    asn_hourly_visit_limit: 200,
+    ad_traffic_strict_mode: true,
+    flood_burst_challenge: 8,
+    flood_burst_block: 15,
+    flood_sustained_challenge: 8,
+    flood_sustained_block: 40,
+    ip_hard_ban_rate: 120,
+    max_challenge_failures: 8,
+    temp_ban_ttl_seconds: 86400,
+    ai_rule_ttl_seconds: 604800,
+    session_ttl_seconds: 3600,
+    auto_aggr_pressure_seconds: 180,
+    auto_aggr_active_seconds: 600,
+    auto_aggr_trigger_subnets: 8,
+  };
+
+  if (!config || !config.thresholds_json) {
+    return defaults;
+  }
+
+  try {
+    const parsed = JSON.parse(config.thresholds_json);
+    return {
+      visit_captcha_threshold: Number.isFinite(parsed.visit_captcha_threshold) ? parsed.visit_captcha_threshold : defaults.visit_captcha_threshold,
+      daily_visit_limit: Number.isFinite(parsed.daily_visit_limit) ? parsed.daily_visit_limit : defaults.daily_visit_limit,
+      asn_hourly_visit_limit: Number.isFinite(parsed.asn_hourly_visit_limit) ? parsed.asn_hourly_visit_limit : defaults.asn_hourly_visit_limit,
+      ad_traffic_strict_mode: typeof parsed.ad_traffic_strict_mode === 'boolean' ? parsed.ad_traffic_strict_mode : defaults.ad_traffic_strict_mode,
+      flood_burst_challenge: Number.isFinite(parsed.flood_burst_challenge) ? parsed.flood_burst_challenge : defaults.flood_burst_challenge,
+      flood_burst_block: Number.isFinite(parsed.flood_burst_block) ? parsed.flood_burst_block : defaults.flood_burst_block,
+      flood_sustained_challenge: Number.isFinite(parsed.flood_sustained_challenge) ? parsed.flood_sustained_challenge : defaults.flood_sustained_challenge,
+      flood_sustained_block: Number.isFinite(parsed.flood_sustained_block) ? parsed.flood_sustained_block : defaults.flood_sustained_block,
+      ip_hard_ban_rate: Number.isFinite(parsed.ip_hard_ban_rate) ? parsed.ip_hard_ban_rate : defaults.ip_hard_ban_rate,
+      max_challenge_failures: Number.isFinite(parsed.max_challenge_failures) ? parsed.max_challenge_failures : defaults.max_challenge_failures,
+      temp_ban_ttl_seconds: Number.isFinite(parsed.temp_ban_ttl_seconds) ? parsed.temp_ban_ttl_seconds : defaults.temp_ban_ttl_seconds,
+      ai_rule_ttl_seconds: Number.isFinite(parsed.ai_rule_ttl_seconds) ? parsed.ai_rule_ttl_seconds : defaults.ai_rule_ttl_seconds,
+      session_ttl_seconds: Number.isFinite(parsed.session_ttl_seconds) ? parsed.session_ttl_seconds : defaults.session_ttl_seconds,
+      auto_aggr_pressure_seconds: Number.isFinite(parsed.auto_aggr_pressure_seconds) ? parsed.auto_aggr_pressure_seconds : defaults.auto_aggr_pressure_seconds,
+      auto_aggr_active_seconds: Number.isFinite(parsed.auto_aggr_active_seconds) ? parsed.auto_aggr_active_seconds : defaults.auto_aggr_active_seconds,
+      auto_aggr_trigger_subnets: Number.isFinite(parsed.auto_aggr_trigger_subnets) ? parsed.auto_aggr_trigger_subnets : defaults.auto_aggr_trigger_subnets,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+/**
+ * Detects if a URL indicates traffic originating from paid ad campaigns.
+ * Looks for common tracking parameters from Google, Facebook, TikTok, and standardized UTM tags.
+ */
+export function isAdTraffic(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    const searchParams = parsedUrl.searchParams;
+    return searchParams.has('gclid') ||
+           searchParams.has('fbclid') ||
+           searchParams.has('ttclid') ||
+           searchParams.has('msclkid') ||
+           searchParams.has('utm_source') ||
+           searchParams.has('utm_medium');
+  } catch {
+    return false;
+  }
 }

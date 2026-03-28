@@ -16,6 +16,7 @@ class DomainsController extends Controller
     public function index(): View
     {
         $this->edgeShield->ensureSecurityModeColumn();
+        $this->edgeShield->ensureThresholdsColumn();
         $result = $this->edgeShield->listDomains();
 
         return view('domains.index', [
@@ -27,6 +28,7 @@ class DomainsController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $this->edgeShield->ensureSecurityModeColumn();
+        $this->edgeShield->ensureThresholdsColumn();
         $validated = $request->validate([
             'domain_name' => ['required', 'string', 'max:255'],
             'zone_id' => ['nullable', 'string', 'max:128'],
@@ -205,6 +207,86 @@ class DomainsController extends Controller
             $sync['ok']
                 ? 'Worker route synced successfully.'
                 : ($sync['error'] ?? 'Failed to sync worker route.')
+        );
+    }
+
+    public function tuning(string $domain): View|RedirectResponse
+    {
+        $this->edgeShield->ensureThresholdsColumn();
+        $result = $this->edgeShield->getDomainConfig($domain);
+        if (!$result['ok']) {
+            return redirect()->route('domains.index')->with('error', $result['error']);
+        }
+
+        $config = $result['config'];
+        $thresholds = [];
+        if (!empty($config['thresholds_json'])) {
+            $thresholds = json_decode($config['thresholds_json'], true) ?: [];
+        }
+
+        // Convert seconds to friendly units for the UI
+        if (isset($thresholds['session_ttl_seconds'])) {
+            $thresholds['session_ttl_hours'] = round($thresholds['session_ttl_seconds'] / 3600, 2);
+        }
+        if (isset($thresholds['temp_ban_ttl_seconds'])) {
+            $thresholds['temp_ban_ttl_hours'] = round($thresholds['temp_ban_ttl_seconds'] / 3600, 2);
+        }
+        if (isset($thresholds['ai_rule_ttl_seconds'])) {
+            $thresholds['ai_rule_ttl_days'] = round($thresholds['ai_rule_ttl_seconds'] / 86400, 2);
+        }
+        if (isset($thresholds['auto_aggr_pressure_seconds'])) {
+            $thresholds['auto_aggr_pressure_minutes'] = round($thresholds['auto_aggr_pressure_seconds'] / 60, 1);
+        }
+        if (isset($thresholds['auto_aggr_active_seconds'])) {
+            $thresholds['auto_aggr_active_minutes'] = round($thresholds['auto_aggr_active_seconds'] / 60, 1);
+        }
+
+        return view('domains.tuning', [
+            'domain' => $domain,
+            'config' => $config,
+            'thresholds' => $thresholds,
+        ]);
+    }
+
+    public function updateTuning(string $domain, Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'visit_captcha_threshold' => 'required|integer|min:1|max:100',
+            'daily_visit_limit' => 'required|integer|min:1|max:5000',
+            'asn_hourly_visit_limit' => 'required|integer|min:50|max:10000',
+            'flood_burst_challenge' => 'required|integer|min:1|max:500',
+            'flood_burst_block' => 'required|integer|min:1|max:500',
+            'flood_sustained_challenge' => 'required|integer|min:1|max:1000',
+            'flood_sustained_block' => 'required|integer|min:1|max:1000',
+            'ip_hard_ban_rate' => 'required|integer|min:10|max:2000',
+            'max_challenge_failures' => 'required|integer|min:1|max:50',
+            'temp_ban_ttl_hours' => 'required|numeric|min:0.01|max:720',
+            'ai_rule_ttl_days' => 'required|numeric|min:0.1|max:365',
+            'session_ttl_hours' => 'required|numeric|min:0.01|max:168',
+            'auto_aggr_pressure_minutes' => 'required|numeric|min:1|max:30',
+            'auto_aggr_active_minutes' => 'required|numeric|min:1|max:120',
+            'auto_aggr_trigger_subnets' => 'required|integer|min:2|max:50',
+        ]);
+
+        // Convert back to seconds for the Worker
+        $thresholds = $validated;
+        $thresholds['temp_ban_ttl_seconds'] = (int) ($validated['temp_ban_ttl_hours'] * 3600);
+        $thresholds['ai_rule_ttl_seconds'] = (int) ($validated['ai_rule_ttl_days'] * 86400);
+        $thresholds['session_ttl_seconds'] = (int) ($validated['session_ttl_hours'] * 3600);
+        $thresholds['auto_aggr_pressure_seconds'] = (int) ($validated['auto_aggr_pressure_minutes'] * 60);
+        $thresholds['auto_aggr_active_seconds'] = (int) ($validated['auto_aggr_active_minutes'] * 60);
+        $thresholds['ad_traffic_strict_mode'] = $request->boolean('ad_traffic_strict_mode');
+
+        // Remove the virtual UI fields before encoding
+        unset($thresholds['temp_ban_ttl_hours'], $thresholds['ai_rule_ttl_days'], $thresholds['session_ttl_hours']);
+        unset($thresholds['auto_aggr_pressure_minutes'], $thresholds['auto_aggr_active_minutes']);
+
+        $json = json_encode($thresholds);
+        $result = $this->edgeShield->updateDomainThresholds($domain, $json);
+
+        return back()->with(
+            $result['ok'] ? 'status' : 'error',
+            $result['ok'] ? 'Domain thresholds updated successfully (caches cleared).' : ($result['error'] ?: 'Failed to update thresholds.')
         );
     }
 }

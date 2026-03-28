@@ -356,10 +356,15 @@ class LogsController extends Controller
              WHERE ip_or_cidr = '".str_replace("'", "''", $ip)."'"
         );
 
-        // 3. Remove any custom WAF/AI rules that are explicitly targeting this IP
+        // 3. Remove IP from IP Farm graveyard (surgically, not blanket delete)
+        $this->edgeShield->removeIpsFromFarm([$ip]);
+
+        // 4. Remove any other custom WAF/AI rules explicitly targeting this IP
+        //    (but NOT [IP-FARM] rules, since we handled those above)
         $this->edgeShield->queryD1(
             "DELETE FROM custom_firewall_rules
-             WHERE expression_json LIKE '%\"" . str_replace("'", "''", $ip) . "\"%'"
+             WHERE expression_json LIKE '%\"" . str_replace("'", "''", $ip) . "\"%'
+             AND description NOT LIKE '[IP-FARM]%'"
         );
 
         // 4. Add persistent ALLOW rule to Manual Firewall (so it shows in UI)
@@ -443,16 +448,21 @@ class LogsController extends Controller
             'Manually blocked from security logs page'
         );
 
-        // Add persistent BLOCK rule to Custom Firewall Rules (so worker applies it globally)
-        $this->edgeShield->createCustomFirewallRule(
-            $domain,
-            "Block IP: $ip (From Logs)",
-            "block",
-            json_encode(["field" => "ip.src", "operator" => "eq", "value" => $ip]),
-            false
-        );
+        // Skip creating block rule if IP is already permanently banned in the farm
+        $farmIps = $this->edgeShield->findIpsInFarm($ip);
+        if (empty($farmIps)) {
+            // Add persistent BLOCK rule to Custom Firewall Rules (so worker applies it globally)
+            $this->edgeShield->createCustomFirewallRule(
+                $domain,
+                "Block IP: $ip (From Logs)",
+                "block",
+                json_encode(["field" => "ip.src", "operator" => "eq", "value" => $ip]),
+                false
+            );
+        }
 
-        return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours and added to Manual Firewall Rules.');
+        $farmMsg = !empty($farmIps) ? ' (already permanently banned in IP Farm)' : '';
+        return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours and added to Manual Firewall Rules.' . $farmMsg);
     }
 
     private function resolveLogDomain(array $row): string

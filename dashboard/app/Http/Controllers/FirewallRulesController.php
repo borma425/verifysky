@@ -83,6 +83,46 @@ class FirewallRulesController extends Controller
             }
         }
 
+        // --- IP Farm Sync: Allow rule → auto-remove IPs from farm ---
+        if ($validated['action'] === 'allow' && $validated['field'] === 'ip.src') {
+            $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
+            if (!empty($farmIps)) {
+                $removal = $this->edgeShield->removeIpsFromFarm($farmIps);
+                $removedCount = $removal['removed'] ?? 0;
+                // Continue creating the allow rule, but add context to success message
+                $farmMessage = $removedCount > 0
+                    ? " Also removed {$removedCount} IP(s) from the IP Farm graveyard."
+                    : '';
+
+                $create = $this->edgeShield->createCustomFirewallRule(
+                    $domain,
+                    $validated['description'] ?? '',
+                    $validated['action'],
+                    $expressionJson,
+                    ((int) ($validated['paused'] ?? 0)) === 1,
+                    $expiresAt
+                );
+
+                return back()->with(
+                    $create['ok'] ? 'status' : 'error',
+                    $create['ok'] ? 'Firewall rule created successfully.' . $farmMessage : ($create['error'] ?? 'Failed to create firewall rule.')
+                );
+            }
+        }
+
+        // --- IP Farm Sync: Block rule → reject if IP already in farm ---
+        if ($validated['action'] === 'block' && $validated['field'] === 'ip.src') {
+            $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
+            if (!empty($farmIps)) {
+                $ipList = implode(', ', array_slice($farmIps, 0, 5));
+                $extra = count($farmIps) > 5 ? ' (+' . (count($farmIps) - 5) . ' more)' : '';
+                return back()->with(
+                    'error',
+                    "These IPs are already permanently banned in the IP Farm: {$ipList}{$extra}. No need to create a duplicate block rule."
+                );
+            }
+        }
+
         $create = $this->edgeShield->createCustomFirewallRule(
             $domain,
             $validated['description'] ?? '',

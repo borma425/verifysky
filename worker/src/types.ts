@@ -146,7 +146,28 @@ export interface DomainConfigRecord {
   force_captcha: number;
   security_mode?: "monitor" | "balanced" | "aggressive";
   status: "active" | "paused" | "revoked";
+  thresholds_json?: string | null;
   created_at: string;
+}
+
+/** Parsed dynamic security thresholds per domain */
+export interface DomainThresholds {
+  visit_captcha_threshold: number;
+  daily_visit_limit: number;
+  asn_hourly_visit_limit: number;
+  ad_traffic_strict_mode: boolean;
+  flood_burst_challenge: number;
+  flood_burst_block: number;
+  flood_sustained_challenge: number;
+  flood_sustained_block: number;
+  ip_hard_ban_rate: number;
+  max_challenge_failures: number;
+  temp_ban_ttl_seconds: number;
+  ai_rule_ttl_seconds: number;
+  session_ttl_seconds: number;
+  auto_aggr_pressure_seconds: number;
+  auto_aggr_active_seconds: number;
+  auto_aggr_trigger_subnets: number;
 }
 
 /** Row in the `ip_access_rules` table */
@@ -294,6 +315,7 @@ export interface RequestMeta {
   path: string;
   url: string;
   acceptLanguage: string | null;
+  referer: string | null;
   secFetchSite: string | null;
   secFetchMode: string | null;
   isPrefetch: boolean;

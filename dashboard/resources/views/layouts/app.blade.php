@@ -42,6 +42,7 @@
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('logs.index') }}">Logs</a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('settings.index') }}">Settings</a>
       <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('trap_network.index') }}">Trap Leads</a>
+      <a class="rounded-lg px-2 py-1 text-sm {{ request()->routeIs('ip_farm.*') ? 'text-rose-200 bg-rose-500/20' : 'text-slate-300' }} transition hover:bg-rose-500/20 hover:text-rose-200" href="{{ route('ip_farm.index') }}">☠️ IP Farm</a>
       <div class="flex-1"></div>
       <form method="POST" action="{{ route('logout') }}">
         @csrf

@@ -59,6 +59,9 @@
                 Sync Route
               </button>
             </form>
+            <a href="{{ route('domains.tuning', ['domain' => $d['domain_name']]) }}" class="es-btn es-btn-secondary">
+              Tuning
+            </a>
             <form method="POST" action="{{ route('domains.force_captcha', ['domain' => $d['domain_name']]) }}">
               @csrf
               <input type="hidden" name="force_captcha" value="{{ $forced ? 0 : 1 }}">

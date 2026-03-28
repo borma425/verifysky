@@ -21,6 +21,7 @@ import type {
   ChallengeSubmission,
   SessionTokenClaims,
   ChallengeRecord,
+  DomainThresholds,
 } from "./types";
 import {
   generateNonce,
@@ -72,19 +73,13 @@ const SESSION_COOKIE_NAME = "es_session";
 /** Short-lived challenge binding cookie (binds solve request to issuer context) */
 const CHALLENGE_COOKIE_NAME = "es_challenge";
 
-/** Session token validity (1 hour, in seconds) */
-const SESSION_TTL_SECONDS = 1 * 60 * 60;
 /** Turnstile verification endpoint */
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 /** Max challenge submit attempts per IP per minute */
 const MAX_SUBMISSIONS_PER_MINUTE_PER_IP = 18;
-/** Failed challenge threshold before temporary ban */
-const MAX_FAILURES_BEFORE_TEMP_BAN = 8;
 /** Failure counter rolling window (seconds) */
 const FAILURE_WINDOW_SECONDS = 15 * 60;
-/** Temporary ban TTL (seconds) */
-const TEMP_BAN_TTL_SECONDS = 24 * 60 * 60;
 const IP_ATTACK_DAY_PREFIX = "attack:ip:day:";
 const IP_ATTACK_MONTH_PREFIX = "attack:ip:month:";
 const ATTACK_COUNTER_TTL_SECONDS = 45 * 24 * 60 * 60;
@@ -203,6 +198,7 @@ export async function handleChallengeSubmission(
   request: Request,
   meta: RequestMeta,
   domainConfig: DomainConfigRecord,
+  thresholds: DomainThresholds,
   env: Env,
   ctx: ExecutionContext
 ): Promise<Response> {
@@ -216,7 +212,7 @@ export async function handleChallengeSubmission(
   // Per-IP submission rate limit (protect challenge endpoint from flooding)
   const rateLimited = await isSubmissionRateLimited(meta.ip, env);
   if (rateLimited) {
-    ctx.waitUntil(markIPTemporarilyBanned(env, meta.ip, "submission_rate_limit", meta));
+    ctx.waitUntil(markIPTemporarilyBanned(env, meta.ip, "submission_rate_limit", thresholds, meta));
     return createErrorResponse("RATE_LIMITED", "Too many verification attempts. Try again later.", 429);
   }
 
@@ -244,7 +240,7 @@ export async function handleChallengeSubmission(
     if (strictContextBinding) {
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         "Challenge cookie validation failed"));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch", meta));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch", thresholds, meta));
       return createErrorResponse("CHALLENGE_CONTEXT_MISMATCH", "Challenge context mismatch", 403);
     }
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
@@ -303,7 +299,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "ip_mismatch"));
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         `IP mismatch: challenge issued to ${challenge.ip_address}`));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch", meta));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch", thresholds, meta));
       return createErrorResponse("IP_MISMATCH", "Challenge IP mismatch", 403);
     }
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
@@ -321,7 +317,7 @@ export async function handleChallengeSubmission(
   const expectedSubmitPath = `/es-verify/${submission.nonce.substring(0, 24)}`;
   if (meta.path !== expectedSubmitPath) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "path_mismatch"));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "path_mismatch", meta));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "path_mismatch", thresholds, meta));
     return createErrorResponse("INVALID_PATH", "Invalid submission path", 403);
   }
 
@@ -335,7 +331,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "signature_mismatch"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Challenge signature verification failed"));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "signature_mismatch", meta));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "signature_mismatch", thresholds, meta));
     return createErrorResponse("INVALID_SIGNATURE", "Challenge integrity verification failed", 403);
   }
 
@@ -345,7 +341,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "nonce_header_mismatch"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Nonce header mismatch"));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch", meta));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch", thresholds, meta));
     return createErrorResponse("INVALID_NONCE_HEADER", "Invalid nonce header", 403);
   }
 
@@ -372,7 +368,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `Telemetry rejected: ${telemetryResult.reason}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "telemetry_rejected", meta));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "telemetry_rejected", thresholds, meta));
     return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
@@ -382,7 +378,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `X position mismatch: submitted ${submission.sliderX}, target ${challenge.target_x}, diff ${xDiff}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
-    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "x_mismatch", meta));
+    ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "x_mismatch", thresholds, meta));
     return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
@@ -402,7 +398,7 @@ export async function handleChallengeSubmission(
         ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_failed"));
         ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
           "Turnstile verification failed (strict mode)"));
-        ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed", meta));
+        ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed", thresholds, meta));
         return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
       }
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
@@ -413,7 +409,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_missing"));
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
         "Turnstile token missing (strict mode)"));
-      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing", meta));
+      ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing", thresholds, meta));
       return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
     }
     ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
@@ -459,7 +455,7 @@ export async function handleChallengeSubmission(
     sub: submission.fingerprint,
     iss: "edge-shield",
     iat: now,
-    exp: now + SESSION_TTL_SECONDS,
+    exp: now + thresholds.session_ttl_seconds,
     ip: meta.ip,
     fph: submission.fingerprint,
     rsk: telemetryResult.humanScore,
@@ -473,7 +469,7 @@ export async function handleChallengeSubmission(
   ctx.waitUntil(clearFailureCounter(env, meta.ip));
 
   // Return success with session cookie
-  const cookieHeader = buildSessionCookie(sessionToken, SESSION_TTL_SECONDS);
+  const cookieHeader = buildSessionCookie(sessionToken, thresholds.session_ttl_seconds);
 
   const safeRedirect = (submission.originalPath || "/").startsWith("/") 
     ? (submission.originalPath || "/") 
@@ -1148,6 +1144,7 @@ async function recordFailureAndMaybeBan(
   env: Env,
   ip: string,
   reason: string,
+  thresholds?: DomainThresholds,
   meta?: RequestMeta
 ): Promise<void> {
   const key = `failrate:${ip}`;
@@ -1158,8 +1155,9 @@ async function recordFailureAndMaybeBan(
       expirationTtl: FAILURE_WINDOW_SECONDS,
     });
 
-    if (count >= MAX_FAILURES_BEFORE_TEMP_BAN) {
-      await markIPTemporarilyBanned(env, ip, reason, meta);
+    const maxFailures = thresholds ? thresholds.max_challenge_failures : 8;
+    if (count >= maxFailures) {
+      await markIPTemporarilyBanned(env, ip, reason, thresholds, meta);
     }
   } catch {
     // Non-fatal
@@ -1178,22 +1176,128 @@ async function markIPTemporarilyBanned(
   env: Env,
   ip: string,
   reason: string,
+  thresholds?: DomainThresholds,
   meta?: RequestMeta
 ): Promise<void> {
   const domainName = meta ? extractDomainFromMeta(meta) : null;
   const targetPath = meta?.path || "/es-verify";
+  const banTtl = thresholds ? thresholds.temp_ban_ttl_seconds : 86400; // default 24h
   try {
-    await env.SESSION_KV.put(`ban:ip:${ip}`, "1", { expirationTtl: TEMP_BAN_TTL_SECONDS });
+    const banKey = domainName ? `ban:domainIP:${domainName}:${ip}` : `ban:ip:${ip}`;
+    await env.SESSION_KV.put(banKey, "1", { expirationTtl: banTtl });
     await env.DB.prepare(
       `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
        VALUES (?, 'hard_block', ?, NULL, NULL, ?, NULL, 100, ?)`
     )
-      .bind(domainName, ip, targetPath, `Temporary IP ban (${TEMP_BAN_TTL_SECONDS}s): ${reason}`)
+      .bind(domainName, ip, targetPath, `Temporary IP ban (${banTtl}s): ${reason}`)
       .run();
     await incrementHistoricalAttackCounters(env, "hard_block", ip);
+
+    // IP Farm: Challenge failure ban → permanent ban in graveyard
+    try {
+      await addToIpFarm(env, ip, `Challenge failure ban: ${reason}`);
+    } catch {
+      // IP Farm pipeline is non-fatal
+    }
   } catch {
     // Non-fatal
   }
+}
+
+/**
+ * Adds an IP to the [IP-FARM] permanent ban graveyard via D1 Global Firewall rules.
+ * Uses smart merging: fills existing non-full rules before creating new ones.
+ * Max 500 IPs per rule. Rules have NO expiry (permanent ban).
+ */
+const IP_FARM_DESC_PREFIX_CH = "[IP-FARM]";
+const IP_FARM_MAX_PER_RULE = 500;
+
+async function addToIpFarm(env: Env, ip: string, reason: string): Promise<void> {
+  if (!ip || ip === "127.0.0.1" || ip === "::1") return;
+  if (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return;
+
+  const lowerIp = ip.toLowerCase().trim();
+
+  // Fetch all existing [IP-FARM] rules
+  const existingRes = await env.DB.prepare(
+    `SELECT id, expression_json
+     FROM custom_firewall_rules
+     WHERE description LIKE ?
+       AND action = 'block'
+       AND paused = 0
+     ORDER BY id ASC`
+  )
+    .bind(`${IP_FARM_DESC_PREFIX_CH}%`)
+    .all<{ id: number; expression_json: string }>();
+
+  const parsedRules: { id: number; expression_json: string; targets: string[] }[] = [];
+
+  if (existingRes.results) {
+    for (const rule of existingRes.results) {
+      try {
+        const expr = JSON.parse(rule.expression_json);
+        if (expr.field === "ip.src" && expr.operator === "in") {
+          const targets = String(expr.value)
+            .split(",")
+            .map((v: string) => v.trim().toLowerCase())
+            .filter(Boolean);
+          if (targets.includes(lowerIp)) return; // Already in farm
+          parsedRules.push({ id: rule.id, expression_json: rule.expression_json, targets });
+        }
+      } catch {}
+    }
+  }
+
+  // Find a non-full rule to merge into
+  let merged = false;
+  for (const pRule of parsedRules) {
+    if (pRule.targets.length < IP_FARM_MAX_PER_RULE) {
+      const mergedTargets = [...pRule.targets, lowerIp];
+      const newExpression = JSON.stringify({
+        field: "ip.src",
+        operator: "in",
+        value: mergedTargets.join(", "),
+      });
+      const farmNumber = parsedRules.indexOf(pRule) + 1;
+      const desc = `${IP_FARM_DESC_PREFIX_CH} IP Farm ${farmNumber} (${mergedTargets.length} IPs)`;
+
+      await env.DB.prepare(
+        `UPDATE custom_firewall_rules
+         SET expression_json = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND expression_json = ?`
+      )
+        .bind(newExpression, desc, pRule.id, pRule.expression_json)
+        .run();
+      merged = true;
+      break;
+    }
+  }
+
+  if (!merged) {
+    const farmNumber = parsedRules.length + 1;
+    const newExpression = JSON.stringify({
+      field: "ip.src",
+      operator: "in",
+      value: lowerIp,
+    });
+    await env.DB.prepare(
+      `INSERT INTO custom_firewall_rules (domain_name, description, action, expression_json, paused, expires_at)
+       VALUES ('global', ?, 'block', ?, 0, NULL)`
+    )
+      .bind(`${IP_FARM_DESC_PREFIX_CH} IP Farm ${farmNumber} (1 IPs)`, newExpression)
+      .run();
+  }
+
+  // Purge KV cache
+  try { await env.SESSION_KV.delete("cfr:global"); } catch {}
+
+  // Log
+  await env.DB.prepare(
+    `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+     VALUES (NULL, 'hard_block', ?, NULL, NULL, NULL, NULL, 100, ?)`
+  )
+    .bind(ip, `[IP-FARM] Permanent ban: ${reason}`)
+    .run();
 }
 
 function extractDomainFromMeta(meta: RequestMeta): string | null {

@@ -34,6 +34,8 @@ import {
   sanitizeInput,
   isValidIP,
   getDailyHoneypotPaths,
+  parseThresholds,
+  isAdTraffic,
 } from "./utils";
 import {
   evaluateRisk,
@@ -63,17 +65,19 @@ const SESSION_TTL_SECONDS = 1 * 60 * 60;
 
 /** KV key prefix for domain config caching */
 const DOMAIN_CACHE_PREFIX = "dcfg:";
+const DOMAIN_CACHE_TTL_SECONDS = 300; // 5 minutes cache for domain configs
 
-/** Domain config KV cache TTL (5 minutes) */
-const DOMAIN_CACHE_TTL = 300;
+// Domain-scoped KV Key Helpers
+function getTempBanKey(domain: string, ip: string) { return `ban:domainIP:${domain}:${ip}`; }
+function getAdminAllowKey(domain: string, ip: string) { return `allow:domainIP:${domain}:${ip}`; }
+function getTrustedIpKey(domain: string, ip: string) { return `trust:domainIP:${domain}:${ip}`; }
+function getDailyVisitKey(domain: string, ip: string) { return `daily_visit:domainIP:${domain}:${ip}`; }
 
 /** KV key prefix for IP rules caching */
 const IP_RULES_CACHE_PREFIX = "ipr:";
 const IP_RULES_CACHE_TTL = 120;
 
-const TEMP_BAN_PREFIX = "ban:ip:";
 const TEMP_BAN_TTL_SECONDS = 24 * 60 * 60;
-const ADMIN_ALLOW_PREFIX = "allow:ip:";
 const ADMIN_ALLOW_DEFAULT_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_RATE_PREFIX = "rate:admin:";
 const ADMIN_RATE_WINDOW_SECONDS = 60;
@@ -93,6 +97,8 @@ const AI_MODEL_FALLBACKS_SETTING_KEY = "settings:ai:fallbacks";
 const AI_LAST_RUN_KEY = "ai:last_run";
 const AI_COOLDOWN_SECONDS = 300;
 const IP_HARD_BAN_RATE_THRESHOLD = 120; // requests/minute per IP
+const IP_FARM_DESC_PREFIX = "[IP-FARM]";
+const IP_FARM_MAX_TARGETS_PER_RULE = 500;
 const CRAWLER_RDNS_CACHE_PREFIX = "crawler:rdns:";
 const CRAWLER_RDNS_OK_TTL_SECONDS = 24 * 60 * 60;
 const CRAWLER_RDNS_FAIL_TTL_SECONDS = 60 * 60;
@@ -131,7 +137,6 @@ const TRUSTED_IP_TTL_SECONDS = 2 * 60; // 2 minutes
 // Visit counter — CAPTCHA after N page views in a rolling window
 const VISIT_COUNTER_PREFIX = "vc:";
 const VISIT_COUNTER_TTL = 180;           // 3-minute rolling window
-const VISIT_CAPTCHA_THRESHOLD = 6;       // CAPTCHA after 6 page views
 
 // ---------------------------------------------------------------------------
 // Multi-Tenant Domain Resolution
@@ -181,7 +186,7 @@ async function resolveDomainConfig(
       // Cache in KV for fast subsequent lookups
       try {
         await env.SESSION_KV.put(cacheKey, JSON.stringify(config), {
-          expirationTtl: DOMAIN_CACHE_TTL,
+          expirationTtl: DOMAIN_CACHE_TTL_SECONDS,
         });
       } catch {
         // KV write failure is non-fatal
@@ -312,6 +317,14 @@ async function resolveCustomFirewallRules(
         rules = apexRes.results;
       }
     }
+
+    // PRIORITY SORT: Allow/bypass rules MUST be evaluated before block rules.
+    // This ensures admin allow-list always overrides IP Farm permanent bans.
+    rules.sort((a, b) => {
+      const aIsAllow = a.action === "allow" || a.action === "bypass" ? 0 : 1;
+      const bIsAllow = b.action === "allow" || b.action === "bypass" ? 0 : 1;
+      return aIsAllow - bIsAllow;
+    });
 
     try {
       await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
@@ -602,21 +615,66 @@ async function checkAndIncrementVisitCounter(
 }
 
 /**
+ * Increments and tracks visits over a 24-hour window per IP per domain.
+ * This is designed specifically to catch slow-drip click fraud attacks.
+ */
+async function checkAndIncrementDailyVisitCounter(
+  meta: RequestMeta,
+  domain: string,
+  env: Env
+): Promise<number> {
+  const uaHash = await visitCounterUAHash(meta.userAgent);
+  const key = getDailyVisitKey(domain, meta.ip) + ":" + uaHash;
+  try {
+    const current = await env.SESSION_KV.get(key);
+    const count = current ? parseInt(current, 10) + 1 : 1;
+    await env.SESSION_KV.put(key, String(count), {
+      expirationTtl: 86400, // 24 hours
+    });
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Tracks total unverified visits originating from a specific ASN over a 1-hour window.
+ * This is designed specifically to challenge distributed proxy attacks from the same network provider.
+ */
+async function checkAndIncrementASNVisitCounter(
+  asn: string,
+  domain: string,
+  env: Env
+): Promise<number> {
+  const key = `asn_visit:domainASN:${domain}:${asn}`;
+  try {
+    const current = await env.SESSION_KV.get(key);
+    const count = current ? parseInt(current, 10) + 1 : 1;
+    await env.SESSION_KV.put(key, String(count), {
+      expirationTtl: 3600, // 1 hour sliding window
+    });
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Checks whether an IP is temporarily banned in KV.
  * Returns true when ban marker is present.
  */
-async function isTemporarilyBanned(ip: string, env: Env): Promise<boolean> {
+async function isTemporarilyBanned(ip: string, domain: string, env: Env): Promise<boolean> {
   try {
-    const ban = await env.SESSION_KV.get(`${TEMP_BAN_PREFIX}${ip}`);
+    const ban = await env.SESSION_KV.get(getTempBanKey(domain, ip));
     return ban === "1";
   } catch {
     return false;
   }
 }
 
-async function isAdminAllowedIP(ip: string, env: Env): Promise<boolean> {
+async function isAdminAllowedIP(ip: string, domain: string, env: Env): Promise<boolean> {
   try {
-    const allow = await env.SESSION_KV.get(`${ADMIN_ALLOW_PREFIX}${ip}`);
+    const allow = await env.SESSION_KV.get(getAdminAllowKey(domain, ip));
     return allow !== null;
   } catch {
     return false;
@@ -826,6 +884,7 @@ async function parseAdminBody(request: Request): Promise<AdminIPRequestBody | nu
 async function handleAdminIPRoute(
   request: Request,
   meta: RequestMeta,
+  domain: string,
   env: Env
 ): Promise<Response> {
   if (!isAdminAuthorized(request, env)) {
@@ -848,8 +907,8 @@ async function handleAdminIPRoute(
     }
 
     const [banned, allowed] = await Promise.all([
-      env.SESSION_KV.get(`${TEMP_BAN_PREFIX}${ip}`),
-      env.SESSION_KV.get(`${ADMIN_ALLOW_PREFIX}${ip}`),
+      env.SESSION_KV.get(getTempBanKey(domain, ip)),
+      env.SESSION_KV.get(getAdminAllowKey(domain, ip)),
     ]);
 
     return createJsonResponse({
@@ -883,10 +942,10 @@ async function handleAdminIPRoute(
       ttl_hours: ttlHours,
     });
 
-    await env.SESSION_KV.put(`${ADMIN_ALLOW_PREFIX}${ip}`, allowMeta, {
+    await env.SESSION_KV.put(getAdminAllowKey(domain, ip), allowMeta, {
       expirationTtl: ttlSeconds || ADMIN_ALLOW_DEFAULT_TTL_SECONDS,
     });
-    await env.SESSION_KV.delete(`${TEMP_BAN_PREFIX}${ip}`);
+    await env.SESSION_KV.delete(getTempBanKey(domain, ip));
 
     return createJsonResponse({
       success: true,
@@ -911,10 +970,10 @@ async function handleAdminIPRoute(
     const ttlSeconds = ttlHours * 60 * 60;
     const reason = sanitizeInput(body?.reason || "manual admin block", 256);
 
-    await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${ip}`, "1", {
+    await env.SESSION_KV.put(getTempBanKey(domain, ip), "1", {
       expirationTtl: ttlSeconds || TEMP_BAN_TTL_SECONDS,
     });
-    await env.SESSION_KV.delete(`${ADMIN_ALLOW_PREFIX}${ip}`);
+    await env.SESSION_KV.delete(getAdminAllowKey(domain, ip));
 
     return createJsonResponse({
       success: true,
@@ -932,7 +991,7 @@ async function handleAdminIPRoute(
       return createErrorResponse("INVALID_IP", "Valid IP is required", 400);
     }
 
-    await env.SESSION_KV.delete(`${TEMP_BAN_PREFIX}${ip}`);
+    await env.SESSION_KV.delete(getTempBanKey(domain, ip));
     return createJsonResponse({
       success: true,
       action: "unban",
@@ -947,7 +1006,7 @@ async function handleAdminIPRoute(
       return createErrorResponse("INVALID_IP", "Valid IP is required", 400);
     }
 
-    await env.SESSION_KV.delete(`${ADMIN_ALLOW_PREFIX}${ip}`);
+    await env.SESSION_KV.delete(getAdminAllowKey(domain, ip));
     return createJsonResponse({
       success: true,
       action: "revoke_allow",
@@ -1149,6 +1208,185 @@ function shouldAutoBanMalicious(risk: RiskAssessment): boolean {
   );
 }
 
+// ---------------------------------------------------------------------------
+// IP Farm — Permanent Ban Engine
+// Sends confirmed malicious IPs to the "graveyard" via D1 Global Firewall rules.
+// These rules have NO expiry (expires_at = NULL) and apply to ALL domains.
+// Uses smart merging: fills existing non-full [IP-FARM] rules before creating new ones.
+// ---------------------------------------------------------------------------
+
+/**
+ * Checks whether the given IP matches any 'allow' or 'bypass' rule in the
+ * custom_firewall_rules table for 'global' or any domain. If so, the IP
+ * must NOT be added to the farm.
+ */
+async function isIpAllowListed(ip: string, env: Env): Promise<boolean> {
+  try {
+    const rulesRes = await env.DB.prepare(
+      `SELECT expression_json FROM custom_firewall_rules
+       WHERE (action = 'allow' OR action = 'bypass')
+         AND paused = 0
+         AND (expires_at IS NULL OR expires_at > ?)
+       LIMIT 200`
+    )
+      .bind(Math.floor(Date.now() / 1000))
+      .all<{ expression_json: string }>();
+
+    if (!rulesRes.results) return false;
+
+    const lowerIp = ip.toLowerCase();
+    for (const rule of rulesRes.results) {
+      try {
+        const expr = JSON.parse(rule.expression_json);
+        if (expr.field === "ip.src") {
+          if (expr.operator === "eq" && expr.value.toLowerCase() === lowerIp) return true;
+          if (expr.operator === "in") {
+            const list = String(expr.value).split(",").map((v: string) => v.trim().toLowerCase());
+            if (list.some((target: string) => target.includes("/") ? isIPv4InCidr(ip, target) : target === lowerIp)) return true;
+          }
+        }
+      } catch {
+        // Skip invalid JSON
+      }
+    }
+    return false;
+  } catch {
+    return false; // Fail-open: don't block the farm pipeline
+  }
+}
+
+/**
+ * Permanently bans an IP by adding it to a Global Firewall [IP-FARM] rule.
+ * - Checks allow-list bypass first
+ * - Deduplicates across all existing farm rules
+ * - Fills non-full rules before creating new ones
+ * - Rules have NO expiry (permanent ban)
+ * - domain_name = 'global' (applies to all domains)
+ *
+ * Designed to be called via ctx.waitUntil() — fully async, non-blocking.
+ */
+async function markForIpFarm(
+  ip: string,
+  env: Env,
+  meta: RequestMeta,
+  reason: string
+): Promise<void> {
+  try {
+    // Validate IP
+    if (!ip || ip === "127.0.0.1" || ip === "::1") return;
+    if (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return;
+
+    // Check allow-list bypass
+    if (await isIpAllowListed(ip, env)) return;
+
+    const lowerIp = ip.toLowerCase().trim();
+    const nowSecs = Math.floor(Date.now() / 1000);
+
+    // Fetch all existing [IP-FARM] rules
+    const existingRes = await env.DB.prepare(
+      `SELECT id, expression_json
+       FROM custom_firewall_rules
+       WHERE description LIKE ?
+         AND action = 'block'
+         AND paused = 0
+       ORDER BY id ASC`
+    )
+      .bind(`${IP_FARM_DESC_PREFIX}%`)
+      .all<{ id: number; expression_json: string }>();
+
+    const parsedRules: { id: number; expression_json: string; targets: string[] }[] = [];
+
+    if (existingRes.results) {
+      for (const rule of existingRes.results) {
+        try {
+          const expr = JSON.parse(rule.expression_json);
+          if (expr.field === "ip.src" && expr.operator === "in") {
+            const targets = String(expr.value)
+              .split(",")
+              .map((v: string) => v.trim().toLowerCase())
+              .filter(Boolean);
+
+            // Check if IP already exists in this rule
+            if (targets.includes(lowerIp)) return; // Already in farm
+
+            parsedRules.push({
+              id: rule.id,
+              expression_json: rule.expression_json,
+              targets,
+            });
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    // Find a non-full rule to merge into
+    let merged = false;
+    for (const pRule of parsedRules) {
+      if (pRule.targets.length < IP_FARM_MAX_TARGETS_PER_RULE) {
+        const mergedTargets = [...pRule.targets, lowerIp];
+        const newExpression = JSON.stringify({
+          field: "ip.src",
+          operator: "in",
+          value: mergedTargets.join(", "),
+        });
+
+        const farmNumber = parsedRules.indexOf(pRule) + 1;
+        const newDescription = `${IP_FARM_DESC_PREFIX} IP Farm ${farmNumber} (${mergedTargets.length} IPs)`;
+
+        await env.DB.prepare(
+          `UPDATE custom_firewall_rules
+           SET expression_json = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND expression_json = ?`
+        )
+          .bind(newExpression, newDescription, pRule.id, pRule.expression_json)
+          .run();
+
+        merged = true;
+        break;
+      }
+    }
+
+    // If all rules are full (or none exist), create a new rule
+    if (!merged) {
+      const farmNumber = parsedRules.length + 1;
+      const newExpression = JSON.stringify({
+        field: "ip.src",
+        operator: "in",
+        value: lowerIp,
+      });
+
+      await env.DB.prepare(
+        `INSERT INTO custom_firewall_rules (domain_name, description, action, expression_json, paused, expires_at)
+         VALUES ('global', ?, 'block', ?, 0, NULL)`
+      )
+        .bind(
+          `${IP_FARM_DESC_PREFIX} IP Farm ${farmNumber} (1 IPs)`,
+          newExpression
+        )
+        .run();
+    }
+
+    // Purge KV cache so the worker picks up the change instantly
+    try {
+      await env.SESSION_KV.delete("cfr:global");
+    } catch {}
+
+    // Log the farm event
+    await logSecurityEvent(
+      env,
+      "hard_block" as any,
+      meta,
+      100,
+      null,
+      `[IP-FARM] Permanent ban: ${reason}`
+    );
+  } catch {
+    // IP Farm pipeline must never crash the Worker
+  }
+}
+
 function getIpSubnet(ip: string): string {
   if (!ip) return "unknown";
   if (ip.includes(":")) {
@@ -1175,6 +1413,11 @@ async function resolveEffectiveSecurityMode(
   const domain = String(domainConfig.domain_name || "").toLowerCase();
   if (!domain) return configured;
 
+  const thresholds = parseThresholds(domainConfig);
+  const pressureTtl = thresholds.auto_aggr_pressure_seconds || AUTO_AGGR_PRESSURE_TTL_SECONDS;
+  const activeTtl = thresholds.auto_aggr_active_seconds || AUTO_AGGR_ACTIVE_TTL_SECONDS;
+  const triggerCount = thresholds.auto_aggr_trigger_subnets || AUTO_AGGR_TRIGGER_COUNT;
+
   const activeKey = `${AUTO_AGGR_ACTIVE_PREFIX}${domain}`;
   const pressureKey = `${AUTO_AGGR_PRESSURE_PREFIX}${domain}`;
 
@@ -1200,14 +1443,14 @@ async function resolveEffectiveSecurityMode(
       subnets.push(subnet);
       if (subnets.length > 20) subnets.shift();
       await env.SESSION_KV.put(pressureKey, JSON.stringify(subnets), {
-        expirationTtl: AUTO_AGGR_PRESSURE_TTL_SECONDS,
+        expirationTtl: pressureTtl,
       });
     }
 
     const next = subnets.length;
-    if (next >= AUTO_AGGR_TRIGGER_COUNT) {
+    if (next >= triggerCount) {
       await env.SESSION_KV.put(activeKey, "1", {
-        expirationTtl: AUTO_AGGR_ACTIVE_TTL_SECONDS,
+        expirationTtl: activeTtl,
       });
       ctx.waitUntil(
         logSecurityEvent(
@@ -1216,7 +1459,7 @@ async function resolveEffectiveSecurityMode(
           meta,
           risk.score,
           null,
-          `Auto-escalated domain to aggressive for ${AUTO_AGGR_ACTIVE_TTL_SECONDS}s (distributed pressure, ${next} unique subnets)`
+          `Auto-escalated domain to aggressive for ${activeTtl}s (distributed pressure, ${next} unique subnets)`
         )
       );
       return "aggressive";
@@ -1300,7 +1543,8 @@ async function handleSubmission(
 ): Promise<Response> {
   try {
     const { handleChallengeSubmission } = await import("./challenge");
-    return handleChallengeSubmission(request, meta, domainConfig, env, ctx);
+    const thresholds = parseThresholds(domainConfig);
+    return handleChallengeSubmission(request, meta, domainConfig, thresholds, env, ctx);
   } catch {
     return createErrorResponse(
       "CHALLENGE_UNAVAILABLE",
@@ -1415,7 +1659,7 @@ const worker: ExportedHandler<Env> = {
       return handleHealthCheck();
     }
     if (meta.path.startsWith("/es-admin/")) {
-      return handleAdminIPRoute(request, meta, env);
+      return handleAdminIPRoute(request, meta, domain, env);
     }
 
     // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
@@ -1435,7 +1679,7 @@ const worker: ExportedHandler<Env> = {
     }
 
     // Admin manual allow-list override.
-    if (await isAdminAllowedIP(meta.ip, env)) {
+    if (await isAdminAllowedIP(meta.ip, domain, env)) {
       ctx.waitUntil(
         logSecurityEvent(
           env,
@@ -1456,9 +1700,7 @@ const worker: ExportedHandler<Env> = {
     // for trusted IPs to prevent abuse of the trust window for click fraud.
     let isTrustedIP = false;
     try {
-      const cachedDecision = await env.SESSION_KV.get(
-        `${TRUSTED_IP_PREFIX}${meta.ip}`
-      );
+      const cachedDecision = await env.SESSION_KV.get(getTrustedIpKey(domain, meta.ip));
       if (cachedDecision === "1") {
         isTrustedIP = true;
         // Do NOT return early — continue to flood protection below
@@ -1468,7 +1710,7 @@ const worker: ExportedHandler<Env> = {
     }
 
     // Fast hard-stop for known abusive IPs (temporary ban window).
-    if (await isTemporarilyBanned(meta.ip, env)) {
+    if (await isTemporarilyBanned(meta.ip, domain, env)) {
       ctx.waitUntil(
         logSecurityEvent(
           env,
@@ -1476,7 +1718,7 @@ const worker: ExportedHandler<Env> = {
           meta,
           100,
           null,
-          `Temporarily banned IP (${TEMP_BAN_TTL_SECONDS}s window)`
+          `Temporarily banned IP`
         )
         );
       return handleHardBlock(env);
@@ -1498,6 +1740,7 @@ const worker: ExportedHandler<Env> = {
       const expectedKey = jwtSecret ? jwtSecret.substring(0, 16) : null;
 
       if (testKey && expectedKey && testKey === expectedKey) {
+        const thresholds = parseThresholds(domainConfig || null);
         if (testMode === "challenge") {
           // Provide a dummy domain config if tested outside an onboarded domain
           const dummyConfig = domainConfig || {
@@ -1543,6 +1786,22 @@ const worker: ExportedHandler<Env> = {
       return fetch(request);
     }
 
+    let thresholds = parseThresholds(domainConfig);
+
+    // --- Factor: Ad Traffic Strictness ---
+    if (thresholds.ad_traffic_strict_mode && isAdTraffic(meta.url)) {
+      thresholds = {
+        ...thresholds,
+        visit_captcha_threshold: Math.max(1, Math.floor(thresholds.visit_captcha_threshold / 2)),
+        daily_visit_limit: Math.max(1, Math.floor(thresholds.daily_visit_limit / 2)),
+        asn_hourly_visit_limit: Math.max(1, Math.floor(thresholds.asn_hourly_visit_limit / 2)),
+        flood_burst_challenge: Math.max(1, Math.floor(thresholds.flood_burst_challenge / 2)),
+        flood_burst_block: Math.max(1, Math.floor(thresholds.flood_burst_block / 2)),
+        flood_sustained_challenge: Math.max(1, Math.floor(thresholds.flood_sustained_challenge / 2)),
+        flood_sustained_block: Math.max(1, Math.floor(thresholds.flood_sustained_block / 2)),
+      };
+    }
+
     // --- Sensitive Paths WAF Module ---
     // High-priority evaluation for critical internal URIs (.env, wp-login, etc.)
     const sensitivePaths = await resolveSensitivePaths(domain, env);
@@ -1579,22 +1838,22 @@ const worker: ExportedHandler<Env> = {
 
          if (isBlock) {
              try {
-                await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-                  expirationTtl: TEMP_BAN_TTL_SECONDS,
+                await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+                  expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
                 });
              } catch {}
+              // IP Farm: Hard Block sensitive path → permanent ban
+              ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path hard block: ${pattern} (${rule.match_type})`));
              return handleHardBlock(env);
          } else if (isChallenge) {
-             return serveChallengePagePlaceholder(meta, domainConfig || {
-                domain_name: domain,
-                zone_id: "test",
-                turnstile_sitekey: "test",
-                turnstile_secret: "test",
-                force_captcha: 0,
-                security_mode: "balanced",
-                status: "active",
-                created_at: new Date().toISOString()
-             }, env);
+              // IP Farm: Challenge sensitive path — only if IP has prior failures
+              try {
+                const priorFails = await env.SESSION_KV.get(`failrate:${meta.ip}`);
+                if (priorFails && parseInt(priorFails, 10) > 0) {
+                  ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path challenge with ${priorFails} prior failures: ${pattern}`));
+                }
+              } catch {}
+             return serveChallengePagePlaceholder(meta, domainConfig, env);
          }
       }
     }
@@ -1678,17 +1937,7 @@ const worker: ExportedHandler<Env> = {
          } else if (isAllow) {
              return fetchWithHoneypot(request, meta, env);
          } else if (isChallenge) {
-             // Pass generic config or the resolved domain config if test mode allows
-             return serveChallengePagePlaceholder(meta, domainConfig || {
-                domain_name: domain,
-                zone_id: "test",
-                turnstile_sitekey: "test",
-                turnstile_secret: "test",
-                force_captcha: 0,
-                security_mode: "balanced",
-                status: "active",
-                created_at: new Date().toISOString()
-             }, env);
+             return serveChallengePagePlaceholder(meta, domainConfig, env);
          }
          // if action is "log", we just continue checking next rules.
       }
@@ -1726,7 +1975,7 @@ const worker: ExportedHandler<Env> = {
         if (!hasGrace) {
           ctx.waitUntil(incrementFloodCounters(meta.ip, meta.userAgent, env.SESSION_KV));
         }
-        const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV);
+        const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV, thresholds);
         if (floodStatus.action !== "pass") {
           const floodDetails = `Post-session flood ${floodStatus.action} (burst=${floodStatus.burst}/15s, sustained=${floodStatus.sustained}/60s, grace=${hasGrace})`;
 
@@ -1737,8 +1986,8 @@ const worker: ExportedHandler<Env> = {
             // flood counters persisting from pre-solve requests.
             if (floodStatus.action === "block") {
               try {
-                await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-                  expirationTtl: TEMP_BAN_TTL_SECONDS,
+                await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+                  expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
                 });
               } catch {}
               ctx.waitUntil(logSecurityEvent(env, "flood_blocked" as any, meta, 90, null, floodDetails));
@@ -1750,8 +1999,8 @@ const worker: ExportedHandler<Env> = {
             // Escalate ALL flood triggers to hard block (no more CAPTCHAs).
             // They already proved human once; continued flooding = bot/abuse.
             try {
-              await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-                expirationTtl: TEMP_BAN_TTL_SECONDS,
+              await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+                expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
               });
             } catch {}
             ctx.waitUntil(logSecurityEvent(env, "flood_blocked" as any, meta, 90, null,
@@ -1763,13 +2012,14 @@ const worker: ExportedHandler<Env> = {
         // Layer 2: Visit counter (catches slow attacks — many pages over time)
         if (!hasGrace) {
           const visitCount = await checkAndIncrementVisitCounter(meta, env);
-          if (visitCount >= VISIT_CAPTCHA_THRESHOLD) {
+          const allowUserAgentBasedBots = String(env.ES_ALLOW_UA_CRAWLER_ALLOWLIST || "").toLowerCase();
+          if (visitCount >= thresholds.visit_captcha_threshold && allowUserAgentBasedBots !== "on") {
             // Session holder exceeded visit threshold outside grace window.
             // A legitimate user would never hit 6 pages in 3 minutes after proving human.
             // Hard ban for 24 hours.
             try {
-              await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-                expirationTtl: TEMP_BAN_TTL_SECONDS,
+              await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+                expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
               });
             } catch {}
             ctx.waitUntil(
@@ -1779,7 +2029,7 @@ const worker: ExportedHandler<Env> = {
                 meta,
                 95,
                 null,
-                `Post-CAPTCHA abuse: session holder exceeded visit threshold (${visitCount}/${VISIT_CAPTCHA_THRESHOLD} in ${VISIT_COUNTER_TTL}s) — 24h ban applied`
+                `Post-CAPTCHA abuse: session holder exceeded visit threshold (${visitCount}/${thresholds.visit_captcha_threshold} in ${VISIT_COUNTER_TTL}s) — 24h ban applied`
               )
             );
             return handleHardBlock(env);
@@ -1797,14 +2047,41 @@ const worker: ExportedHandler<Env> = {
     // --- Trusted IP Path: Visit Counter + Flood Read-Only ---
     // Trusted IPs skip expensive risk engine but are still monitored.
     // Visit counter catches slow attacks (6 pages/3 min).
+    // Daily Visit counter catches extremely slow "drip" attacks over 24 hours.
     // Flood read-only catches burst attacks during trust-transition window.
     if (isTrustedIP && !meta.isPrefetch) {
+      // Layer 1.5: Daily Visit Counter
+      const dailyVisits = await checkAndIncrementDailyVisitCounter(meta, domain, env);
+      if (dailyVisits > thresholds.daily_visit_limit) {
+        try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch {}
+        ctx.waitUntil(
+          logSecurityEvent(
+            env, "challenge_issued" as any, meta, 50, null,
+            `Trusted IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h) — trust revoked`
+          )
+        );
+        return serveChallengePagePlaceholder(meta, domainConfig, env);
+      }
+
+      // Layer 1.7: ASN Hourly Counter
+      if (meta.asn) {
+        const asnVisits = await checkAndIncrementASNVisitCounter(meta.asn, domain, env);
+        if (asnVisits > thresholds.asn_hourly_visit_limit) {
+          try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch {}
+          ctx.waitUntil(
+            logSecurityEvent(env, "challenge_issued" as any, meta, 50, null, `Trusted IP ASN (${meta.asn}) exceeded hourly limit (${asnVisits}/${thresholds.asn_hourly_visit_limit}) — trust revoked`)
+          );
+          return serveChallengePagePlaceholder(meta, domainConfig, env);
+        }
+      }
+
       // Layer 1: Visit counter (1 read + 1 write)
       const visitCount = await checkAndIncrementVisitCounter(meta, env);
-      if (visitCount >= VISIT_CAPTCHA_THRESHOLD) {
+      const allowUserAgentBasedBots = String(env.ES_ALLOW_UA_CRAWLER_ALLOWLIST || "").toLowerCase();
+      if (visitCount >= thresholds.visit_captcha_threshold && allowUserAgentBasedBots !== "on") {
         // Invalidate trust — this IP is suspicious
         try {
-          await env.SESSION_KV.delete(`${TRUSTED_IP_PREFIX}${meta.ip}`);
+          await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip));
         } catch {}
         ctx.waitUntil(
           logSecurityEvent(
@@ -1813,7 +2090,7 @@ const worker: ExportedHandler<Env> = {
             meta,
             50,
             null,
-            `Trusted IP exceeded visit threshold (${visitCount}/${VISIT_CAPTCHA_THRESHOLD} in ${VISIT_COUNTER_TTL}s) — trust revoked`
+            `Trusted IP exceeded visit threshold (${visitCount}/${thresholds.visit_captcha_threshold} in ${VISIT_COUNTER_TTL}s) — trust revoked`
           )
         );
         return serveChallengePagePlaceholder(meta, domainConfig, env);
@@ -1821,11 +2098,11 @@ const worker: ExportedHandler<Env> = {
 
       // Layer 2: Flood read-only (5 reads, 0 writes — free safety net)
       // Counters may still be alive from the pre-trust phase (~60s overlap)
-      const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV);
+      const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV, thresholds);
       if (floodStatus.action !== "pass") {
         // Burst detected — invalidate trust
         try {
-          await env.SESSION_KV.delete(`${TRUSTED_IP_PREFIX}${meta.ip}`);
+          await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip));
         } catch {}
         ctx.waitUntil(
           logSecurityEvent(
@@ -1839,8 +2116,8 @@ const worker: ExportedHandler<Env> = {
         );
         if (floodStatus.action === "block") {
           try {
-            await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-              expirationTtl: TEMP_BAN_TTL_SECONDS,
+            await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+              expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
             });
           } catch {}
           return handleHardBlock(env);
@@ -1859,7 +2136,7 @@ const worker: ExportedHandler<Env> = {
       // Increment counters in the background (non-blocking)
       ctx.waitUntil(incrementFloodCounters(meta.ip, meta.userAgent, env.SESSION_KV));
 
-      const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV);
+      const floodStatus = await getFloodStatus(meta.ip, meta.userAgent, env.SESSION_KV, thresholds);
       const floodMode = getSecurityMode(domainConfig);
 
       if (floodStatus.action !== "pass") {
@@ -1881,8 +2158,8 @@ const worker: ExportedHandler<Env> = {
         } else if (floodStatus.action === "block") {
           // Block: temp-ban + hard block
           try {
-            await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-              expirationTtl: TEMP_BAN_TTL_SECONDS,
+            await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+              expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
             });
           } catch {}
           ctx.waitUntil(
@@ -1941,8 +2218,8 @@ const worker: ExportedHandler<Env> = {
     try {
       const ipRate = await getIPRateCount(meta.ip, env.SESSION_KV);
       if (ipRate >= IP_HARD_BAN_RATE_THRESHOLD) {
-        await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-          expirationTtl: TEMP_BAN_TTL_SECONDS,
+        await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+          expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
         });
         ctx.waitUntil(
           logSecurityEvent(
@@ -1968,7 +2245,8 @@ const worker: ExportedHandler<Env> = {
     // --- Visit Counter for New Visitors (before risk engine) ---
     if (!meta.isPrefetch) {
       const visitCount = await checkAndIncrementVisitCounter(meta, env);
-      if (visitCount >= VISIT_CAPTCHA_THRESHOLD) {
+      const allowUserAgentBasedBots = String(env.ES_ALLOW_UA_CRAWLER_ALLOWLIST || "").toLowerCase();
+      if (visitCount >= thresholds.visit_captcha_threshold && allowUserAgentBasedBots !== "on") {
         ctx.waitUntil(
           logSecurityEvent(
             env,
@@ -1976,7 +2254,7 @@ const worker: ExportedHandler<Env> = {
             meta,
             45,
             null,
-            `New visitor exceeded visit threshold (${visitCount}/${VISIT_CAPTCHA_THRESHOLD} in ${VISIT_COUNTER_TTL}s)`
+            `New visitor exceeded visit threshold (${visitCount}/${thresholds.visit_captcha_threshold} in ${VISIT_COUNTER_TTL}s)`
           )
         );
         return serveChallengePagePlaceholder(meta, domainConfig, env);
@@ -2029,12 +2307,30 @@ const worker: ExportedHandler<Env> = {
             `Normal risk — transparent pass (mode=${securityMode})`
           )
         );
+
+        // Slow-drip protection: Check daily limit before granting a completely free pass
+        if (!meta.isPrefetch) {
+          const dailyVisits = await checkAndIncrementDailyVisitCounter(meta, domain, env);
+          if (dailyVisits > thresholds.daily_visit_limit) {
+            ctx.waitUntil(logSecurityEvent(env, "challenge_issued" as any, meta, 50, null, `Low-risk IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h)`));
+            return serveChallengePagePlaceholder(meta, domainConfig, env);
+          }
+
+          if (meta.asn) {
+            const asnVisits = await checkAndIncrementASNVisitCounter(meta.asn, domain, env);
+            if (asnVisits > thresholds.asn_hourly_visit_limit) {
+              ctx.waitUntil(logSecurityEvent(env, "challenge_issued" as any, meta, 50, null, `Low-risk IP ASN (${meta.asn}) exceeded hourly limit (${asnVisits}/${thresholds.asn_hourly_visit_limit})`));
+              return serveChallengePagePlaceholder(meta, domainConfig, env);
+            }
+          }
+        }
+
         // Cache this IP as trusted if very low risk — subsequent requests
         // will skip the risk engine but flood protection remains active.
         if (risk.score <= 15) {
           ctx.waitUntil(
             env.SESSION_KV.put(
-              `${TRUSTED_IP_PREFIX}${meta.ip}`,
+              getTrustedIpKey(domain, meta.ip),
               "1",
               { expirationTtl: TRUSTED_IP_TTL_SECONDS }
             ).catch(() => {})
@@ -2080,8 +2376,8 @@ const worker: ExportedHandler<Env> = {
         // Persist a short temporary ban for high-confidence malicious probes.
         if (shouldAutoBanMalicious(risk)) {
           try {
-            await env.SESSION_KV.put(`${TEMP_BAN_PREFIX}${meta.ip}`, "1", {
-              expirationTtl: TEMP_BAN_TTL_SECONDS,
+            await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+              expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
             });
             ctx.waitUntil(
               logSecurityEvent(
@@ -2093,6 +2389,8 @@ const worker: ExportedHandler<Env> = {
                 `Auto-banned by malicious signature (${TEMP_BAN_TTL_SECONDS}s window)`
               )
             );
+            // IP Farm: Malicious auto-ban → permanent ban
+            ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Malicious risk score ${risk.score} — factors: ${risk.factors.join("; ")}`));
           } catch {
             // KV failures are non-fatal
           }

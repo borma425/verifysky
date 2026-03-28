@@ -17,9 +17,10 @@ import type {
   RequestMeta,
   RiskAssessment,
   FingerprintRecord,
+  DomainThresholds,
 } from "./types";
 import { RiskLevel } from "./types";
-import { getDailyHoneypotPaths } from "./utils";
+import { getDailyHoneypotPaths, isAdTraffic } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Known datacenter/hosting ASN prefixes (commonly used by bots)
@@ -187,6 +188,23 @@ export async function evaluateRisk(
       if (meta.method === "GET" && !meta.secFetchSite && !meta.secFetchMode && /Chrome|Edge/i.test(meta.userAgent)) {
          score += 10;
          factors.push("Missing Fetch Metadata headers in claimed Chromium browser");
+      }
+    }
+  }
+
+  // --- Factor 6.5: Ad Traffic Strictness / Click Spoofing ---
+  if (isAdTraffic(meta.url)) {
+    // Legitimate ad traffic from Google/Meta/TikTok typically passes a Referer.
+    // However, some privacy browsers (or iOS in-app browsers) strip the Referer.
+    // We combine signals: No Referer + No Accept-Language = Strong Spoofing Signal.
+    if (!meta.referer) {
+      if (!meta.acceptLanguage || strongBotSignal) {
+        score += 30;
+        factors.push("Spoofed Ad Click (Contains ad trackers but lacks organic Referer and Language headers)");
+        strongBotSignal = true;
+      } else {
+        score += 10;
+        factors.push("Suspicious Ad Click (Contains ad trackers but lacks organic Referer)");
       }
     }
   }
@@ -648,18 +666,6 @@ function getASNSimilarity(currentAsn: string, historicalAsn: string): "exact" | 
 
 const FLOOD_BURST_WINDOW_SECONDS = 15;
 const FLOOD_SUSTAINED_WINDOW_SECONDS = 60;
-const FLOOD_BURST_CHALLENGE_THRESHOLD = 8;
-const FLOOD_BURST_BLOCK_THRESHOLD = 15;
-const FLOOD_SUSTAINED_CHALLENGE_THRESHOLD = 8;
-const FLOOD_SUSTAINED_BLOCK_THRESHOLD = 40;
-
-// IP-only fallback thresholds (2x composite — NAT safety margin)
-const FLOOD_IP_BURST_CHALLENGE_THRESHOLD = 16;
-const FLOOD_IP_BURST_BLOCK_THRESHOLD = 30;
-const FLOOD_IP_SUSTAINED_CHALLENGE_THRESHOLD = 50;
-const FLOOD_IP_SUSTAINED_BLOCK_THRESHOLD = 80;
-
-// UA entropy: if 5+ distinct UAs from same IP in 60s → suspicious rotation
 const FLOOD_UA_ENTROPY_THRESHOLD = 5;
 
 export type FloodAction = "pass" | "challenge" | "block";
@@ -746,7 +752,8 @@ export async function incrementFloodCounters(
 export async function getFloodStatus(
   ip: string,
   userAgent: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  thresholds: DomainThresholds
 ): Promise<FloodStatus> {
   const uaHash = await sha256Short(userAgent || "unknown");
   const composite = `${ip}:${uaHash}`;
@@ -776,32 +783,39 @@ export async function getFloodStatus(
   };
 
   // --- Layer 1: Composite key (IP+UA) — primary protection ---
-  if (burst >= FLOOD_BURST_BLOCK_THRESHOLD) {
+  if (burst >= thresholds.flood_burst_block) {
     return { ...base, action: "block", triggerWindow: "burst" };
   }
-  if (sustained >= FLOOD_SUSTAINED_BLOCK_THRESHOLD) {
+  if (sustained >= thresholds.flood_sustained_block) {
     return { ...base, action: "block", triggerWindow: "sustained" };
   }
-  if (burst >= FLOOD_BURST_CHALLENGE_THRESHOLD) {
+  if (burst >= thresholds.flood_burst_challenge) {
     return { ...base, action: "challenge", triggerWindow: "burst" };
   }
-  if (sustained >= FLOOD_SUSTAINED_CHALLENGE_THRESHOLD) {
+  if (sustained >= thresholds.flood_sustained_challenge) {
     return { ...base, action: "challenge", triggerWindow: "sustained" };
   }
 
   // --- Layer 2: IP-only fallback (activates on UA rotation) ---
   // Only enforced when high UA entropy is detected, to protect NAT users.
+  // Calculated dynamically as roughly 2x the normal thresholds.
+  const ipBurstBlock = thresholds.flood_burst_block * 2;
+  const ipSustBlock = thresholds.flood_sustained_block * 2;
+  const ipBurstChallenge = thresholds.flood_burst_challenge * 2;
+  // Previously hardcoded as 50, now 2x sustained block or challenge? Let's use roughly 2x challenge, but not higher than block:
+  const ipSustChallenge = Math.max(thresholds.flood_sustained_challenge * 2, thresholds.flood_sustained_block);
+
   if (uaEntropy >= FLOOD_UA_ENTROPY_THRESHOLD) {
-    if (ipBurst >= FLOOD_IP_BURST_BLOCK_THRESHOLD) {
+    if (ipBurst >= ipBurstBlock) {
       return { ...base, action: "block", triggerWindow: "ip_burst" };
     }
-    if (ipSustained >= FLOOD_IP_SUSTAINED_BLOCK_THRESHOLD) {
+    if (ipSustained >= ipSustBlock) {
       return { ...base, action: "block", triggerWindow: "ip_sustained" };
     }
-    if (ipBurst >= FLOOD_IP_BURST_CHALLENGE_THRESHOLD) {
+    if (ipBurst >= ipBurstChallenge) {
       return { ...base, action: "challenge", triggerWindow: "ip_burst" };
     }
-    if (ipSustained >= FLOOD_IP_SUSTAINED_CHALLENGE_THRESHOLD) {
+    if (ipSustained >= ipSustChallenge) {
       return { ...base, action: "challenge", triggerWindow: "ip_sustained" };
     }
   }

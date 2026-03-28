@@ -667,6 +667,14 @@ class EdgeShieldService
         );
     }
 
+    public function ensureThresholdsColumn(): void
+    {
+        // Backward compatibility: add thresholds_json to domain_configs
+        $this->queryD1(
+            "ALTER TABLE domain_configs ADD COLUMN thresholds_json TEXT"
+        );
+    }
+
     public function ensureSecurityLogsDomainColumn(): void
     {
         // Backward compatibility for older D1 schema.
@@ -812,8 +820,9 @@ class EdgeShieldService
 
     public function getDomainConfig(string $domainName): array
     {
+        $this->ensureThresholdsColumn();
         $sql = sprintf(
-            "SELECT domain_name, zone_id, status, force_captcha, turnstile_sitekey, turnstile_secret, created_at
+            "SELECT domain_name, zone_id, status, force_captcha, turnstile_sitekey, turnstile_secret, thresholds_json, created_at
              FROM domain_configs
              WHERE domain_name = '%s'
              LIMIT 1",
@@ -821,16 +830,16 @@ class EdgeShieldService
         );
         $result = $this->queryD1($sql);
         if (!$result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load domain config.', 'domain' => null];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load domain config.', 'config' => null];
         }
 
         $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
         $row = is_array($rows[0] ?? null) ? $rows[0] : null;
         if (!$row) {
-            return ['ok' => false, 'error' => 'Domain not found in configuration.', 'domain' => null];
+            return ['ok' => false, 'error' => 'Domain not found in configuration.', 'config' => null];
         }
 
-        return ['ok' => true, 'error' => null, 'domain' => $row];
+        return ['ok' => true, 'error' => null, 'config' => $row];
     }
 
     public function listZoneWorkerRoutes(string $zoneId): array
@@ -909,6 +918,140 @@ class EdgeShieldService
     public function listAllCustomFirewallRules(): array
     {
         return $this->listPaginatedCustomFirewallRules(1000, 0);
+    }
+
+    /**
+     * Fetch all [IP-FARM] permanent ban rules from D1.
+     */
+    public function listIpFarmRules(): array
+    {
+        $sql = "SELECT * FROM custom_firewall_rules WHERE description LIKE '[IP-FARM]%' ORDER BY id ASC";
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load IP Farm rules.', 'rules' => []];
+        }
+
+        $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
+        return ['ok' => true, 'error' => null, 'rules' => $rows];
+    }
+
+    /**
+     * Get statistics for the IP Farm: total IPs, total rules, last updated.
+     */
+    public function getIpFarmStats(): array
+    {
+        $rulesResult = $this->listIpFarmRules();
+        if (!$rulesResult['ok']) {
+            return ['totalIps' => 0, 'totalRules' => 0, 'lastUpdated' => null];
+        }
+
+        $rules = $rulesResult['rules'];
+        $totalIps = 0;
+        $lastUpdated = null;
+
+        foreach ($rules as $rule) {
+            $expr = json_decode($rule['expression_json'] ?? '{}', true);
+            if (isset($expr['value']) && is_string($expr['value'])) {
+                $ips = array_filter(array_map('trim', explode(',', $expr['value'])));
+                $totalIps += count($ips);
+            }
+            $updatedAt = $rule['updated_at'] ?? $rule['created_at'] ?? null;
+            if ($updatedAt && (!$lastUpdated || $updatedAt > $lastUpdated)) {
+                $lastUpdated = $updatedAt;
+            }
+        }
+
+        return [
+            'totalIps' => $totalIps,
+            'totalRules' => count($rules),
+            'lastUpdated' => $lastUpdated,
+        ];
+    }
+
+    /**
+     * Check if a specific IP (or any IP from a comma-separated list) exists in any [IP-FARM] rule.
+     * Returns the list of IPs that are already in the farm.
+     */
+    public function findIpsInFarm(string $inputValue, string $fieldType = 'ip.src'): array
+    {
+        if ($fieldType !== 'ip.src') return [];
+
+        $inputIps = array_map('trim', explode(',', strtolower($inputValue)));
+        $inputIps = array_filter($inputIps);
+        if (empty($inputIps)) return [];
+
+        $farmResult = $this->listIpFarmRules();
+        if (!$farmResult['ok']) return [];
+
+        $farmIps = [];
+        foreach ($farmResult['rules'] as $rule) {
+            $expr = json_decode($rule['expression_json'] ?? '{}', true);
+            if (($expr['field'] ?? '') === 'ip.src' && isset($expr['value'])) {
+                $ips = array_map('trim', explode(',', strtolower($expr['value'])));
+                $farmIps = array_merge($farmIps, $ips);
+            }
+        }
+        $farmIps = array_unique($farmIps);
+
+        return array_values(array_intersect($inputIps, $farmIps));
+    }
+
+    /**
+     * Remove specific IPs from [IP-FARM] rules.
+     * Surgically updates the comma-separated value list.
+     * If a rule becomes empty after removal, it is deleted entirely.
+     */
+    public function removeIpsFromFarm(array $ipsToRemove): array
+    {
+        if (empty($ipsToRemove)) return ['ok' => true, 'removed' => 0];
+
+        $ipsToRemove = array_map(fn($ip) => strtolower(trim($ip)), $ipsToRemove);
+        $ipsToRemove = array_filter($ipsToRemove);
+        if (empty($ipsToRemove)) return ['ok' => true, 'removed' => 0];
+
+        $farmResult = $this->listIpFarmRules();
+        if (!$farmResult['ok']) return ['ok' => false, 'error' => $farmResult['error'], 'removed' => 0];
+
+        $totalRemoved = 0;
+
+        foreach ($farmResult['rules'] as $rule) {
+            $expr = json_decode($rule['expression_json'] ?? '{}', true);
+            if (($expr['field'] ?? '') !== 'ip.src') continue;
+
+            $existingIps = array_filter(array_map('trim', explode(',', strtolower($expr['value'] ?? ''))));
+            $remaining = array_values(array_diff($existingIps, $ipsToRemove));
+            $removedCount = count($existingIps) - count($remaining);
+
+            if ($removedCount === 0) continue;
+            $totalRemoved += $removedCount;
+
+            if (empty($remaining)) {
+                // Rule is now empty → delete it
+                $deleteSql = sprintf("DELETE FROM custom_firewall_rules WHERE id = %d", (int)$rule['id']);
+                $this->queryD1($deleteSql);
+            } else {
+                // Update with remaining IPs
+                $newExpr = json_encode([
+                    'field' => 'ip.src',
+                    'operator' => 'in',
+                    'value' => implode(', ', $remaining),
+                ]);
+                $newDesc = preg_replace('/\(\d+ IPs\)/', '(' . count($remaining) . ' IPs)', $rule['description'] ?? '');
+                $sql = sprintf(
+                    "UPDATE custom_firewall_rules SET expression_json = '%s', description = '%s', updated_at = CURRENT_TIMESTAMP WHERE id = %d",
+                    str_replace("'", "''", $newExpr),
+                    str_replace("'", "''", $newDesc),
+                    (int)$rule['id']
+                );
+                $this->queryD1($sql);
+            }
+        }
+
+        if ($totalRemoved > 0) {
+            $this->purgeCustomFirewallRulesCache('global');
+        }
+
+        return ['ok' => true, 'removed' => $totalRemoved];
     }
 
     public function createCustomFirewallRule(
@@ -1088,8 +1231,9 @@ class EdgeShieldService
 
     public function listDomains(): array
     {
+        $this->ensureThresholdsColumn();
         $result = $this->queryD1(
-            "SELECT domain_name, zone_id, status, force_captcha, security_mode, created_at FROM domain_configs ORDER BY created_at DESC"
+            "SELECT domain_name, zone_id, status, force_captcha, security_mode, thresholds_json, created_at FROM domain_configs ORDER BY created_at DESC"
         );
         if (!$result['ok']) {
             return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load domains.', 'domains' => []];
@@ -1097,6 +1241,34 @@ class EdgeShieldService
 
         $rows = $this->parseWranglerJson($result['output'])[0]['results'] ?? [];
         return ['ok' => true, 'error' => null, 'domains' => $rows];
+    }
+
+
+
+    public function updateDomainThresholds(string $domainName, string $json): array
+    {
+        $this->ensureThresholdsColumn();
+        $sql = sprintf(
+            "UPDATE domain_configs SET thresholds_json = '%s' WHERE domain_name = '%s'",
+            str_replace("'", "''", trim($json)),
+            str_replace("'", "''", strtolower(trim($domainName)))
+        );
+        $result = $this->queryD1($sql);
+        if (!$result['ok']) {
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to update domain thresholds.'];
+        }
+
+        // Cache invalidation so the worker picks up the changes instantly
+        $this->purgeDomainCache($domainName);
+
+        return ['ok' => true, 'error' => null];
+    }
+
+    private function purgeDomainCache(string $domainName): void
+    {
+        $domain = strtolower(trim($domainName));
+        $cacheKey = "dcfg:{$domain}";
+        $this->runInProject($this->wranglerBin().' kv:key delete --binding SESSION_KV '.escapeshellarg($cacheKey), 60);
     }
 
     public function listIpAccessRules(string $domainName): array
