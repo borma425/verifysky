@@ -9,6 +9,9 @@
     $op = $expr['operator'] ?? '';
     $val = $expr['value'] ?? '';
     $action = $rule['action'] ?? '';
+    if ($action === 'block' && str_starts_with($rule['description'] ?? '', '[IP-FARM]')) {
+        $action = 'block_ip_farm';
+    }
   @endphp
 
   <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -37,6 +40,7 @@
             <option value="challenge" {{ $action === 'challenge' ? 'selected' : '' }}>challenge (Interactive CAPTCHA)</option>
             <option value="js_challenge" {{ $action === 'js_challenge' ? 'selected' : '' }}>js_challenge (Invisible JS Challenge)</option>
             <option value="block" {{ $action === 'block' ? 'selected' : '' }}>block (Drop Connection)</option>
+            <option value="block_ip_farm" {{ $action === 'block_ip_farm' ? 'selected' : '' }}>block to ip farm (Permanent Graveyard Ban)</option>
             <option value="allow" {{ $action === 'allow' ? 'selected' : '' }}>allow (Fast-Pass, Bypass All)</option>
           </select>
         </div>

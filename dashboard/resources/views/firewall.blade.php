@@ -45,6 +45,7 @@
               <option value="challenge">challenge (Interactive CAPTCHA)</option>
               <option value="js_challenge">js_challenge (Invisible JS Challenge)</option>
               <option value="block">block (Drop Connection)</option>
+              <option value="block_ip_farm">block to ip farm (Permanent Graveyard Ban)</option>
               <option value="allow">allow (Fast-Pass, Bypass All)</option>
             </select>
           </div>

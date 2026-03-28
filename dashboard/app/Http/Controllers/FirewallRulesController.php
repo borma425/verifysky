@@ -52,7 +52,7 @@ class FirewallRulesController extends Controller
         $validated = $request->validate([
             'domain_name' => ['required', 'string'],
             'description' => ['nullable', 'string', 'max:255'],
-            'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow'],
+            'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow,block_ip_farm'],
             'field' => ['required', 'string', 'in:ip.src,ip.src.country,ip.src.asnum,http.request.uri.path,http.request.method,http.user_agent'],
             'operator' => ['required', 'string', 'in:eq,ne,in,contains,not_contains,starts_with'],
             'value' => ['required', 'string', 'max:3000'],
@@ -123,10 +123,24 @@ class FirewallRulesController extends Controller
             }
         }
 
+        $finalAction = $validated['action'];
+        $finalDescription = $validated['description'] ?? '';
+
+        if ($finalAction === 'block_ip_farm') {
+            if ($validated['field'] !== 'ip.src') {
+                return back()->with('error', 'The "block to ip farm" action can only be used when Field is set to "IP Address / CIDR".');
+            }
+            $finalAction = 'block';
+            $expiresAt = null; // IP Farm rules are always forever
+            if (!str_starts_with($finalDescription, '[IP-FARM]')) {
+                $finalDescription = trim('[IP-FARM] ' . $finalDescription);
+            }
+        }
+
         $create = $this->edgeShield->createCustomFirewallRule(
             $domain,
-            $validated['description'] ?? '',
-            $validated['action'],
+            $finalDescription,
+            $finalAction,
             $expressionJson,
             ((int) ($validated['paused'] ?? 0)) === 1,
             $expiresAt
@@ -236,7 +250,7 @@ class FirewallRulesController extends Controller
     {
         $validated = $request->validate([
             'description' => ['nullable', 'string', 'max:255'],
-            'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow'],
+            'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow,block_ip_farm'],
             'field' => ['required', 'string', 'in:ip.src,ip.src.country,ip.src.asnum,http.request.uri.path,http.request.method,http.user_agent'],
             'operator' => ['required', 'string', 'in:eq,ne,in,contains,not_contains,starts_with'],
             'value' => ['required', 'string', 'max:3000'],
@@ -295,11 +309,25 @@ class FirewallRulesController extends Controller
             }
         }
 
+        $finalAction = $validated['action'];
+        $finalDescription = $validated['description'] ?? '';
+
+        if ($finalAction === 'block_ip_farm') {
+            if ($validated['field'] !== 'ip.src') {
+                return back()->with('error', 'The "block to ip farm" action can only be used when Field is set to "IP Address / CIDR".');
+            }
+            $finalAction = 'block';
+            $expiresAt = null; // IP Farm rules are always forever
+            if (!str_starts_with($finalDescription, '[IP-FARM]')) {
+                $finalDescription = trim('[IP-FARM] ' . $finalDescription);
+            }
+        }
+
         $update = $this->edgeShield->updateCustomFirewallRule(
             $domain,
             $ruleId,
-            $validated['description'] ?? '',
-            $validated['action'],
+            $finalDescription,
+            $finalAction,
             $expressionJson,
             $isPaused,
             $expiresAt
