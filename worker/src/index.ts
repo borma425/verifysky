@@ -835,6 +835,49 @@ function isIPv4InCidr(ip: string, cidr: string): boolean {
   return (ipInt & mask) === (baseInt & mask);
 }
 
+function ipv6ToBigInt(ip: string): bigint | null {
+  if (!ip.includes(":")) return null;
+  const parts = ip.split("::");
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(":") : [];
+  const right = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
+  if (parts.length === 1 && left.length !== 8) return null;
+  const missing = 8 - (left.length + right.length);
+  if (missing < 0) return null;
+  const groups = [...left, ...Array<string>(missing).fill("0"), ...right];
+  let val = 0n;
+  for (let i = 0; i < 8; i++) {
+    const groupVal = groups[i] === "" ? 0 : parseInt(groups[i], 16);
+    if (Number.isNaN(groupVal) || groupVal > 0xffff || groupVal < 0) return null;
+    val = (val << 16n) | BigInt(groupVal);
+  }
+  return val;
+}
+
+function isIPv6InCidr(ip: string, cidr: string): boolean {
+  const [base, maskText] = cidr.split("/");
+  if (!base || !maskText) return false;
+  const maskBits = parseInt(maskText, 10);
+  if (!Number.isFinite(maskBits) || maskBits < 0 || maskBits > 128) return false;
+  const ipInt = ipv6ToBigInt(ip);
+  const baseInt = ipv6ToBigInt(base);
+  if (ipInt === null || baseInt === null) return false;
+  if (maskBits === 0) return true;
+  const shiftBits = 128n - BigInt(maskBits);
+  return (ipInt >> shiftBits) === (baseInt >> shiftBits);
+}
+
+function isIpInCidr(ip: string, cidr: string): boolean {
+  if (cidr.includes(":")) {
+    if (!ip.includes(":")) return false;
+    return isIPv6InCidr(ip, cidr);
+  } else if (cidr.includes(".")) {
+    if (!ip.includes(".")) return false;
+    return isIPv4InCidr(ip, cidr);
+  }
+  return false;
+}
+
 function isAdminSourceAllowed(ip: string, env: Env): boolean {
   const rawAllowlist = (env.ES_ADMIN_ALLOWED_IPS || "").trim();
   if (!rawAllowlist) return true;
@@ -847,7 +890,7 @@ function isAdminSourceAllowed(ip: string, env: Env): boolean {
 
   for (const candidate of candidates) {
     if (candidate === ip) return true;
-    if (candidate.includes("/") && isIPv4InCidr(ip, candidate)) return true;
+    if (candidate.includes("/") && isIpInCidr(ip, candidate)) return true;
   }
 
   return false;
@@ -1267,7 +1310,7 @@ async function isIpAllowListed(ip: string, env: Env): Promise<boolean> {
           if (expr.operator === "eq" && expr.value.toLowerCase() === lowerIp) return true;
           if (expr.operator === "in") {
             const list = String(expr.value).split(",").map((v: string) => v.trim().toLowerCase());
-            if (list.some((target: string) => target.includes("/") ? isIPv4InCidr(ip, target) : target === lowerIp)) return true;
+            if (list.some((target: string) => target.includes("/") ? isIpInCidr(ip, target) : target === lowerIp)) return true;
           }
         }
       } catch {
@@ -1930,7 +1973,7 @@ const worker: ExportedHandler<Env> = {
         } else if (operator === "in") {
             const list = targetValue.split(",").map((v: string) => v.trim());
             if (field === "ip.src") {
-                 conditionMatch = list.some((target: string) => target.includes("/") ? isIPv4InCidr(meta.ip, target) : meta.ip === target);
+                 conditionMatch = list.some((target: string) => target.includes("/") ? isIpInCidr(meta.ip, target) : meta.ip === target);
             } else {
                  conditionMatch = list.includes(actualValue);
             }
@@ -2496,9 +2539,10 @@ class HoneypotInjector {
 
   element(el: Element) {
     // Multi-Trap Strategy with varying stealth techniques
-    const trap1 = `<a href="${this.paths[0]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:1px; height:1px; left:-9999px; opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">API Metrics</a>`;
+    // Removed left:-9999px to prevent layout shift (pulling page to the left)
+    const trap1 = `<a href="${this.paths[0]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">API Metrics</a>`;
     const trap2 = `<a href="${this.paths[1]}" aria-hidden="true" tabindex="-1" style="display:none; visibility:hidden;" rel="nofollow">Fallback Style</a>`;
-    const trap3 = `<a href="${this.paths[2]}" aria-hidden="true" tabindex="-1" style="position:absolute; pointer-events:none; opacity:0; width:0; height:0;" rel="nofollow">Legacy Script</a>`;
+    const trap3 = `<a href="${this.paths[2]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">Legacy Script</a>`;
     
     el.append(trap1 + trap2 + trap3, { html: true });
   }
