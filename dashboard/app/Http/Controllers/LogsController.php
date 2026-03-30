@@ -364,7 +364,11 @@ class LogsController extends Controller
             $ip = trim((string) ($safeRow['ip_address'] ?? ''));
             $safeRow['is_in_ip_farm'] = isset($farmIps[$ip]);
             $thresholds = $domainConfigs[$safeRow['domain']] ?? [];
-            $safeRow['temp_ban_ttl_hours'] = isset($thresholds['temp_ban_ttl_hours']) ? (float) $thresholds['temp_ban_ttl_hours'] : 24.0;
+            if (isset($thresholds['temp_ban_ttl_seconds'])) {
+                $safeRow['temp_ban_ttl_hours'] = round($thresholds['temp_ban_ttl_seconds'] / 3600, 2);
+            } else {
+                $safeRow['temp_ban_ttl_hours'] = 24;
+            }
 
             $safeRow['requests'] = (int) ($safeRow['requests'] ?? 0);
             $safeRow['risk_score'] = isset($safeRow['risk_score']) ? (int) $safeRow['risk_score'] : null;

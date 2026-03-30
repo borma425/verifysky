@@ -2481,8 +2481,9 @@ const worker: ExportedHandler<Env> = {
         // Persist a short temporary ban for high-confidence malicious probes.
         if (shouldAutoBanMalicious(risk)) {
           try {
+            const actualBanTtl = thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS;
             await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
-              expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
+              expirationTtl: actualBanTtl,
             });
             ctx.waitUntil(
               logSecurityEvent(
@@ -2491,7 +2492,7 @@ const worker: ExportedHandler<Env> = {
                 meta,
                 risk.score,
                 null,
-                `Auto-banned by malicious signature (${TEMP_BAN_TTL_SECONDS}s window)`
+                `Auto-banned by malicious signature (${actualBanTtl}s window)`
               )
             );
             // IP Farm: Malicious auto-ban → permanent ban

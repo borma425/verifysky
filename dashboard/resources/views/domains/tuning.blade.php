@@ -130,7 +130,7 @@
             </label>
             <p class="text-xs text-sky-300/60 mb-1">Max visits per user per day</p>
             <input type="hidden" name="daily_visit_limit" :value="Math.max(1, Math.round(netDailyLimit * (pagesCount + apiCount)))">
-            <input type="number" x-model.number="netDailyLimit" min="1" max="100000" class="es-input w-full" required>
+            <input type="number" x-model.number="netDailyLimit" min="1" max="1000000" class="es-input w-full" required>
           </div>
 
           <div>
@@ -173,7 +173,7 @@
             </label>
             <p class="text-xs text-sky-300/60 mb-1">Max visits per ISP per hour</p>
             <input type="hidden" name="asn_hourly_visit_limit" :value="Math.max(1, Math.round(netAsnLimit * (pagesCount + apiCount)))">
-            <input type="number" x-model.number="netAsnLimit" min="10" max="100000" class="es-input w-full" required>
+            <input type="number" x-model.number="netAsnLimit" min="10" max="1000000" class="es-input w-full" required>
           </div>
         </div>
       </div>

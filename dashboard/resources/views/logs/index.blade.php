@@ -119,7 +119,6 @@
             $str = is_array($str) ? implode(', ', $str) : (string) $str;
             $map = [
                 'Temporarily banned IP' => 'Blocked IP Automatically',
-                '86400s window' => 'for 24 hours',
                 'Auto-banned by IP rate policy' => 'Blocked for exceeding requests limit (DDoS)',
                 'hard_block' => 'Hard Blocked',
                 'Auto-banned by malicious signature' => 'Blocked due to malicious payload',
