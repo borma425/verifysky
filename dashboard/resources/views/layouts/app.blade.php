@@ -11,6 +11,7 @@
   <link rel="manifest" href="{{ asset('site.webmanifest') }}">
   <title>{{ $title ?? 'Edge Shield Dashboard' }}</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="min-h-full text-slate-100">
   <div class="pointer-events-none fixed inset-0 overflow-hidden">

@@ -457,7 +457,7 @@ async function logSecurityEvent(
         details
       )
       .run();
-    await incrementHistoricalAttackCounters(env, eventType, meta.ip);
+    await incrementHistoricalAttackCounters(env, eventType, meta.ip, meta);
   } catch {
     // Logging failure must never crash the Worker
   }
@@ -471,10 +471,14 @@ function utcMonthKey(now: Date = new Date()): string {
   return now.toISOString().slice(0, 7);
 }
 
+/** Monthly hard_block threshold before auto-escalation to IP Farm */
+const IP_FARM_AUTO_ESCALATION_THRESHOLD = 3;
+
 async function incrementHistoricalAttackCounters(
   env: Env,
   eventType: string,
-  ip: string
+  ip: string,
+  meta: RequestMeta | null
 ): Promise<void> {
   if (!ip || !HISTORICAL_ATTACK_EVENTS.has(eventType)) return;
 
@@ -491,14 +495,35 @@ async function incrementHistoricalAttackCounters(
     // Non-fatal
   }
 
+  let monthCount = 1;
   try {
     const currentMonth = await env.SESSION_KV.get(monthKey);
-    const monthCount = currentMonth ? parseInt(currentMonth, 10) + 1 : 1;
+    monthCount = currentMonth ? parseInt(currentMonth, 10) + 1 : 1;
     await env.SESSION_KV.put(monthKey, String(monthCount), {
       expirationTtl: ATTACK_COUNTER_TTL_SECONDS,
     });
   } catch {
     // Non-fatal
+  }
+
+  // --- Auto-Escalation to IP Farm ---
+  // If this IP has been hard_blocked 3+ times this month, permanently ban it.
+  // Only triggers on hard_block events to avoid false positives from challenges.
+  if (
+    eventType === "hard_block" &&
+    monthCount >= IP_FARM_AUTO_ESCALATION_THRESHOLD &&
+    meta
+  ) {
+    try {
+      await markForIpFarm(
+        ip,
+        env,
+        meta,
+        `Auto-escalation: ${monthCount} hard_blocks in ${utcMonthKey()} (threshold: ${IP_FARM_AUTO_ESCALATION_THRESHOLD})`
+      );
+    } catch {
+      // Non-fatal — IP Farm write failure should never crash the Worker
+    }
   }
 }
 
@@ -1690,7 +1715,7 @@ const worker: ExportedHandler<Env> = {
           "Admin allow-listed IP override"
         )
       );
-      return fetch(request);
+      return fetchWithInjectors(request, meta, env, false);
     }
 
     // --- Trusted IP Decision Cache ---
@@ -1935,7 +1960,7 @@ const worker: ExportedHandler<Env> = {
          if (isBlock) {
              return handleHardBlock(env);
          } else if (isAllow) {
-             return fetchWithHoneypot(request, meta, env);
+            return fetchWithInjectors(request, meta, env, true);
          } else if (isChallenge) {
              return serveChallengePagePlaceholder(meta, domainConfig, env);
          }
@@ -2036,7 +2061,7 @@ const worker: ExportedHandler<Env> = {
           }
         }
       }
-      return fetchWithHoneypot(request, meta, env);
+      return fetchWithInjectors(request, meta, env, true);
     }
 
     // Do not issue interactive challenges for static assets.
@@ -2054,13 +2079,18 @@ const worker: ExportedHandler<Env> = {
       const dailyVisits = await checkAndIncrementDailyVisitCounter(meta, domain, env);
       if (dailyVisits > thresholds.daily_visit_limit) {
         try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch {}
+        try {
+          await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+            expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
+          });
+        } catch {}
         ctx.waitUntil(
           logSecurityEvent(
-            env, "challenge_issued" as any, meta, 50, null,
-            `Trusted IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h) — trust revoked`
+            env, "hard_block", meta, 95, null,
+            `Trusted IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h) — 24h ban applied`
           )
         );
-        return serveChallengePagePlaceholder(meta, domainConfig, env);
+        return handleHardBlock(env);
       }
 
       // Layer 1.7: ASN Hourly Counter
@@ -2126,7 +2156,7 @@ const worker: ExportedHandler<Env> = {
       }
 
       // Both layers passed — trusted, continue to origin
-      return fetchWithHoneypot(request, meta, env);
+      return fetchWithInjectors(request, meta, env, true);
     }
 
     // --- Flood Protection (Full Read+Write — new visitors only) ---
@@ -2312,8 +2342,13 @@ const worker: ExportedHandler<Env> = {
         if (!meta.isPrefetch) {
           const dailyVisits = await checkAndIncrementDailyVisitCounter(meta, domain, env);
           if (dailyVisits > thresholds.daily_visit_limit) {
-            ctx.waitUntil(logSecurityEvent(env, "challenge_issued" as any, meta, 50, null, `Low-risk IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h)`));
-            return serveChallengePagePlaceholder(meta, domainConfig, env);
+            try {
+              await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+                expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
+              });
+            } catch {}
+            ctx.waitUntil(logSecurityEvent(env, "hard_block", meta, 95, null, `Low-risk IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h) — 24h ban applied`));
+            return handleHardBlock(env);
           }
 
           if (meta.asn) {
@@ -2336,7 +2371,7 @@ const worker: ExportedHandler<Env> = {
             ).catch(() => {})
           );
         }
-        return fetchWithHoneypot(request, meta, env);
+        return fetchWithInjectors(request, meta, env, true);
       }
 
       case RiskLevel.SUSPICIOUS: {
@@ -2469,13 +2504,81 @@ class HoneypotInjector {
   }
 }
 
-async function fetchWithHoneypot(request: Request, meta: RequestMeta, env: Env): Promise<Response> {
+class AnalyzerInjector {
+  element(el: Element) {
+    const script = `
+      <script>
+        (function() {
+          // Ensure it's running inside the Analyzer Iframe
+          if (window.self === window.top) return;
+          
+          window.addEventListener('load', () => {
+            // Give SPAs 2.5 seconds to do initial data fetching
+            setTimeout(() => {
+              try {
+                const resources = performance.getEntriesByType('resource');
+                let apiCount = 0;
+                
+                for (const r of resources) {
+                  // Count fetch/xhr occurring on same domain
+                  if ((r.initiatorType === 'fetch' || r.initiatorType === 'xmlhttprequest') && r.name.startsWith(window.location.origin)) {
+                    apiCount++;
+                  }
+                }
+                
+                window.parent.postMessage({
+                  type: 'ES_ANALYZE_RESULT',
+                  apiCount: apiCount
+                }, '*');
+              } catch (e) {
+                console.error('ES Analyzer execution error', e);
+              }
+            }, 2500);
+          });
+        })();
+      </script>
+    `;
+    el.append(script, { html: true });
+  }
+}
+
+async function fetchWithInjectors(request: Request, meta: RequestMeta, env: Env, injectHoneypot: boolean = true): Promise<Response> {
   let response = await fetch(request);
   if (response.status === 200 && !meta.verifiedBot) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
-      const paths = await getDailyHoneypotPaths(env);
-      response = new HTMLRewriter().on("body", new HoneypotInjector(paths)).transform(response);
+      const url = new URL(request.url);
+      const isAnalyzer = url.searchParams.get("es_analyzer") === "1";
+
+      if (isAnalyzer) {
+        // Remove frame restrictions so the dashboard iframe can load it
+        const newHeaders = new Headers(response.headers);
+        newHeaders.delete("X-Frame-Options");
+        newHeaders.delete("Content-Security-Policy");
+        response = new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders
+        });
+      }
+
+      let rewriter = new HTMLRewriter();
+      let hasRewriten = false;
+
+      if (injectHoneypot) {
+        const paths = await getDailyHoneypotPaths(env);
+        rewriter = rewriter.on("body", new HoneypotInjector(paths));
+        hasRewriten = true;
+      }
+
+      if (isAnalyzer) {
+        rewriter = rewriter.on("body", new AnalyzerInjector());
+        hasRewriten = true;
+      }
+
+      if (hasRewriten) {
+        response = rewriter.transform(response);
+      }
     }
   }
   return response;

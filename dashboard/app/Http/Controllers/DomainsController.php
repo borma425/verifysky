@@ -251,14 +251,14 @@ class DomainsController extends Controller
     public function updateTuning(string $domain, Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'visit_captcha_threshold' => 'required|integer|min:1|max:100',
-            'daily_visit_limit' => 'required|integer|min:1|max:5000',
-            'asn_hourly_visit_limit' => 'required|integer|min:50|max:10000',
-            'flood_burst_challenge' => 'required|integer|min:1|max:500',
-            'flood_burst_block' => 'required|integer|min:1|max:500',
-            'flood_sustained_challenge' => 'required|integer|min:1|max:1000',
-            'flood_sustained_block' => 'required|integer|min:1|max:1000',
-            'ip_hard_ban_rate' => 'required|integer|min:10|max:2000',
+            'visit_captcha_threshold' => 'required|integer|min:1|max:5000',
+            'daily_visit_limit' => 'required|integer|min:1|max:100000',
+            'asn_hourly_visit_limit' => 'required|integer|min:50|max:100000',
+            'flood_burst_challenge' => 'required|integer|min:1|max:50000',
+            'flood_burst_block' => 'required|integer|min:1|max:50000',
+            'flood_sustained_challenge' => 'required|integer|min:1|max:50000',
+            'flood_sustained_block' => 'required|integer|min:1|max:50000',
+            'ip_hard_ban_rate' => 'required|integer|min:10|max:50000',
             'max_challenge_failures' => 'required|integer|min:1|max:50',
             'temp_ban_ttl_hours' => 'required|numeric|min:0.01|max:720',
             'ai_rule_ttl_days' => 'required|numeric|min:0.1|max:365',
@@ -266,6 +266,7 @@ class DomainsController extends Controller
             'auto_aggr_pressure_minutes' => 'required|numeric|min:1|max:30',
             'auto_aggr_active_minutes' => 'required|numeric|min:1|max:120',
             'auto_aggr_trigger_subnets' => 'required|integer|min:2|max:50',
+            'api_count' => 'nullable|integer|min:0|max:5000',
         ]);
 
         // Convert back to seconds for the Worker

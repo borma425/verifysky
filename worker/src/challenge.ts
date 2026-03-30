@@ -150,11 +150,14 @@ export async function handleChallengeGeneration(
     // KV failure — the D1 record still exists for fallback validation
   }
 
+  const urlObjInstance = new URL(meta.url);
+  const fullOriginalPath = urlObjInstance.pathname + urlObjInstance.search;
+
   // Build and serve the challenge page
   const challengeHtml = buildChallengeHtml(
     nonce,
     submitPath,
-    meta.path,
+    fullOriginalPath,
     signature,
     domainConfig.turnstile_sitekey,
     targetHint,
@@ -170,9 +173,27 @@ export async function handleChallengeGeneration(
     env.JWT_SECRET
   );
 
-  return createHtmlResponse(challengeHtml, 403, {
+  const headers: Record<string, string> = {
     "Set-Cookie": challengeCookie,
-  });
+  };
+
+  const urlObj = new URL(meta.url);
+  const isAnalyzer = urlObj.searchParams.get("es_analyzer") === "1";
+
+  let response = createHtmlResponse(challengeHtml, 403, headers);
+
+  if (isAnalyzer) {
+    const newHeaders = new Headers(response.headers);
+    newHeaders.delete("X-Frame-Options");
+    newHeaders.delete("Content-Security-Policy");
+    response = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders
+    });
+  }
+
+  return response;
 }
 
 // ---------------------------------------------------------------------------
@@ -863,7 +884,7 @@ async function buildChallengeBindingCookie(
     "Path=/",
     "HttpOnly",
     "Secure",
-    "SameSite=Lax",
+    "SameSite=None",
   ].join("; ");
 }
 
@@ -945,10 +966,6 @@ function minifyInlineCss(input: string): string {
 // Helper: Session Cookie Builder
 // ---------------------------------------------------------------------------
 
-/**
- * Builds a secure session cookie string.
- * Attributes: Secure, HttpOnly, SameSite=Lax, Path=/, Max-Age
- */
 function buildSessionCookie(token: string, maxAge: number): string {
   return [
     `${SESSION_COOKIE_NAME}=${token}`,
@@ -956,7 +973,7 @@ function buildSessionCookie(token: string, maxAge: number): string {
     "Path=/",
     "HttpOnly",
     "Secure",
-    "SameSite=Lax",
+    "SameSite=None",
   ].join("; ");
 }
 
