@@ -1854,6 +1854,18 @@ const worker: ExportedHandler<Env> = {
       return fetch(request);
     }
 
+    // --- Handle Dynamic Challenge Submission (POST) — HIGHEST PRIORITY ---
+    // Must run BEFORE custom firewall rules and sensitive path checks.
+    // Otherwise, broad rules (e.g. "user_agent ne mobi" → managed_challenge)
+    // intercept the solve POST and serve a NEW challenge, creating an infinite
+    // loop where the user can never complete verification.
+    // Security is NOT weakened: the challenge handler has its own full
+    // validation chain (nonce, signature, IP match, telemetry, X-position,
+    // Turnstile). Temp-ban check above already blocks banned IPs.
+    if (request.method === "POST" && (isDynamicSubmitPath(meta.path) || isFallbackSubmitRequest(request))) {
+      return handleSubmission(request, meta, domainConfig, env, ctx);
+    }
+
     let thresholds = parseThresholds(domainConfig);
 
     // --- Factor: Ad Traffic Strictness ---
@@ -2018,12 +2030,9 @@ const worker: ExportedHandler<Env> = {
       }
     }
 
-    // --- Handle Dynamic Challenge Submission (POST) — EARLY CHECK ---
-    // Must run BEFORE session/flood/visit counter checks. Otherwise the
-    // counters that triggered the CAPTCHA will also block the solve attempt.
-    if (request.method === "POST" && (isDynamicSubmitPath(meta.path) || isFallbackSubmitRequest(request))) {
-      return handleSubmission(request, meta, domainConfig, env, ctx);
-    }
+    // NOTE: Challenge submission POST handler was moved above custom firewall
+    // rules and sensitive path checks to prevent broad rules from intercepting
+    // the solve request. See the block after domain config validation above.
 
     // --- KV Session Validation ---
     // If the user has a valid, signed session cookie, they passed CAPTCHA before.

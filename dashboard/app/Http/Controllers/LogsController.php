@@ -42,6 +42,22 @@ class LogsController extends Controller
             return array_unique($farmIps);
         });
 
+        $allAllowedIps = Cache::remember('logs_all_allowed_ips_v1_' . $cacheVer, 300, function() {
+            $result = $this->edgeShield->queryD1("SELECT expression_json FROM custom_firewall_rules WHERE action IN ('allow', 'bypass') AND paused = 0");
+            $allowedIps = [];
+            if ($result['ok'] ?? false) {
+                $rows = $this->edgeShield->parseWranglerJson((string) ($result['output'] ?? ''))[0]['results'] ?? [];
+                foreach ($rows as $row) {
+                    $expr = json_decode($row['expression_json'] ?? '{}', true);
+                    if (($expr['field'] ?? '') === 'ip.src' && isset($expr['value'])) {
+                        $ips = array_map('trim', explode(',', strtolower($expr['value'])));
+                        $allowedIps = array_merge($allowedIps, $ips);
+                    }
+                }
+            }
+            return array_unique($allowedIps);
+        });
+
         if ($event === 'farm_block') {
             if (empty($allFarmIps)) {
                 $filters[] = "1 = 0";
@@ -64,6 +80,10 @@ class LogsController extends Controller
         }
         if ($ipAddress !== '') {
             $filters[] = "ip_address = '".str_replace("'", "''", $ipAddress)."'";
+        }
+        if (!empty($allAllowedIps)) {
+            $allowedIpList = "'" . implode("','", array_map(fn($ip) => str_replace("'", "''", $ip), $allAllowedIps)) . "'";
+            $filters[] = "ip_address NOT IN ($allowedIpList)";
         }
         $where = count($filters) > 0 ? 'WHERE '.implode(' AND ', $filters) : '';
 
@@ -143,7 +163,7 @@ class LogsController extends Controller
                    SELECT ip_address
                    FROM security_logs
                    {$where}
-                   GROUP BY ip_address
+                   GROUP BY ip_address, COALESCE(NULLIF(TRIM(domain_name), ''), '-')
                  ) grouped_ips"
             );
             $countOk = $countResult['ok'] ?? false;
@@ -169,6 +189,7 @@ class LogsController extends Controller
              grouped AS (
                SELECT
                  ip_address,
+                 COALESCE(NULLIF(TRIM(domain_name), ''), '-') AS domain_group,
                  COUNT(*) AS requests,
                  MAX(COALESCE(risk_score, 0)) AS max_risk_score,
                  SUM(
@@ -210,16 +231,16 @@ class LogsController extends Controller
                    END
                  ) AS latest_domain_id
                FROM filtered
-               GROUP BY ip_address
+               GROUP BY ip_address, COALESCE(NULLIF(TRIM(domain_name), ''), '-')
              )
              SELECT
-               COALESCE(fd.domain_name, f.domain_name) AS domain_name,
+               g.domain_group AS domain_name,
                f.event_type,
                f.risk_score,
                (
                  SELECT fw.event_type
                  FROM filtered fw
-                 WHERE fw.ip_address = g.ip_address
+                 WHERE fw.ip_address = g.ip_address AND COALESCE(NULLIF(TRIM(fw.domain_name), ''), '-') = g.domain_group
                  ORDER BY
                    CASE fw.event_type
                      WHEN 'hard_block' THEN 100
@@ -245,7 +266,7 @@ class LogsController extends Controller
                (
                  SELECT COALESCE(fw.risk_score, 0)
                  FROM filtered fw
-                 WHERE fw.ip_address = g.ip_address
+                 WHERE fw.ip_address = g.ip_address AND COALESCE(NULLIF(TRIM(fw.domain_name), ''), '-') = g.domain_group
                  ORDER BY
                    CASE fw.event_type
                      WHEN 'hard_block' THEN 100
@@ -277,7 +298,7 @@ class LogsController extends Controller
                  FROM (
                    SELECT COALESCE(NULLIF(TRIM(fp.target_path), ''), '-') AS target_path
                    FROM filtered fp
-                   WHERE fp.ip_address = g.ip_address
+                   WHERE fp.ip_address = g.ip_address AND COALESCE(NULLIF(TRIM(fp.domain_name), ''), '-') = g.domain_group
                    ORDER BY fp.id DESC
                    LIMIT 50
                  ) path_row

@@ -85,6 +85,14 @@ class FirewallRulesController extends Controller
 
         // --- IP Farm Sync: Allow rule → auto-remove IPs from farm ---
         if ($validated['action'] === 'allow' && $validated['field'] === 'ip.src') {
+            $ipRaw = trim(strtolower($validated['value']));
+            
+            // If it's a single exact IP, purge its security logs and any manual blocks instantly
+            if (!str_contains($ipRaw, ',') && !str_contains($ipRaw, '/')) {
+                $this->edgeShield->queryD1("DELETE FROM security_logs WHERE ip_address = '" . str_replace("'", "''", $ipRaw) . "'");
+                $this->edgeShield->queryD1("DELETE FROM ip_access_rules WHERE ip_or_cidr = '" . str_replace("'", "''", $ipRaw) . "'");
+            }
+
             $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
             if (!empty($farmIps)) {
                 $removal = $this->edgeShield->removeIpsFromFarm($farmIps);
@@ -311,6 +319,21 @@ class FirewallRulesController extends Controller
 
         $finalAction = $validated['action'];
         $finalDescription = $validated['description'] ?? '';
+
+        if ($finalAction === 'allow' && $validated['field'] === 'ip.src') {
+            $ipRaw = trim(strtolower($validated['value']));
+            
+            // If it's a single exact IP, purge its security logs and any manual blocks instantly
+            if (!str_contains($ipRaw, ',') && !str_contains($ipRaw, '/')) {
+                $this->edgeShield->queryD1("DELETE FROM security_logs WHERE ip_address = '" . str_replace("'", "''", $ipRaw) . "'");
+                $this->edgeShield->queryD1("DELETE FROM ip_access_rules WHERE ip_or_cidr = '" . str_replace("'", "''", $ipRaw) . "'");
+            }
+
+            $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
+            if (!empty($farmIps)) {
+                $this->edgeShield->removeIpsFromFarm($farmIps);
+            }
+        }
 
         if ($finalAction === 'block_ip_farm') {
             if ($validated['field'] !== 'ip.src') {

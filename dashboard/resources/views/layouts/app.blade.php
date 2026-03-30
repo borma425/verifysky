@@ -13,7 +13,20 @@
   @vite(['resources/css/app.css', 'resources/js/app.js'])
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body class="min-h-full text-slate-100">
+<body class="min-h-full text-slate-100" x-data="{ isNavigating: false }" x-on:beforeunload.window="isNavigating = true" x-on:pageshow.window="if ($event.persisted) isNavigating = false">
+
+  <!-- Global Premium Loading Overlay -->
+  <div x-show="isNavigating" x-transition.opacity.duration.300ms style="display: none;" class="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md">
+    <div class="flex flex-col items-center gap-5">
+      <div class="relative flex h-20 w-20 items-center justify-center">
+        <div class="absolute inset-0 rounded-full border-t-2 border-sky-400 animate-[spin_1s_linear_infinite]"></div>
+        <div class="absolute inset-2 rounded-full border-r-2 border-rose-400 animate-[spin_1.5s_linear_infinite_reverse]"></div>
+        <div class="absolute inset-4 rounded-full border-b-2 border-emerald-400 animate-[spin_2s_linear_infinite]"></div>
+      </div>
+      <div class="text-xs font-bold uppercase tracking-widest text-sky-200 animate-pulse">Processing...</div>
+    </div>
+  </div>
+
   <div class="pointer-events-none fixed inset-0 overflow-hidden">
     <div class="absolute -left-36 -top-24 h-80 w-80 rounded-full bg-cyan-400/15 blur-3xl"></div>
     <div class="absolute -right-36 top-10 h-96 w-96 rounded-full bg-sky-500/15 blur-3xl"></div>
