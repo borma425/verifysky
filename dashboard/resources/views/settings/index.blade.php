@@ -23,11 +23,7 @@
           <input class="es-input" name="admin_login_path" value="{{ $settings['admin_login_path'] ?? $currentLoginPath }}" placeholder="wow/login">
           <p class="mt-1 text-xs es-muted">Current login URL: <code>{{ url('/'.$currentLoginPath) }}</code></p>
         </div>
-        <div>
-          <label class="mb-1 block text-sm text-sky-100">Hard-Block Redirect URL</label>
-          <input class="es-input" name="es_block_redirect_url" value="{{ $settings['es_block_redirect_url'] ?? '' }}" placeholder="https://example.com/blocked">
-          <p class="mt-1 text-xs es-muted">Used only for final hard block redirect. Slider CAPTCHA page is not affected.</p>
-        </div>
+        <div></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div class="es-card-soft px-3 py-2">
@@ -48,10 +44,7 @@
         </div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div>
-          <label class="mb-1 block text-sm text-sky-100">ES Admin Allowed IPs</label>
-          <input class="es-input" name="es_admin_allowed_ips" value="{{ $settings['es_admin_allowed_ips'] ?? '' }}" placeholder="203.0.113.10,198.51.100.0/24">
-        </div>
+        <div></div>
         <div>
           <label class="mb-1 block text-sm text-sky-100">ES Admin Rate Limit / min</label>
           <input class="es-input" type="number" min="10" max="600" name="es_admin_rate_limit_per_min" value="{{ $settings['es_admin_rate_limit_per_min'] ?? '60' }}">

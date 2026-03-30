@@ -53,12 +53,10 @@ class SettingsController extends Controller
             'jwt_secret' => ['nullable', 'string', 'max:500'],
             'worker_script_name' => ['nullable', 'string', 'max:128'],
             'es_admin_token' => ['nullable', 'string', 'max:500'],
-            'es_admin_allowed_ips' => ['nullable', 'string', 'max:2000'],
             'es_admin_rate_limit_per_min' => ['nullable', 'integer', 'min:10', 'max:600'],
             'es_disable_waf_autodeploy' => ['nullable', 'in:on,off'],
             'es_allow_ua_crawler_allowlist' => ['nullable', 'in:on,off'],
             'admin_login_path' => ['nullable', 'string', 'max:120', 'regex:/^[a-zA-Z0-9_\/-]+$/'],
-            'es_block_redirect_url' => ['nullable', 'string', 'max:2048', 'regex:/^https?:\/\/.+/i'],
         ]);
 
         // Normalize toggle fields to explicit "on"/"off"
@@ -73,9 +71,6 @@ class SettingsController extends Controller
         foreach ($validated as $key => $value) {
             if ($key === 'admin_login_path') {
                 $value = $this->normalizeLoginPath((string) $value);
-            }
-            if ($key === 'es_block_redirect_url') {
-                $value = trim((string) $value);
             }
             if (in_array($key, self::SENSITIVE_SETTING_KEYS, true) && trim((string) ($value ?? '')) === '') {
                 $existing = $existingSensitive->get($key);
