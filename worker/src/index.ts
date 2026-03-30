@@ -1977,6 +1977,13 @@ const worker: ExportedHandler<Env> = {
             } else {
                  conditionMatch = list.includes(actualValue);
             }
+        } else if (operator === "not_in") {
+            const list = targetValue.split(",").map((v: string) => v.trim());
+            if (field === "ip.src") {
+                 conditionMatch = !list.some((target: string) => target.includes("/") ? isIpInCidr(meta.ip, target) : meta.ip === target);
+            } else {
+                 conditionMatch = !list.includes(actualValue);
+            }
         }
       } catch (e) {
          // Silently ignore corrupted rules so they don't break the worker flow

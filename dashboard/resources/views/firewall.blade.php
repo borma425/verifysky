@@ -87,6 +87,7 @@
               <option value="starts_with">starts with</option>
               <option value="not_contains">does not contain</option>
               <option value="in">is in (comma-separated or CIDR)</option>
+              <option value="not_in">is not in (comma-separated or CIDR)</option>
             </select>
           </div>
           <div>
@@ -400,12 +401,16 @@
       const operatorSelect = document.querySelector('select[name="operator"]');
       if (fieldSelect && operatorSelect) {
         const inOption = operatorSelect.querySelector('option[value="in"]');
+        const notInOption = operatorSelect.querySelector('option[value="not_in"]');
         function updateOperatorText() {
-          if (!inOption) return;
-          if (fieldSelect.value === 'ip.src') {
-            inOption.textContent = 'is in (comma-separated or CIDR)';
-          } else {
-            inOption.textContent = 'is in (comma-separated list)';
+          if (inOption) {
+            if (fieldSelect.value === 'ip.src') {
+              inOption.textContent = 'is in (comma-separated or CIDR)';
+              if (notInOption) notInOption.textContent = 'is not in (comma-separated or CIDR)';
+            } else {
+              inOption.textContent = 'is in (comma-separated list)';
+              if (notInOption) notInOption.textContent = 'is not in (comma-separated list)';
+            }
           }
         }
         fieldSelect.addEventListener('change', updateOperatorText);
