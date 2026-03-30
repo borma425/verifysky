@@ -1882,6 +1882,11 @@ const worker: ExportedHandler<Env> = {
       };
     }
 
+    // --- KV Session Validation (Early Check) ---
+    // We validate the session early so that WAF and Custom Firewall rules
+    // with action "challenge" can be bypassed by users who just solved one.
+    const session = await validateSession(request, meta, env);
+
     // --- Sensitive Paths WAF Module ---
     // High-priority evaluation for critical internal URIs (.env, wp-login, etc.)
     const sensitivePaths = await resolveSensitivePaths(domain, env);
@@ -1903,7 +1908,7 @@ const worker: ExportedHandler<Env> = {
          const isBlock = rule.action === "block";
          const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
          
-         const logAction = isBlock ? "hard_block" : (isChallenge ? "challenge_issued" : "session_created");
+         const logAction = isBlock ? "hard_block" : (isChallenge ? (session ? "session_created" : "challenge_issued") : "session_created");
          
          ctx.waitUntil(
             logSecurityEvent(
@@ -1912,7 +1917,7 @@ const worker: ExportedHandler<Env> = {
                meta,
                isBlock ? 100 : 0,
                null,
-               `Sensitive Path Protection: ${pattern} (${rule.match_type})`
+               `Sensitive Path Protection: ${pattern} (${rule.match_type})${isChallenge && session ? ' (Bypassed via session)' : ''}`
             )
          );
 
@@ -1926,6 +1931,9 @@ const worker: ExportedHandler<Env> = {
               ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path hard block: ${pattern} (${rule.match_type})`));
              return handleHardBlock(env);
          } else if (isChallenge) {
+             if (session) {
+                 continue; // They already solved a challenge, proceed to next WAF rule
+             }
               // IP Farm: Challenge sensitive path — only if IP has prior failures
               try {
                 const priorFails = await env.SESSION_KV.get(`failrate:${meta.ip}`);
@@ -2006,7 +2014,7 @@ const worker: ExportedHandler<Env> = {
          const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
          const isAllow = rule.action === "allow" || rule.action === "bypass";
          
-         const logAction = isBlock ? "hard_block" : (isChallenge ? "challenge_issued" : "session_created");
+         const logAction = isBlock ? "hard_block" : (isChallenge ? (session ? "session_created" : "challenge_issued") : "session_created");
          
          ctx.waitUntil(
             logSecurityEvent(
@@ -2015,7 +2023,7 @@ const worker: ExportedHandler<Env> = {
                meta,
                isBlock ? 100 : 0,
                null,
-               `Custom FW rule: ${rule.description || ("Action " + rule.action)}`
+               `Custom FW rule: ${rule.description || ("Action " + rule.action)}${isChallenge && session ? ' (Bypassed via session)' : ''}`
             )
          );
 
@@ -2024,6 +2032,9 @@ const worker: ExportedHandler<Env> = {
          } else if (isAllow) {
             return fetchWithInjectors(request, meta, env, true);
          } else if (isChallenge) {
+             if (session) {
+                 continue; // They already solved a challenge, proceed to next rule
+             }
              return serveChallengePagePlaceholder(meta, domainConfig, env);
          }
          // if action is "log", we just continue checking next rules.
@@ -2034,10 +2045,10 @@ const worker: ExportedHandler<Env> = {
     // rules and sensitive path checks to prevent broad rules from intercepting
     // the solve request. See the block after domain config validation above.
 
-    // --- KV Session Validation ---
+    // --- KV Session Validation (Flood & Visit Checks) ---
     // If the user has a valid, signed session cookie, they passed CAPTCHA before.
-    // Still enforce visit counter + flood protection to prevent post-CAPTCHA abuse.
-    const session = await validateSession(request, meta, env);
+    // We already checked this above, but now we enforce visit counter + flood protection
+    // to prevent post-CAPTCHA abuse.
     if (session) {
       // Skip static assets — no need to count CSS/JS/images
       if (isStaticAssetPath(meta.path)) return fetch(request);
