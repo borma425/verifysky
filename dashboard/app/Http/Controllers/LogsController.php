@@ -26,18 +26,48 @@ class LogsController extends Controller
         $perPage = 50;
         $offset = ($page - 1) * $perPage;
         $filters = [];
-        if ($event !== '') {
+        $cacheVer = Cache::get('logs_cache_version', 1);
+        $allFarmIps = Cache::remember('logs_all_farm_ips_v6_' . $cacheVer, 300, function() {
+            $farmResult = $this->edgeShield->listIpFarmRules();
+            $farmIps = [];
+            if ($farmResult['ok']) {
+                foreach ($farmResult['rules'] as $rule) {
+                    $expr = json_decode($rule['expression_json'] ?? '{}', true);
+                    if (($expr['field'] ?? '') === 'ip.src' && isset($expr['value'])) {
+                        $ips = array_map('trim', explode(',', strtolower($expr['value'])));
+                        $farmIps = array_merge($farmIps, $ips);
+                    }
+                }
+            }
+            return array_unique($farmIps);
+        });
+
+        if ($event === 'farm_block') {
+            if (empty($allFarmIps)) {
+                $filters[] = "1 = 0";
+            } else {
+                $ipList = "'" . implode("','", array_map(fn($ip) => str_replace("'", "''", $ip), $allFarmIps)) . "'";
+                $filters[] = "(event_type = 'hard_block' AND ip_address IN ($ipList))";
+            }
+        } elseif ($event === 'temp_block') {
+            $filters[] = "event_type = 'hard_block'";
+            if (!empty($allFarmIps)) {
+                $ipList = "'" . implode("','", array_map(fn($ip) => str_replace("'", "''", $ip), $allFarmIps)) . "'";
+                $filters[] = "ip_address NOT IN ($ipList)";
+            }
+        } elseif ($event !== '') {
             $filters[] = "event_type = '".str_replace("'", "''", $event)."'";
         }
         if ($domain !== '') {
-            $filters[] = "domain_name = '".str_replace("'", "''", strtolower($domain))."'";
+            $baseDomain = preg_replace('/^www\./', '', strtolower($domain));
+            $filters[] = "(domain_name = '".str_replace("'", "''", $baseDomain)."' OR domain_name = 'www.".str_replace("'", "''", $baseDomain)."')";
         }
         if ($ipAddress !== '') {
             $filters[] = "ip_address = '".str_replace("'", "''", $ipAddress)."'";
         }
         $where = count($filters) > 0 ? 'WHERE '.implode(' AND ', $filters) : '';
 
-        $filterOptions = Cache::remember('logs_filter_options_v1', 120, function (): array {
+        $filterOptions = Cache::remember('logs_filter_options_v2', 120, function (): array {
             $result = $this->edgeShield->queryD1(
                 "SELECT 'domain' AS bucket, domain_name AS value
                  FROM (
@@ -78,35 +108,57 @@ class LogsController extends Controller
                     continue;
                 }
                 if ($bucket === 'domain') {
-                    $domains[] = strtolower($value);
+                    $domains[] = preg_replace('/^www\./', '', strtolower($value));
                 } elseif ($bucket === 'event') {
                     $events[] = $value;
                 }
             }
 
+            $importantEvents = [
+                'farm_block',
+                'temp_block',
+                'challenge_issued', 
+                'challenge_solved', 
+                'challenge_failed', 
+                'turnstile_failed', 
+                'session_created', 
+                'session_rejected'
+            ];
+            $events = array_values(array_intersect(array_unique($events), $importantEvents));
             sort($domains);
             sort($events);
 
             return [
                 'domains' => array_values(array_unique($domains)),
-                'events' => array_values(array_unique($events)),
+                'events' => $events,
             ];
         });
 
-        $countResult = $this->edgeShield->queryD1(
-            "SELECT COUNT(*) AS total_rows
-             FROM (
-               SELECT ip_address
-               FROM security_logs
-               {$where}
-               GROUP BY ip_address
-             ) grouped_ips"
-        );
-        $countOk = $countResult['ok'] ?? false;
-        $countRows = $countOk
-            ? ($this->edgeShield->parseWranglerJson((string) ($countResult['output'] ?? ''))[0]['results'] ?? [])
-            : [];
-        $total = isset($countRows[0]['total_rows']) ? (int) $countRows[0]['total_rows'] : 0;
+        $countCacheKey = 'logs_count_v5_' . md5($where) . '_' . $cacheVer;
+        
+        $countData = Cache::remember($countCacheKey, 300, function() use ($where) {
+            $countResult = $this->edgeShield->queryD1(
+                "SELECT COUNT(*) AS total_rows
+                 FROM (
+                   SELECT ip_address
+                   FROM security_logs
+                   {$where}
+                   GROUP BY ip_address
+                 ) grouped_ips"
+            );
+            $countOk = $countResult['ok'] ?? false;
+            if (!$countOk) {
+                return ['ok' => false, 'total' => 0];
+            }
+            $countRows = $this->edgeShield->parseWranglerJson((string) ($countResult['output'] ?? ''))[0]['results'] ?? [];
+            return [
+                'ok' => true,
+                'total' => isset($countRows[0]['total_rows']) ? (int) $countRows[0]['total_rows'] : 0
+            ];
+        });
+        
+        $countOk = $countData['ok'];
+        $total = $countData['total'];
 
         $result = $this->edgeShield->queryD1(
             "WITH filtered AS (
@@ -250,9 +302,49 @@ class LogsController extends Controller
             ? ($this->edgeShield->parseWranglerJson((string) ($result['output'] ?? ''))[0]['results'] ?? [])
             : [];
 
-        $rows = array_map(function ($row): array {
+        $uniqueIps = [];
+        $uniqueDomains = [];
+        foreach ($rawRows as $row) {
+            if (is_array($row)) {
+                $ip = trim((string) ($row['ip_address'] ?? ''));
+                if ($ip !== '') {
+                    $uniqueIps[$ip] = true;
+                }
+                $domain = $this->resolveLogDomain($row);
+                if ($domain !== '' && $domain !== '-') {
+                    $uniqueDomains[$domain] = true;
+                }
+            }
+        }
+
+        $farmIps = array_intersect_key(array_flip($allFarmIps), $uniqueIps);
+
+        $domainConfigs = Cache::remember('logs_domain_configs_v3_' . $cacheVer, 300, function() {
+            $configsResult = $this->edgeShield->queryD1("SELECT domain_name, thresholds_json FROM domain_configs");
+            $out = [];
+            if ($configsResult['ok']) {
+                $configRows = $this->edgeShield->parseWranglerJson((string) ($configsResult['output'] ?? ''))[0]['results'] ?? [];
+                foreach ($configRows as $cRow) {
+                    if (is_array($cRow)) {
+                        $cDomain = trim((string) ($cRow['domain_name'] ?? ''));
+                        $thresholds = json_decode((string) ($cRow['thresholds_json'] ?? '{}'), true);
+                        if (is_array($thresholds)) {
+                            $out[$cDomain] = $thresholds;
+                        }
+                    }
+                }
+            }
+            return $out;
+        });
+
+        $rows = array_map(function ($row) use ($farmIps, $domainConfigs): array {
             $safeRow = is_array($row) ? $row : [];
             $safeRow['domain'] = $this->resolveLogDomain($safeRow);
+            $ip = trim((string) ($safeRow['ip_address'] ?? ''));
+            $safeRow['is_in_ip_farm'] = isset($farmIps[$ip]);
+            $thresholds = $domainConfigs[$safeRow['domain']] ?? [];
+            $safeRow['temp_ban_ttl_hours'] = isset($thresholds['temp_ban_ttl_hours']) ? (float) $thresholds['temp_ban_ttl_hours'] : 24.0;
+
             $safeRow['requests'] = (int) ($safeRow['requests'] ?? 0);
             $safeRow['risk_score'] = isset($safeRow['risk_score']) ? (int) $safeRow['risk_score'] : null;
             $safeRow['max_risk_score'] = (int) ($safeRow['max_risk_score'] ?? 0);
@@ -286,6 +378,46 @@ class LogsController extends Controller
             return $safeRow;
         }, $rawRows);
 
+        $statsDomainWhere = '';
+        if ($domain !== '') {
+            $baseDomain = preg_replace('/^www\./', '', strtolower($domain));
+            $safeBase = str_replace("'", "''", $baseDomain);
+            $statsDomainWhere = "WHERE (domain_name = '{$safeBase}' OR domain_name = 'www.{$safeBase}')";
+        }
+        
+        $statsCacheKey = 'logs_general_stats_v5_' . md5($statsDomainWhere) . '_' . $cacheVer;
+        $generalStats = Cache::remember($statsCacheKey, 300, function() use ($statsDomainWhere) {
+            $statsSql = "
+                SELECT 
+                    SUM(CASE WHEN event_type IN ('challenge_failed', 'hard_block', 'turnstile_failed', 'replay_detected', 'session_rejected') THEN 1 ELSE 0 END) as total_attacks,
+                    SUM(CASE WHEN event_type IN ('challenge_solved', 'session_created') THEN 1 ELSE 0 END) as total_visitors
+                FROM security_logs
+                {$statsDomainWhere} " . ($statsDomainWhere ? " AND " : " WHERE ") . " datetime(created_at) >= datetime('now', 'start of month')
+            ";
+            $countriesSql = "
+                SELECT country, COUNT(*) as attack_count 
+                FROM security_logs 
+                " . ($statsDomainWhere ? $statsDomainWhere . " AND " : " WHERE ") . " event_type IN ('challenge_failed', 'hard_block', 'turnstile_failed', 'replay_detected', 'session_rejected')
+                AND country IS NOT NULL AND country != '' AND country != 'T1'
+                AND datetime(created_at) >= datetime('now', 'start of month')
+                GROUP BY country 
+                ORDER BY attack_count DESC 
+                LIMIT 3
+            ";
+
+            $statsRes = $this->edgeShield->queryD1($statsSql);
+            $statsRow = $statsRes['ok'] ? ($this->edgeShield->parseWranglerJson((string)($statsRes['output'] ?? ''))[0]['results'][0] ?? []) : [];
+            
+            $countriesRes = $this->edgeShield->queryD1($countriesSql);
+            $topCountries = $countriesRes['ok'] ? ($this->edgeShield->parseWranglerJson((string)($countriesRes['output'] ?? ''))[0]['results'] ?? []) : [];
+
+            return [
+                'total_attacks' => (int)($statsRow['total_attacks'] ?? 0),
+                'total_visitors' => (int)($statsRow['total_visitors'] ?? 0),
+                'top_countries' => $topCountries
+            ];
+        });
+
         $paginator = new LengthAwarePaginator(
             $rows,
             $total,
@@ -299,6 +431,7 @@ class LogsController extends Controller
 
         return view('logs.index', [
             'logs' => $paginator,
+            'generalStats' => $generalStats,
             'error' => $rowsOk
                 ? null
                 : (($result['error'] ?? '') ?: (($countResult['error'] ?? '') ?: 'Failed to load logs')),
@@ -393,6 +526,7 @@ class LogsController extends Controller
             return back()->with('error', 'IP was allow-listed, but failed to reset visit counters: '.((string) ($deleteResult['error'] ?? 'unknown error')));
         }
 
+        Cache::increment('logs_cache_version');
         return back()->with('status', 'IP '.$ip.' was allow-listed, unbanned, and added to Manual Firewall Rules.');
     }
 
@@ -462,7 +596,30 @@ class LogsController extends Controller
         }
 
         $farmMsg = !empty($farmIps) ? ' (already permanently banned in IP Farm)' : '';
+        Cache::increment('logs_cache_version');
         return back()->with('status', 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours and added to Manual Firewall Rules.' . $farmMsg);
+    }
+
+    public function clearLogs(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'period' => ['required', 'in:all,30d,7d']
+        ]);
+
+        $sql = "DELETE FROM security_logs";
+        if ($validated['period'] === '30d') {
+            $sql .= " WHERE datetime(created_at) < datetime('now', '-30 days')";
+        } elseif ($validated['period'] === '7d') {
+            $sql .= " WHERE datetime(created_at) < datetime('now', '-7 days')";
+        }
+
+        $result = $this->edgeShield->queryD1($sql);
+        if ($result['ok']) {
+            Cache::increment('logs_cache_version');
+            return back()->with('status', 'Logs cleared successfully.');
+        }
+
+        return back()->with('error', 'Failed to clear logs: ' . ($result['error'] ?? 'unknown error'));
     }
 
     private function resolveLogDomain(array $row): string

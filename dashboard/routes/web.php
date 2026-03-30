@@ -102,6 +102,7 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
     Route::get('/logs', [LogsController::class, 'index'])->name('logs.index');
     Route::post('/logs/allow-ip', [LogsController::class, 'allowIp'])->name('logs.allow_ip');
     Route::post('/logs/block-ip', [LogsController::class, 'blockIp'])->name('logs.block_ip');
+    Route::post('/logs/clear', [LogsController::class, 'clearLogs'])->name('logs.clear');
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');

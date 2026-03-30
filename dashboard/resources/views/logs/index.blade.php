@@ -1,8 +1,73 @@
 @extends('layouts.app')
 
 @section('content')
+  @if(isset($generalStats))
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 es-animate">
+    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
+      <div class="absolute -right-4 -top-4 w-24 h-24 bg-rose-500/20 rounded-full blur-2xl group-hover:bg-rose-500/30 transition-all"></div>
+      <h3 class="text-sm font-medium text-sky-100 flex items-center flex-wrap gap-2 mb-2">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          Attacks Blocked This Month
+        </span>
+        <span class="text-[10px] text-sky-200/50 uppercase tracking-widest pl-1 border-l border-sky-500/20">{{ $domainName ?: 'ALL DOMAINS' }}</span>
+      </h3>
+      <div class="text-3xl font-bold text-white tracking-tight">{{ number_format($generalStats['total_attacks'] ?? 0) }}</div>
+    </div>
+    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
+      <div class="absolute -right-4 -top-4 w-24 h-24 bg-emerald-500/20 rounded-full blur-2xl group-hover:bg-emerald-500/30 transition-all"></div>
+      <h3 class="text-sm font-medium text-sky-100 flex items-center flex-wrap gap-2 mb-2">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          Verified Users This Month
+        </span>
+        <span class="text-[10px] text-sky-200/50 uppercase tracking-widest pl-1 border-l border-sky-500/20">{{ $domainName ?: 'ALL DOMAINS' }}</span>
+      </h3>
+      <div class="text-3xl font-bold text-white tracking-tight">{{ number_format($generalStats['total_visitors'] ?? 0) }}</div>
+    </div>
+    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
+      <h3 class="text-sm font-medium text-sky-100 flex items-center flex-wrap gap-2 mb-3">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          Top Attacking Countries (This Month)
+        </span>
+        <span class="text-[10px] text-sky-200/50 uppercase tracking-widest pl-1 border-l border-sky-500/20">{{ $domainName ?: 'ALL DOMAINS' }}</span>
+      </h3>
+      <div class="flex flex-col gap-2">
+        @forelse($generalStats['top_countries'] ?? [] as $tc)
+          @if(($tc['country'] ?? '') !== '')
+            <div class="flex items-center justify-between text-sm">
+              <div class="flex items-center gap-2">
+                <img src="https://flagcdn.com/w20/{{ strtolower($tc['country']) }}.png" srcset="https://flagcdn.com/w40/{{ strtolower($tc['country']) }}.png 2x" alt="{{ $tc['country'] }}" class="w-5 h-auto rounded-sm border border-gray-700/50 object-cover opacity-90 hover:opacity-100 transition-opacity">
+                <span class="text-slate-200 font-medium">{{ strtoupper($tc['country']) }}</span>
+              </div>
+              <span class="text-xs font-bold text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded-md border border-rose-500/30">{{ number_format($tc['attack_count'] ?? 0) }}</span>
+            </div>
+          @endif
+        @empty
+          <div class="text-xs text-sky-300/50">No data available</div>
+        @endforelse
+      </div>
+    </div>
+  </div>
+  @endif
+
   <div class="es-card es-animate mb-4 p-5 md:p-6">
-    <h2 class="es-title mb-3">Security Logs</h2>
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 border-b border-sky-500/20 pb-4">
+      <h2 class="es-title m-0">Security Logs</h2>
+      <form method="POST" action="{{ route('logs.clear') }}" class="mt-3 md:mt-0 flex items-center justify-end gap-2" onsubmit="return confirm('Are you sure you want to clear these logs? This cannot be undone.');">
+        @csrf
+        <select name="period" class="es-input text-xs py-1.5 px-2 h-auto w-auto bg-gray-900 border-gray-700 text-gray-300 focus:ring-rose-500">
+          <option value="7d">Older than 7 days</option>
+          <option value="30d">Older than 30 days</option>
+          <option value="all">All Logs (Reset)</option>
+        </select>
+        <button type="submit" class="es-btn px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-500 border-rose-600 flex items-center gap-1.5 text-white/90">
+          <svg class="w-3.5 h-3.5 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+          Clear
+        </button>
+      </form>
+    </div>
     <form method="GET" action="{{ route('logs.index') }}" class="flex flex-col gap-3 md:flex-row md:items-end md:flex-wrap">
       <div class="md:w-72">
         <label class="mb-1 block text-sm text-sky-100">Filter by domain</label>
@@ -18,7 +83,20 @@
         <select class="es-input" name="event_type">
           <option value="">All events</option>
           @foreach(($eventTypeOptions ?? []) as $optionEvent)
-            <option value="{{ $optionEvent }}" @selected(($eventType ?? '') === $optionEvent)>{{ $optionEvent }}</option>
+            @php
+              $labels = [
+                'farm_block' => 'IP Farm Blocks (Permanent)',
+                'temp_block' => 'Temporary Blocks (Tuning)',
+                'challenge_issued' => 'Challenge Issued',
+                'challenge_solved' => 'Challenge Solved',
+                'challenge_failed' => 'Challenge Failed',
+                'turnstile_failed' => 'Turnstile Failed',
+                'session_created' => 'Session Created (Passed)',
+                'session_rejected' => 'Session Rejected',
+              ];
+              $displayOpt = $labels[$optionEvent] ?? $optionEvent;
+            @endphp
+            <option value="{{ $optionEvent }}" @selected(($eventType ?? '') === $optionEvent)>{{ $displayOpt }}</option>
           @endforeach
         </select>
       </div>
@@ -57,6 +135,19 @@
           if ($eventTypeValue === '') {
             $eventTypeValue = (string) ($row['event_type'] ?? '');
           }
+
+          $eventDisplayValue = $eventTypeValue;
+          if ($eventTypeValue === 'hard_block') {
+              if (!empty($row['is_in_ip_farm'])) {
+                  $eventDisplayValue = 'hard block';
+              } else {
+                  $hours = $row['temp_ban_ttl_hours'] ?? 24;
+                  $formattedHours = is_numeric($hours) ? rtrim(rtrim(number_format($hours, 2), '0'), '.') : '24';
+                  $unit = $formattedHours == '1' ? 'hour' : 'hours';
+                  $eventDisplayValue = "Blocked for {$formattedHours} {$unit}";
+              }
+          }
+
           $eventScoreDefaults = [
             'challenge_issued' => 35,
             'challenge_solved' => 10,
@@ -90,7 +181,7 @@
           <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
           <td class="whitespace-nowrap align-top">
             <div class="flex items-center gap-2">
-              <span>{{ $eventTypeValue }}</span>
+              <span>{{ $eventDisplayValue }}</span>
               <span class="rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none {{ $eventScoreClass }}">{{ $eventScore }}%</span>
             </div>
             @if($isRepeatOffender)
