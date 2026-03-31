@@ -1,7 +1,5 @@
 @extends('layouts.app')
 
-@extends('layouts.app')
-
 @section('content')
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 es-animate">
     <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
