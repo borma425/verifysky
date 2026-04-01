@@ -348,22 +348,22 @@ export function parseThresholds(config: DomainConfigRecord | null): DomainThresh
   try {
     const parsed = JSON.parse(config.thresholds_json);
     return {
-      visit_captcha_threshold: Number.isFinite(parsed.visit_captcha_threshold) ? parsed.visit_captcha_threshold : defaults.visit_captcha_threshold,
-      daily_visit_limit: Number.isFinite(parsed.daily_visit_limit) ? parsed.daily_visit_limit : defaults.daily_visit_limit,
-      asn_hourly_visit_limit: Number.isFinite(parsed.asn_hourly_visit_limit) ? parsed.asn_hourly_visit_limit : defaults.asn_hourly_visit_limit,
+      visit_captcha_threshold: Number.isFinite(Number(parsed.visit_captcha_threshold)) ? Number(parsed.visit_captcha_threshold) : defaults.visit_captcha_threshold,
+      daily_visit_limit: Number.isFinite(Number(parsed.daily_visit_limit)) ? Number(parsed.daily_visit_limit) : defaults.daily_visit_limit,
+      asn_hourly_visit_limit: Number.isFinite(Number(parsed.asn_hourly_visit_limit)) ? Number(parsed.asn_hourly_visit_limit) : defaults.asn_hourly_visit_limit,
       ad_traffic_strict_mode: typeof parsed.ad_traffic_strict_mode === 'boolean' ? parsed.ad_traffic_strict_mode : defaults.ad_traffic_strict_mode,
-      flood_burst_challenge: Number.isFinite(parsed.flood_burst_challenge) ? parsed.flood_burst_challenge : defaults.flood_burst_challenge,
-      flood_burst_block: Number.isFinite(parsed.flood_burst_block) ? parsed.flood_burst_block : defaults.flood_burst_block,
-      flood_sustained_challenge: Number.isFinite(parsed.flood_sustained_challenge) ? parsed.flood_sustained_challenge : defaults.flood_sustained_challenge,
-      flood_sustained_block: Number.isFinite(parsed.flood_sustained_block) ? parsed.flood_sustained_block : defaults.flood_sustained_block,
-      ip_hard_ban_rate: Number.isFinite(parsed.ip_hard_ban_rate) ? parsed.ip_hard_ban_rate : defaults.ip_hard_ban_rate,
-      max_challenge_failures: Number.isFinite(parsed.max_challenge_failures) ? parsed.max_challenge_failures : defaults.max_challenge_failures,
-      temp_ban_ttl_seconds: Number.isFinite(parsed.temp_ban_ttl_seconds) ? parsed.temp_ban_ttl_seconds : defaults.temp_ban_ttl_seconds,
-      ai_rule_ttl_seconds: Number.isFinite(parsed.ai_rule_ttl_seconds) ? parsed.ai_rule_ttl_seconds : defaults.ai_rule_ttl_seconds,
-      session_ttl_seconds: Number.isFinite(parsed.session_ttl_seconds) ? parsed.session_ttl_seconds : defaults.session_ttl_seconds,
-      auto_aggr_pressure_seconds: Number.isFinite(parsed.auto_aggr_pressure_seconds) ? parsed.auto_aggr_pressure_seconds : defaults.auto_aggr_pressure_seconds,
-      auto_aggr_active_seconds: Number.isFinite(parsed.auto_aggr_active_seconds) ? parsed.auto_aggr_active_seconds : defaults.auto_aggr_active_seconds,
-      auto_aggr_trigger_subnets: Number.isFinite(parsed.auto_aggr_trigger_subnets) ? parsed.auto_aggr_trigger_subnets : defaults.auto_aggr_trigger_subnets,
+      flood_burst_challenge: Number.isFinite(Number(parsed.flood_burst_challenge)) ? Number(parsed.flood_burst_challenge) : defaults.flood_burst_challenge,
+      flood_burst_block: Number.isFinite(Number(parsed.flood_burst_block)) ? Number(parsed.flood_burst_block) : defaults.flood_burst_block,
+      flood_sustained_challenge: Number.isFinite(Number(parsed.flood_sustained_challenge)) ? Number(parsed.flood_sustained_challenge) : defaults.flood_sustained_challenge,
+      flood_sustained_block: Number.isFinite(Number(parsed.flood_sustained_block)) ? Number(parsed.flood_sustained_block) : defaults.flood_sustained_block,
+      ip_hard_ban_rate: Number.isFinite(Number(parsed.ip_hard_ban_rate)) ? Number(parsed.ip_hard_ban_rate) : defaults.ip_hard_ban_rate,
+      max_challenge_failures: Number.isFinite(Number(parsed.max_challenge_failures)) ? Number(parsed.max_challenge_failures) : defaults.max_challenge_failures,
+      temp_ban_ttl_seconds: Number.isFinite(Number(parsed.temp_ban_ttl_seconds)) ? Number(parsed.temp_ban_ttl_seconds) : defaults.temp_ban_ttl_seconds,
+      ai_rule_ttl_seconds: Number.isFinite(Number(parsed.ai_rule_ttl_seconds)) ? Number(parsed.ai_rule_ttl_seconds) : defaults.ai_rule_ttl_seconds,
+      session_ttl_seconds: Number.isFinite(Number(parsed.session_ttl_seconds)) ? Number(parsed.session_ttl_seconds) : defaults.session_ttl_seconds,
+      auto_aggr_pressure_seconds: Number.isFinite(Number(parsed.auto_aggr_pressure_seconds)) ? Number(parsed.auto_aggr_pressure_seconds) : defaults.auto_aggr_pressure_seconds,
+      auto_aggr_active_seconds: Number.isFinite(Number(parsed.auto_aggr_active_seconds)) ? Number(parsed.auto_aggr_active_seconds) : defaults.auto_aggr_active_seconds,
+      auto_aggr_trigger_subnets: Number.isFinite(Number(parsed.auto_aggr_trigger_subnets)) ? Number(parsed.auto_aggr_trigger_subnets) : defaults.auto_aggr_trigger_subnets,
     };
   } catch {
     return defaults;

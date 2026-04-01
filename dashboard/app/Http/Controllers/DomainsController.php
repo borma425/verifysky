@@ -270,17 +270,31 @@ class DomainsController extends Controller
         ]);
 
         // Convert back to seconds for the Worker
-        $thresholds = $validated;
-        $thresholds['temp_ban_ttl_seconds'] = (int) ($validated['temp_ban_ttl_hours'] * 3600);
-        $thresholds['ai_rule_ttl_seconds'] = (int) ($validated['ai_rule_ttl_days'] * 86400);
-        $thresholds['session_ttl_seconds'] = (int) ($validated['session_ttl_hours'] * 3600);
+        // IMPORTANT: Cast ALL numeric values to (int) so json_encode() writes
+        // JSON numbers (400000) instead of JSON strings ("400000").
+        // Number.isFinite() in the Worker returns false for strings!
+        $thresholds = [];
+        $thresholds['visit_captcha_threshold']    = (int) $validated['visit_captcha_threshold'];
+        $thresholds['daily_visit_limit']          = (int) $validated['daily_visit_limit'];
+        $thresholds['asn_hourly_visit_limit']     = (int) $validated['asn_hourly_visit_limit'];
+        $thresholds['flood_burst_challenge']      = (int) $validated['flood_burst_challenge'];
+        $thresholds['flood_burst_block']          = (int) $validated['flood_burst_block'];
+        $thresholds['flood_sustained_challenge']  = (int) $validated['flood_sustained_challenge'];
+        $thresholds['flood_sustained_block']      = (int) $validated['flood_sustained_block'];
+        $thresholds['ip_hard_ban_rate']           = (int) $validated['ip_hard_ban_rate'];
+        $thresholds['max_challenge_failures']     = (int) $validated['max_challenge_failures'];
+        $thresholds['auto_aggr_trigger_subnets']  = (int) $validated['auto_aggr_trigger_subnets'];
+        $thresholds['temp_ban_ttl_seconds']       = (int) ($validated['temp_ban_ttl_hours'] * 3600);
+        $thresholds['ai_rule_ttl_seconds']        = (int) ($validated['ai_rule_ttl_days'] * 86400);
+        $thresholds['session_ttl_seconds']        = (int) ($validated['session_ttl_hours'] * 3600);
         $thresholds['auto_aggr_pressure_seconds'] = (int) ($validated['auto_aggr_pressure_minutes'] * 60);
-        $thresholds['auto_aggr_active_seconds'] = (int) ($validated['auto_aggr_active_minutes'] * 60);
-        $thresholds['ad_traffic_strict_mode'] = $request->boolean('ad_traffic_strict_mode');
+        $thresholds['auto_aggr_active_seconds']   = (int) ($validated['auto_aggr_active_minutes'] * 60);
+        $thresholds['ad_traffic_strict_mode']     = $request->boolean('ad_traffic_strict_mode');
 
-        // Remove the virtual UI fields before encoding
-        unset($thresholds['temp_ban_ttl_hours'], $thresholds['ai_rule_ttl_days'], $thresholds['session_ttl_hours']);
-        unset($thresholds['auto_aggr_pressure_minutes'], $thresholds['auto_aggr_active_minutes']);
+        // Include api_count if provided
+        if (isset($validated['api_count'])) {
+            $thresholds['api_count'] = (int) $validated['api_count'];
+        }
 
         $json = json_encode($thresholds);
         $result = $this->edgeShield->updateDomainThresholds($domain, $json);
