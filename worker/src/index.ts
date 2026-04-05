@@ -1529,13 +1529,25 @@ async function markForIpFarm(
         const farmNumber = parsedRules.indexOf(pRule) + 1;
         const newDescription = `${IP_FARM_DESC_PREFIX} IP Farm ${farmNumber} (${mergedTargets.length} IPs)`;
 
-        await env.DB.prepare(
-          `UPDATE custom_firewall_rules
-           SET expression_json = ?, description = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ? AND expression_json = ?`
-        )
-          .bind(newExpression, newDescription, pRule.id, pRule.expression_json)
-          .run();
+        try {
+          // Some deployed databases don't have updated_at in custom_firewall_rules.
+          // Try modern schema first, then fall back for backward compatibility.
+          await env.DB.prepare(
+            `UPDATE custom_firewall_rules
+             SET expression_json = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND expression_json = ?`
+          )
+            .bind(newExpression, newDescription, pRule.id, pRule.expression_json)
+            .run();
+        } catch {
+          await env.DB.prepare(
+            `UPDATE custom_firewall_rules
+             SET expression_json = ?, description = ?
+             WHERE id = ? AND expression_json = ?`
+          )
+            .bind(newExpression, newDescription, pRule.id, pRule.expression_json)
+            .run();
+        }
 
         merged = true;
         break;

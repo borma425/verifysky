@@ -90,6 +90,7 @@
                 'challenge_issued' => 'Challenge Issued',
                 'challenge_solved' => 'Challenge Solved',
                 'challenge_failed' => 'Challenge Failed',
+                'challenge_warning' => 'Challenge Warning (Soft-Pass)',
                 'turnstile_failed' => 'Turnstile Failed',
                 'session_created' => 'Session Created (Passed)',
                 'session_rejected' => 'Session Rejected',
@@ -151,6 +152,7 @@
             'challenge_issued' => 35,
             'challenge_solved' => 10,
             'challenge_failed' => 65,
+            'challenge_warning' => 15,
             'hard_block' => 70,
             'session_created' => 5,
             'session_rejected' => 60,
@@ -172,9 +174,12 @@
             : ($eventScore >= 40
               ? 'border-amber-400/40 bg-amber-500/20 text-amber-100'
               : 'border-emerald-400/40 bg-emerald-500/20 text-emerald-100');
-          $isRepeatOffender = (int) ($row['requests_today'] ?? 0) >= 20
+          $hasHighVolume = (int) ($row['requests_today'] ?? 0) >= 20
             || (int) ($row['requests_yesterday'] ?? 0) >= 40
             || (int) ($row['requests_month'] ?? 0) >= 120;
+          $solvedEvents = (int) ($row['solved_or_passed_events'] ?? 0);
+          $flaggedEvents = (int) ($row['flagged_events'] ?? 0);
+          $isRepeatOffender = $hasHighVolume && $flaggedEvents > $solvedEvents;
         @endphp
         <tr>
           <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>

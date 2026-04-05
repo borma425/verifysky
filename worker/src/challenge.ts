@@ -264,7 +264,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch", thresholds, meta));
       return createErrorResponse("CHALLENGE_CONTEXT_MISMATCH", "Challenge context mismatch", 403);
     }
-    ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+    ctx.waitUntil(logEvent(env, "challenge_warning", meta, submission.fingerprint,
       "Challenge cookie validation failed (soft-pass)"));
   }
 
@@ -323,14 +323,14 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch", thresholds, meta));
       return createErrorResponse("IP_MISMATCH", "Challenge IP mismatch", 403);
     }
-    ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+    ctx.waitUntil(logEvent(env, "challenge_warning", meta, submission.fingerprint,
       `IP mismatch detected (soft-pass): challenge issued to ${challenge.ip_address}`));
   }
 
   // Verify User-Agent matches the original challenge request
   const requestUserAgent = sanitizeInput(meta.userAgent, 512);
   if (challenge.user_agent && challenge.user_agent !== requestUserAgent) {
-    ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
+    ctx.waitUntil(logEvent(env, "challenge_warning", meta, submission.fingerprint,
       "User-Agent mismatch detected (soft-pass)"));
   }
 

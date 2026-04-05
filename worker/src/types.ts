@@ -198,6 +198,7 @@ export type SecurityEventType =
   | "challenge_issued"
   | "challenge_solved"
   | "challenge_failed"
+  | "challenge_warning"
   | "hard_block"
   | "session_created"
   | "session_rejected"

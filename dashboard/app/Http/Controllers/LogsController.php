@@ -139,7 +139,8 @@ class LogsController extends Controller
                 'temp_block',
                 'challenge_issued', 
                 'challenge_solved', 
-                'challenge_failed', 
+                'challenge_failed',
+                'challenge_warning',
                 'turnstile_failed', 
                 'session_created', 
                 'session_rejected'
@@ -255,6 +256,7 @@ class LogsController extends Controller
                      WHEN 'WAF_MERGE_UPDATED' THEN 58
                      WHEN 'ai_defense' THEN 55
                      WHEN 'WAF_MERGE_SKIPPED' THEN 50
+                     WHEN 'challenge_warning' THEN 25
                      WHEN 'challenge_solved' THEN 20
                      WHEN 'session_created' THEN 10
                      ELSE 30
@@ -281,6 +283,7 @@ class LogsController extends Controller
                      WHEN 'WAF_MERGE_UPDATED' THEN 58
                      WHEN 'ai_defense' THEN 55
                      WHEN 'WAF_MERGE_SKIPPED' THEN 50
+                     WHEN 'challenge_warning' THEN 25
                      WHEN 'challenge_solved' THEN 20
                      WHEN 'session_created' THEN 10
                      ELSE 30
