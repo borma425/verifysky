@@ -72,6 +72,18 @@ function getTempBanKey(domain: string, ip: string) { return `ban:domainIP:${doma
 function getAdminAllowKey(domain: string, ip: string) { return `allow:domainIP:${domain}:${ip}`; }
 function getTrustedIpKey(domain: string, ip: string) { return `trust:domainIP:${domain}:${ip}`; }
 function getDailyVisitKey(domain: string, ip: string) { return `daily_visit:domainIP:${domain}:${ip}`; }
+function getDomainKeyVariants(domain: string): string[] {
+  const normalized = domain.trim().toLowerCase();
+  if (!normalized) return [];
+
+  const variants = new Set<string>([normalized]);
+  if (normalized.startsWith("www.") && normalized.length > 4) {
+    variants.add(normalized.slice(4));
+  } else if (normalized.includes(".")) {
+    variants.add(`www.${normalized}`);
+  }
+  return Array.from(variants);
+}
 
 /** KV key prefix for IP rules caching */
 const IP_RULES_CACHE_PREFIX = "ipr:";
@@ -690,8 +702,11 @@ async function checkAndIncrementASNVisitCounter(
  */
 async function isTemporarilyBanned(ip: string, domain: string, env: Env): Promise<boolean> {
   try {
-    const ban = await env.SESSION_KV.get(getTempBanKey(domain, ip));
-    return ban === "1";
+    const domains = getDomainKeyVariants(domain);
+    const values = await Promise.all(
+      domains.map((name) => env.SESSION_KV.get(getTempBanKey(name, ip)))
+    );
+    return values.some((ban) => ban === "1");
   } catch {
     return false;
   }
@@ -699,11 +714,75 @@ async function isTemporarilyBanned(ip: string, domain: string, env: Env): Promis
 
 async function isAdminAllowedIP(ip: string, domain: string, env: Env): Promise<boolean> {
   try {
-    const allow = await env.SESSION_KV.get(getAdminAllowKey(domain, ip));
-    return allow !== null;
+    const domains = getDomainKeyVariants(domain);
+    const values = await Promise.all(
+      domains.map((name) => env.SESSION_KV.get(getAdminAllowKey(name, ip)))
+    );
+    return values.some((allow) => allow !== null);
   } catch {
     return false;
   }
+}
+
+/**
+ * Checks whether an IP is explicitly allow-listed in custom_firewall_rules
+ * (domain-specific or global) with action allow/bypass and an ip.src expression.
+ * This is used as an override before temp-ban checks to prevent stale KV bans
+ * from blocking manually allow-listed admin IPs.
+ */
+async function isCustomFirewallIpAllowed(
+  ip: string,
+  domain: string,
+  env: Env
+): Promise<boolean> {
+  try {
+    const rules = await resolveCustomFirewallRules(domain, env);
+    if (!rules.length) return false;
+
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const normalizedIp = ip.toLowerCase();
+
+    for (const rule of rules) {
+      const isAllow = rule.action === "allow" || rule.action === "bypass";
+      if (!isAllow) continue;
+      if (rule.expires_at !== null && rule.expires_at < nowSecs) continue;
+
+      try {
+        const expr = JSON.parse(rule.expression_json);
+        if (expr?.field !== "ip.src") continue;
+
+        const operator = String(expr.operator || "").toLowerCase();
+        const value = String(expr.value || "").toLowerCase().trim();
+        if (!value) continue;
+
+        if (operator === "eq") {
+          if (value.includes("/")) {
+            if (isIpInCidr(ip, value)) return true;
+          } else if (value === normalizedIp) {
+            return true;
+          }
+          continue;
+        }
+
+        if (operator === "in") {
+          const list = value.split(",").map((v: string) => v.trim()).filter(Boolean);
+          if (
+            list.some((target: string) =>
+              target.includes("/") ? isIpInCidr(ip, target) : target === normalizedIp
+            )
+          ) {
+            return true;
+          }
+        }
+      } catch {
+        // Ignore malformed rule expressions
+      }
+    }
+  } catch {
+    // Fail closed: continue normal security flow
+  }
+
+  return false;
 }
 
 function isIPv4(ip: string): boolean {
@@ -974,17 +1053,48 @@ async function handleAdminIPRoute(
       return createErrorResponse("INVALID_IP", "Valid IP is required", 400);
     }
 
-    const [banned, allowed] = await Promise.all([
-      env.SESSION_KV.get(getTempBanKey(domain, ip)),
-      env.SESSION_KV.get(getAdminAllowKey(domain, ip)),
+    const domains = getDomainKeyVariants(domain);
+    const [banRows, allowRows, customFirewallAllowed] = await Promise.all([
+      Promise.all(
+        domains.map(async (name) => ({
+          domain: name,
+          value: await env.SESSION_KV.get(getTempBanKey(name, ip)),
+        }))
+      ),
+      Promise.all(
+        domains.map(async (name) => ({
+          domain: name,
+          value: await env.SESSION_KV.get(getAdminAllowKey(name, ip)),
+        }))
+      ),
+      isCustomFirewallIpAllowed(ip, domain, env),
     ]);
+
+    const banMatch = banRows.find((row) => row.value === "1") || null;
+    const allowMatch = allowRows.find((row) => row.value !== null) || null;
+    let allowMeta: unknown = null;
+    if (allowMatch?.value) {
+      try {
+        allowMeta = JSON.parse(allowMatch.value);
+      } catch {
+        allowMeta = { raw: allowMatch.value };
+      }
+    }
+    const effectiveAllowed = Boolean(allowMatch) || customFirewallAllowed;
 
     return createJsonResponse({
       success: true,
       ip,
-      banned: banned === "1",
-      allowed: allowed !== null,
-      allow_meta: allowed ? JSON.parse(allowed) : null,
+      domain_checked: domain,
+      domain_variants_checked: domains,
+      banned: Boolean(banMatch),
+      banned_source_domain: banMatch?.domain || null,
+      allowed: Boolean(allowMatch),
+      allowed_source_domain: allowMatch?.domain || null,
+      allow_meta: allowMeta,
+      custom_firewall_allowed: customFirewallAllowed,
+      effective_allowed: effectiveAllowed,
+      effective_blocked: Boolean(banMatch) && !effectiveAllowed,
     });
   }
 
@@ -1010,16 +1120,22 @@ async function handleAdminIPRoute(
       ttl_hours: ttlHours,
     });
 
-    await env.SESSION_KV.put(getAdminAllowKey(domain, ip), allowMeta, {
-      expirationTtl: ttlSeconds || ADMIN_ALLOW_DEFAULT_TTL_SECONDS,
-    });
-    await env.SESSION_KV.delete(getTempBanKey(domain, ip));
+    const domains = getDomainKeyVariants(domain);
+    await Promise.all(
+      domains.map(async (name) => {
+        await env.SESSION_KV.put(getAdminAllowKey(name, ip), allowMeta, {
+          expirationTtl: ttlSeconds || ADMIN_ALLOW_DEFAULT_TTL_SECONDS,
+        });
+        await env.SESSION_KV.delete(getTempBanKey(name, ip));
+      })
+    );
 
     return createJsonResponse({
       success: true,
       action: "allow",
       ip,
       ttl_hours: ttlHours,
+      domains_updated: domains,
       note: "IP allow-listed and unbanned",
     });
   }
@@ -1038,16 +1154,22 @@ async function handleAdminIPRoute(
     const ttlSeconds = ttlHours * 60 * 60;
     const reason = sanitizeInput(body?.reason || "manual admin block", 256);
 
-    await env.SESSION_KV.put(getTempBanKey(domain, ip), "1", {
-      expirationTtl: ttlSeconds || TEMP_BAN_TTL_SECONDS,
-    });
-    await env.SESSION_KV.delete(getAdminAllowKey(domain, ip));
+    const domains = getDomainKeyVariants(domain);
+    await Promise.all(
+      domains.map(async (name) => {
+        await env.SESSION_KV.put(getTempBanKey(name, ip), "1", {
+          expirationTtl: ttlSeconds || TEMP_BAN_TTL_SECONDS,
+        });
+        await env.SESSION_KV.delete(getAdminAllowKey(name, ip));
+      })
+    );
 
     return createJsonResponse({
       success: true,
       action: "ban",
       ip,
       ttl_hours: ttlHours,
+      domains_updated: domains,
       note: `IP blocked (${reason})`,
     });
   }
@@ -1059,11 +1181,13 @@ async function handleAdminIPRoute(
       return createErrorResponse("INVALID_IP", "Valid IP is required", 400);
     }
 
-    await env.SESSION_KV.delete(getTempBanKey(domain, ip));
+    const domains = getDomainKeyVariants(domain);
+    await Promise.all(domains.map((name) => env.SESSION_KV.delete(getTempBanKey(name, ip))));
     return createJsonResponse({
       success: true,
       action: "unban",
       ip,
+      domains_updated: domains,
     });
   }
 
@@ -1074,11 +1198,13 @@ async function handleAdminIPRoute(
       return createErrorResponse("INVALID_IP", "Valid IP is required", 400);
     }
 
-    await env.SESSION_KV.delete(getAdminAllowKey(domain, ip));
+    const domains = getDomainKeyVariants(domain);
+    await Promise.all(domains.map((name) => env.SESSION_KV.delete(getAdminAllowKey(name, ip))));
     return createJsonResponse({
       success: true,
       action: "revoke_allow",
       ip,
+      domains_updated: domains,
     });
   }
 
@@ -1759,6 +1885,23 @@ const worker: ExportedHandler<Env> = {
         )
       );
       return fetchWithInjectors(request, meta, env, false);
+    }
+
+    // Custom firewall allow-list override for explicit IP rules.
+    // This is evaluated before temp-ban checks so intentional allow-rules
+    // can safely override stale temporary ban markers.
+    if (await isCustomFirewallIpAllowed(meta.ip, domain, env)) {
+      ctx.waitUntil(
+        logSecurityEvent(
+          env,
+          "session_created",
+          meta,
+          0,
+          null,
+          "Custom firewall allow-listed IP override"
+        )
+      );
+      return fetchWithInjectors(request, meta, env, true);
     }
 
     // --- Trusted IP Decision Cache ---
