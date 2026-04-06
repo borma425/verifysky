@@ -390,12 +390,18 @@ class LogsController extends Controller
             if (is_array($decodedPaths)) {
                 foreach ($decodedPaths as $pathItem) {
                     $pathText = trim((string) $pathItem);
-                    $recentPaths[] = $pathText !== '' ? $pathText : '-';
+                    if ($pathText === '') {
+                        continue;
+                    }
+                    if ($this->isIgnorableStaticAssetPath($pathText)) {
+                        continue;
+                    }
+                    $recentPaths[] = $pathText;
                 }
             }
             if (count($recentPaths) === 0) {
                 $fallbackPath = trim((string) ($safeRow['target_path'] ?? ''));
-                if ($fallbackPath !== '') {
+                if ($fallbackPath !== '' && !$this->isIgnorableStaticAssetPath($fallbackPath)) {
                     $recentPaths[] = $fallbackPath;
                 }
             }
@@ -679,5 +685,31 @@ class LogsController extends Controller
         }
 
         return '-';
+    }
+
+    private function isIgnorableStaticAssetPath(string $path): bool
+    {
+        $trimmed = trim($path);
+        if ($trimmed === '' || $trimmed === '-') {
+            return true;
+        }
+
+        $cleanPath = $trimmed;
+        if (preg_match('#^https?://#i', $cleanPath) === 1) {
+            $parsedPath = parse_url($cleanPath, PHP_URL_PATH);
+            if (is_string($parsedPath) && $parsedPath !== '') {
+                $cleanPath = $parsedPath;
+            }
+        } else {
+            $queryPos = strpos($cleanPath, '?');
+            if ($queryPos !== false) {
+                $cleanPath = substr($cleanPath, 0, $queryPos);
+            }
+        }
+
+        return (bool) preg_match(
+            '/\.(?:png|jpe?g|gif|webp|svg|ico|avif|css|js|mjs|map|woff2?|ttf|eot|otf|mp4|webm|mp3|wav|pdf|xml|txt|json)$/i',
+            $cleanPath
+        );
     }
 }
