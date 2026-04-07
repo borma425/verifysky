@@ -318,10 +318,31 @@ export async function getDailyHoneypotPaths(env: { JWT_SECRET: string }): Promis
 // ---------------------------------------------------------------------------
 
 /**
+ * Mode-aware default challenge thresholds.
+ * Automatically selects stricter values for aggressive mode.
+ *
+ *   balanced / monitor → 150ms, 3 points, 24px  (user-friendly)
+ *   aggressive         → 200ms, 4 points, 24px  (bot-hostile)
+ *
+ * Explicit values in thresholds_json always win over these defaults.
+ */
+function challengeDefaults(mode: string): Pick<DomainThresholds, 'challenge_min_solve_ms' | 'challenge_min_telemetry_points' | 'challenge_x_tolerance'> {
+  if (mode === 'aggressive') {
+    return { challenge_min_solve_ms: 200, challenge_min_telemetry_points: 4, challenge_x_tolerance: 24 };
+  }
+  // balanced / monitor / unknown → permissive defaults
+  return { challenge_min_solve_ms: 150, challenge_min_telemetry_points: 3, challenge_x_tolerance: 24 };
+}
+
+/**
  * Parses the dynamic thresholds JSON from the DomainConfigRecord.
  * Provides safe fallback defaults if parsing fails or fields are missing.
+ * Challenge thresholds adapt automatically to the domain's security_mode.
  */
 export function parseThresholds(config: DomainConfigRecord | null): DomainThresholds {
+  const mode = String(config?.security_mode || 'balanced').toLowerCase();
+  const chal = challengeDefaults(mode);
+
   const defaults: DomainThresholds = {
     visit_captcha_threshold: 6,
     daily_visit_limit: 15,
@@ -339,9 +360,9 @@ export function parseThresholds(config: DomainConfigRecord | null): DomainThresh
     auto_aggr_pressure_seconds: 180,
     auto_aggr_active_seconds: 600,
     auto_aggr_trigger_subnets: 8,
-    challenge_min_solve_ms: 150,
-    challenge_min_telemetry_points: 3,
-    challenge_x_tolerance: 24,
+    challenge_min_solve_ms: chal.challenge_min_solve_ms,
+    challenge_min_telemetry_points: chal.challenge_min_telemetry_points,
+    challenge_x_tolerance: chal.challenge_x_tolerance,
   };
 
   if (!config || !config.thresholds_json) {
