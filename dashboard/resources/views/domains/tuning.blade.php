@@ -302,6 +302,36 @@
           <div class="mt-4 p-3 rounded-lg bg-amber-900/20 border border-amber-500/20 text-xs text-amber-300/80">
             💡 Example: 100 devices × 5 visits = IP blocked at limit of 5
           </div>
+
+          <h4 class="mb-1 text-md font-semibold text-white/80 border-t border-sky-500/20 pt-4 mt-6">Challenge Sensitivity</h4>
+          <p class="text-xs text-sky-300/60 mb-3">How strict the slider CAPTCHA validation is. Lower values = easier for users but also for bots.</p>
+          
+          <div class="flex gap-2 mb-4">
+            <button type="button" onclick="setChallengePreset('balanced')" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30">
+              🟢 Balanced (150ms / 3 pts)
+            </button>
+            <button type="button" onclick="setChallengePreset('aggressive')" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all bg-rose-500/20 text-rose-300 border-rose-500/30 hover:bg-rose-500/30">
+              🔴 Aggressive (200ms / 4 pts)
+            </button>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-3">
+            <div>
+              <label class="mb-1 block text-sm font-medium text-sky-100">Min Solve Time</label>
+              <p class="text-xs text-sky-300/60 mb-1">Minimum ms to solve (rejects bots)</p>
+              <input type="number" name="challenge_min_solve_ms" id="challenge_min_solve_ms" value="{{ $thresholds['challenge_min_solve_ms'] ?? 150 }}" min="50" max="1000" class="es-input w-full" required>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-sky-100">Min Telemetry Points</label>
+              <p class="text-xs text-sky-300/60 mb-1">Min mouse/touch data points</p>
+              <input type="number" name="challenge_min_telemetry_points" id="challenge_min_telemetry_points" value="{{ $thresholds['challenge_min_telemetry_points'] ?? 3 }}" min="2" max="20" class="es-input w-full" required>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-sky-100">X Tolerance</label>
+              <p class="text-xs text-sky-300/60 mb-1">Pixel tolerance for slider position</p>
+              <input type="number" name="challenge_x_tolerance" id="challenge_x_tolerance" value="{{ $thresholds['challenge_x_tolerance'] ?? 24 }}" min="5" max="50" class="es-input w-full" required>
+            </div>
+          </div>
         </div>
       </details>
 
@@ -382,5 +412,17 @@
         };
       });
     });
+
+    function setChallengePreset(mode) {
+      const presets = {
+        balanced:   { solve: 150, points: 3, tolerance: 24 },
+        aggressive: { solve: 200, points: 4, tolerance: 24 },
+      };
+      const p = presets[mode];
+      if (!p) return;
+      document.getElementById('challenge_min_solve_ms').value = p.solve;
+      document.getElementById('challenge_min_telemetry_points').value = p.points;
+      document.getElementById('challenge_x_tolerance').value = p.tolerance;
+    }
   </script>
 @endsection

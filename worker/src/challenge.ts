@@ -50,20 +50,20 @@ const TARGET_X_MIN = 60;
 /** Maximum valid target X position (pixels from left edge) */
 const TARGET_X_MAX = 260;
 
-/** Acceptable tolerance for the submitted slider X vs stored target_x (pixels) */
-const X_TOLERANCE = 24;
+/** Fallback X tolerance — overridden by thresholds.challenge_x_tolerance */
+const DEFAULT_X_TOLERANCE = 24;
 
 /** Challenge expiration time (seconds) */
 const CHALLENGE_TTL_SECONDS = 60;
 
-/** Minimum allowed solve time (milliseconds) — rejects instant bot solves */
-const MIN_SOLVE_TIME_MS = 300;
+/** Fallback min solve time — overridden by thresholds.challenge_min_solve_ms */
+const DEFAULT_MIN_SOLVE_TIME_MS = 150;
 
 /** Maximum allowed solve time (milliseconds) — rejects stale challenges */
 const MAX_SOLVE_TIME_MS = 30000;
 
-/** Minimum telemetry data points required for valid human interaction */
-const MIN_TELEMETRY_POINTS = 4;
+/** Fallback min telemetry points — overridden by thresholds.challenge_min_telemetry_points */
+const DEFAULT_MIN_TELEMETRY_POINTS = 3;
 
 /** Maximum allowed telemetry data points (prevents payload flooding) */
 const MAX_TELEMETRY_POINTS = 2000;
@@ -367,7 +367,12 @@ export async function handleChallengeSubmission(
   }
 
   // --- 6. Analyze telemetry for human behavior ---
-  const telemetryResult = analyzeTelemetry(submission.telemetry);
+  // Resolve dynamic challenge thresholds (per-domain via dashboard)
+  const effectiveMinSolveMs = thresholds.challenge_min_solve_ms || DEFAULT_MIN_SOLVE_TIME_MS;
+  const effectiveMinTelemetry = thresholds.challenge_min_telemetry_points || DEFAULT_MIN_TELEMETRY_POINTS;
+  const effectiveXTolerance = thresholds.challenge_x_tolerance || DEFAULT_X_TOLERANCE;
+
+  const telemetryResult = analyzeTelemetry(submission.telemetry, effectiveMinSolveMs, effectiveMinTelemetry);
   const xDiff = Math.abs(submission.sliderX - challenge.target_x);
   const softPassEligible =
     !telemetryResult.isHuman &&
@@ -394,7 +399,7 @@ export async function handleChallengeSubmission(
   }
 
   // --- 7. Verify slider X position matches target ---
-  if (xDiff > X_TOLERANCE) {
+  if (xDiff > effectiveXTolerance) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "x_mismatch"));
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `X position mismatch: submitted ${submission.sliderX}, target ${challenge.target_x}, diff ${xDiff}`));
@@ -534,14 +539,16 @@ interface TelemetryAnalysisResult {
  *   7. Micro-pauses detection (humans naturally hesitate)
  */
 function analyzeTelemetry(
-  telemetry: Array<[number, number, number]>
+  telemetry: Array<[number, number, number]>,
+  minSolveTimeMs: number = DEFAULT_MIN_SOLVE_TIME_MS,
+  minTelemetryPoints: number = DEFAULT_MIN_TELEMETRY_POINTS
 ): TelemetryAnalysisResult {
   // --- Check 1: Sufficient data points ---
-  if (!telemetry || telemetry.length < MIN_TELEMETRY_POINTS) {
+  if (!telemetry || telemetry.length < minTelemetryPoints) {
     return {
       isHuman: false,
       humanScore: 0,
-      reason: `Insufficient telemetry: ${telemetry?.length || 0} points (min: ${MIN_TELEMETRY_POINTS})`,
+      reason: `Insufficient telemetry: ${telemetry?.length || 0} points (min: ${minTelemetryPoints})`,
       solveTimeMs: 0,
     };
   }
@@ -560,11 +567,11 @@ function analyzeTelemetry(
   const endTime = telemetry[telemetry.length - 1][2];
   const solveTimeMs = endTime - startTime;
 
-  if (solveTimeMs < MIN_SOLVE_TIME_MS) {
+  if (solveTimeMs < minSolveTimeMs) {
     return {
       isHuman: false,
       humanScore: 0,
-      reason: `Solve too fast: ${solveTimeMs}ms (min: ${MIN_SOLVE_TIME_MS}ms)`,
+      reason: `Solve too fast: ${solveTimeMs}ms (min: ${minSolveTimeMs}ms)`,
       solveTimeMs,
     };
   }

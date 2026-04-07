@@ -168,6 +168,12 @@ export interface DomainThresholds {
   auto_aggr_pressure_seconds: number;
   auto_aggr_active_seconds: number;
   auto_aggr_trigger_subnets: number;
+  /** Minimum solve time in ms — rejects instant bot solves (balanced: 150, aggressive: 200) */
+  challenge_min_solve_ms: number;
+  /** Minimum telemetry data points for valid human interaction (balanced: 3, aggressive: 4) */
+  challenge_min_telemetry_points: number;
+  /** Acceptable pixel tolerance for slider X vs target (balanced: 24, aggressive: 24) */
+  challenge_x_tolerance: number;
 }
 
 /** Row in the `ip_access_rules` table */

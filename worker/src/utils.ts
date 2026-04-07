@@ -339,6 +339,9 @@ export function parseThresholds(config: DomainConfigRecord | null): DomainThresh
     auto_aggr_pressure_seconds: 180,
     auto_aggr_active_seconds: 600,
     auto_aggr_trigger_subnets: 8,
+    challenge_min_solve_ms: 150,
+    challenge_min_telemetry_points: 3,
+    challenge_x_tolerance: 24,
   };
 
   if (!config || !config.thresholds_json) {
@@ -364,6 +367,9 @@ export function parseThresholds(config: DomainConfigRecord | null): DomainThresh
       auto_aggr_pressure_seconds: Number.isFinite(Number(parsed.auto_aggr_pressure_seconds)) ? Number(parsed.auto_aggr_pressure_seconds) : defaults.auto_aggr_pressure_seconds,
       auto_aggr_active_seconds: Number.isFinite(Number(parsed.auto_aggr_active_seconds)) ? Number(parsed.auto_aggr_active_seconds) : defaults.auto_aggr_active_seconds,
       auto_aggr_trigger_subnets: Number.isFinite(Number(parsed.auto_aggr_trigger_subnets)) ? Number(parsed.auto_aggr_trigger_subnets) : defaults.auto_aggr_trigger_subnets,
+      challenge_min_solve_ms: Number.isFinite(Number(parsed.challenge_min_solve_ms)) ? Number(parsed.challenge_min_solve_ms) : defaults.challenge_min_solve_ms,
+      challenge_min_telemetry_points: Number.isFinite(Number(parsed.challenge_min_telemetry_points)) ? Number(parsed.challenge_min_telemetry_points) : defaults.challenge_min_telemetry_points,
+      challenge_x_tolerance: Number.isFinite(Number(parsed.challenge_x_tolerance)) ? Number(parsed.challenge_x_tolerance) : defaults.challenge_x_tolerance,
     };
   } catch {
     return defaults;

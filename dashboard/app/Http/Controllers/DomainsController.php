@@ -266,6 +266,9 @@ class DomainsController extends Controller
             'auto_aggr_pressure_minutes' => 'required|numeric|min:1|max:30',
             'auto_aggr_active_minutes' => 'required|numeric|min:1|max:120',
             'auto_aggr_trigger_subnets' => 'required|integer|min:2|max:50',
+            'challenge_min_solve_ms' => 'nullable|integer|min:50|max:1000',
+            'challenge_min_telemetry_points' => 'nullable|integer|min:2|max:20',
+            'challenge_x_tolerance' => 'nullable|integer|min:5|max:50',
             'api_count' => 'nullable|integer|min:0|max:5000',
         ]);
 
@@ -290,6 +293,11 @@ class DomainsController extends Controller
         $thresholds['auto_aggr_pressure_seconds'] = (int) ($validated['auto_aggr_pressure_minutes'] * 60);
         $thresholds['auto_aggr_active_seconds']   = (int) ($validated['auto_aggr_active_minutes'] * 60);
         $thresholds['ad_traffic_strict_mode']     = $request->boolean('ad_traffic_strict_mode');
+
+        // Include challenge sensitivity thresholds
+        $thresholds['challenge_min_solve_ms']         = (int) ($validated['challenge_min_solve_ms'] ?? 150);
+        $thresholds['challenge_min_telemetry_points']  = (int) ($validated['challenge_min_telemetry_points'] ?? 3);
+        $thresholds['challenge_x_tolerance']           = (int) ($validated['challenge_x_tolerance'] ?? 24);
 
         // Include api_count if provided
         if (isset($validated['api_count'])) {
