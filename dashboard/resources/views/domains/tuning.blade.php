@@ -303,33 +303,42 @@
             💡 Example: 100 devices × 5 visits = IP blocked at limit of 5
           </div>
 
-          <h4 class="mb-1 text-md font-semibold text-white/80 border-t border-sky-500/20 pt-4 mt-6">Challenge Sensitivity</h4>
-          <p class="text-xs text-sky-300/60 mb-3">How strict the slider CAPTCHA validation is. Lower values = easier for users but also for bots.</p>
-          
-          <div class="flex gap-2 mb-4">
-            <button type="button" onclick="setChallengePreset('balanced')" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30">
-              🟢 Balanced (150ms / 3 pts)
-            </button>
-            <button type="button" onclick="setChallengePreset('aggressive')" class="px-3 py-1.5 rounded-lg text-xs font-bold border transition-all bg-rose-500/20 text-rose-300 border-rose-500/30 hover:bg-rose-500/30">
-              🔴 Aggressive (200ms / 4 pts)
-            </button>
-          </div>
+          <div class="border-t border-sky-500/20 pt-5 mt-6">
+            <h4 class="mb-1 text-md font-semibold text-white/80">Challenge Sensitivity</h4>
+            <p class="text-xs text-sky-300/60 mb-4">How strict the slider CAPTCHA validation is. Select a preset or customize values below.</p>
+            
+            <!-- Tabs -->
+            <div class="flex rounded-xl overflow-hidden border border-gray-600/50 mb-5" id="challenge-tabs">
+              <button type="button" onclick="setChallengePreset('balanced')" id="tab-balanced"
+                class="challenge-tab flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold transition-all duration-200 outline-none">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Balanced
+                <span class="hidden sm:inline text-[10px] opacity-60 font-normal">150ms · 3pts</span>
+              </button>
+              <button type="button" onclick="setChallengePreset('aggressive')" id="tab-aggressive"
+                class="challenge-tab flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold transition-all duration-200 outline-none">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                Aggressive
+                <span class="hidden sm:inline text-[10px] opacity-60 font-normal">200ms · 4pts</span>
+              </button>
+            </div>
 
-          <div class="grid gap-4 md:grid-cols-3">
-            <div>
-              <label class="mb-1 block text-sm font-medium text-sky-100">Min Solve Time</label>
-              <p class="text-xs text-sky-300/60 mb-1">Minimum ms to solve (rejects bots)</p>
-              <input type="number" name="challenge_min_solve_ms" id="challenge_min_solve_ms" value="{{ $thresholds['challenge_min_solve_ms'] ?? 150 }}" min="50" max="1000" class="es-input w-full" required>
-            </div>
-            <div>
-              <label class="mb-1 block text-sm font-medium text-sky-100">Min Telemetry Points</label>
-              <p class="text-xs text-sky-300/60 mb-1">Min mouse/touch data points</p>
-              <input type="number" name="challenge_min_telemetry_points" id="challenge_min_telemetry_points" value="{{ $thresholds['challenge_min_telemetry_points'] ?? 3 }}" min="2" max="20" class="es-input w-full" required>
-            </div>
-            <div>
-              <label class="mb-1 block text-sm font-medium text-sky-100">X Tolerance</label>
-              <p class="text-xs text-sky-300/60 mb-1">Pixel tolerance for slider position</p>
-              <input type="number" name="challenge_x_tolerance" id="challenge_x_tolerance" value="{{ $thresholds['challenge_x_tolerance'] ?? 24 }}" min="5" max="50" class="es-input w-full" required>
+            <div class="grid gap-4 md:grid-cols-3">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-sky-100">Min Solve Time</label>
+                <p class="text-xs text-sky-300/60 mb-1">Minimum ms to solve (rejects bots)</p>
+                <input type="number" name="challenge_min_solve_ms" id="challenge_min_solve_ms" value="{{ $thresholds['challenge_min_solve_ms'] ?? 150 }}" min="50" max="1000" class="es-input w-full" required>
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-sky-100">Min Telemetry Points</label>
+                <p class="text-xs text-sky-300/60 mb-1">Min mouse/touch data points</p>
+                <input type="number" name="challenge_min_telemetry_points" id="challenge_min_telemetry_points" value="{{ $thresholds['challenge_min_telemetry_points'] ?? 3 }}" min="2" max="20" class="es-input w-full" required>
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-sky-100">X Tolerance</label>
+                <p class="text-xs text-sky-300/60 mb-1">Pixel tolerance for slider position</p>
+                <input type="number" name="challenge_x_tolerance" id="challenge_x_tolerance" value="{{ $thresholds['challenge_x_tolerance'] ?? 24 }}" min="5" max="50" class="es-input w-full" required>
+              </div>
             </div>
           </div>
         </div>
@@ -423,6 +432,37 @@
       document.getElementById('challenge_min_solve_ms').value = p.solve;
       document.getElementById('challenge_min_telemetry_points').value = p.points;
       document.getElementById('challenge_x_tolerance').value = p.tolerance;
+      highlightChallengeTab(mode);
     }
+
+    function highlightChallengeTab(active) {
+      document.querySelectorAll('.challenge-tab').forEach(t => {
+        t.classList.remove(
+          'bg-emerald-500/25','text-emerald-200','border-emerald-400',
+          'bg-rose-500/25','text-rose-200','border-rose-400',
+          'shadow-[inset_0_-2px_0]'
+        );
+        t.classList.add('bg-gray-800/40','text-gray-400');
+      });
+      const tab = document.getElementById('tab-' + active);
+      if (!tab) return;
+      tab.classList.remove('bg-gray-800/40','text-gray-400');
+      if (active === 'balanced') {
+        tab.classList.add('bg-emerald-500/25','text-emerald-200','shadow-[inset_0_-2px_0]','border-emerald-400');
+      } else {
+        tab.classList.add('bg-rose-500/25','text-rose-200','shadow-[inset_0_-2px_0]','border-rose-400');
+      }
+    }
+
+    // Auto-detect active tab on page load
+    (function() {
+      const solve = Number(document.getElementById('challenge_min_solve_ms')?.value || 150);
+      const points = Number(document.getElementById('challenge_min_telemetry_points')?.value || 3);
+      if (solve >= 200 && points >= 4) {
+        highlightChallengeTab('aggressive');
+      } else {
+        highlightChallengeTab('balanced');
+      }
+    })();
   </script>
 @endsection
