@@ -241,10 +241,54 @@ class DomainsController extends Controller
             $thresholds['auto_aggr_active_minutes'] = round($thresholds['auto_aggr_active_seconds'] / 60, 1);
         }
 
+        // Normalize challenge thresholds for per-mode editing in UI.
+        // Backward compatible with legacy scalar values.
+        $defaults = [
+            'balanced' => ['solve' => 150, 'points' => 3, 'tolerance' => 24],
+            'aggressive' => ['solve' => 200, 'points' => 4, 'tolerance' => 24],
+        ];
+        $challengeProfiles = [
+            'balanced' => [
+                'solve' => $defaults['balanced']['solve'],
+                'points' => $defaults['balanced']['points'],
+                'tolerance' => $defaults['balanced']['tolerance'],
+            ],
+            'aggressive' => [
+                'solve' => $defaults['aggressive']['solve'],
+                'points' => $defaults['aggressive']['points'],
+                'tolerance' => $defaults['aggressive']['tolerance'],
+            ],
+        ];
+
+        $solveRaw = $thresholds['challenge_min_solve_ms'] ?? null;
+        $pointsRaw = $thresholds['challenge_min_telemetry_points'] ?? null;
+        $tolRaw = $thresholds['challenge_x_tolerance'] ?? null;
+
+        foreach (['balanced', 'aggressive'] as $mode) {
+            if (is_array($solveRaw) && isset($solveRaw[$mode]) && is_numeric($solveRaw[$mode])) {
+                $challengeProfiles[$mode]['solve'] = (int) $solveRaw[$mode];
+            } elseif (is_numeric($solveRaw)) {
+                $challengeProfiles[$mode]['solve'] = (int) $solveRaw;
+            }
+
+            if (is_array($pointsRaw) && isset($pointsRaw[$mode]) && is_numeric($pointsRaw[$mode])) {
+                $challengeProfiles[$mode]['points'] = (int) $pointsRaw[$mode];
+            } elseif (is_numeric($pointsRaw)) {
+                $challengeProfiles[$mode]['points'] = (int) $pointsRaw;
+            }
+
+            if (is_array($tolRaw) && isset($tolRaw[$mode]) && is_numeric($tolRaw[$mode])) {
+                $challengeProfiles[$mode]['tolerance'] = (int) $tolRaw[$mode];
+            } elseif (is_numeric($tolRaw)) {
+                $challengeProfiles[$mode]['tolerance'] = (int) $tolRaw;
+            }
+        }
+
         return view('domains.tuning', [
             'domain' => $domain,
             'config' => $config,
             'thresholds' => $thresholds,
+            'challengeProfiles' => $challengeProfiles,
         ]);
     }
 
@@ -266,9 +310,12 @@ class DomainsController extends Controller
             'auto_aggr_pressure_minutes' => 'required|numeric|min:1|max:30',
             'auto_aggr_active_minutes' => 'required|numeric|min:1|max:120',
             'auto_aggr_trigger_subnets' => 'required|integer|min:2|max:50',
-            'challenge_min_solve_ms' => 'nullable|integer|min:50|max:1000',
-            'challenge_min_telemetry_points' => 'nullable|integer|min:2|max:20',
-            'challenge_x_tolerance' => 'nullable|integer|min:5|max:50',
+            'challenge_min_solve_ms_balanced' => 'required|integer|min:50|max:1000',
+            'challenge_min_telemetry_points_balanced' => 'required|integer|min:2|max:20',
+            'challenge_x_tolerance_balanced' => 'required|integer|min:5|max:50',
+            'challenge_min_solve_ms_aggressive' => 'required|integer|min:50|max:1000',
+            'challenge_min_telemetry_points_aggressive' => 'required|integer|min:2|max:20',
+            'challenge_x_tolerance_aggressive' => 'required|integer|min:5|max:50',
             'api_count' => 'nullable|integer|min:0|max:5000',
         ]);
 
@@ -294,10 +341,20 @@ class DomainsController extends Controller
         $thresholds['auto_aggr_active_seconds']   = (int) ($validated['auto_aggr_active_minutes'] * 60);
         $thresholds['ad_traffic_strict_mode']     = $request->boolean('ad_traffic_strict_mode');
 
-        // Include challenge sensitivity thresholds
-        $thresholds['challenge_min_solve_ms']         = (int) ($validated['challenge_min_solve_ms'] ?? 150);
-        $thresholds['challenge_min_telemetry_points']  = (int) ($validated['challenge_min_telemetry_points'] ?? 3);
-        $thresholds['challenge_x_tolerance']           = (int) ($validated['challenge_x_tolerance'] ?? 24);
+        // Challenge sensitivity thresholds per security mode.
+        // Stored in the same keys for backward compatibility, as mode maps.
+        $thresholds['challenge_min_solve_ms'] = [
+            'balanced' => (int) $validated['challenge_min_solve_ms_balanced'],
+            'aggressive' => (int) $validated['challenge_min_solve_ms_aggressive'],
+        ];
+        $thresholds['challenge_min_telemetry_points'] = [
+            'balanced' => (int) $validated['challenge_min_telemetry_points_balanced'],
+            'aggressive' => (int) $validated['challenge_min_telemetry_points_aggressive'],
+        ];
+        $thresholds['challenge_x_tolerance'] = [
+            'balanced' => (int) $validated['challenge_x_tolerance_balanced'],
+            'aggressive' => (int) $validated['challenge_x_tolerance_aggressive'],
+        ];
 
         // Include api_count if provided
         if (isset($validated['api_count'])) {

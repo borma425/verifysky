@@ -305,7 +305,7 @@
 
           <div class="border-t border-sky-500/20 pt-5 mt-6">
             <h4 class="mb-1 text-md font-semibold text-white/80">Challenge Sensitivity</h4>
-            <p class="text-xs text-sky-300/60 mb-4">How strict the slider CAPTCHA validation is. Select a preset or customize values below.</p>
+            <p class="text-xs text-sky-300/60 mb-4">How strict the slider CAPTCHA validation is. Edit values separately for Balanced and Aggressive modes.</p>
             
             <!-- Tabs -->
             <div class="flex rounded-xl overflow-hidden border border-gray-600/50 mb-5" id="challenge-tabs">
@@ -315,11 +315,6 @@
                 Balanced
                 <span class="hidden sm:inline text-[10px] opacity-60 font-normal">150ms · 3pts</span>
               </button>
-              <div id="tab-custom"
-                class="challenge-tab flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold transition-all duration-200" style="display:none;">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                Custom
-              </div>
               <button type="button" onclick="setChallengePreset('aggressive')" id="tab-aggressive"
                 class="challenge-tab flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold transition-all duration-200 outline-none cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
@@ -328,21 +323,28 @@
               </button>
             </div>
 
+            <input type="hidden" name="challenge_min_solve_ms_balanced" id="challenge_min_solve_ms_balanced" value="{{ $challengeProfiles['balanced']['solve'] ?? 150 }}">
+            <input type="hidden" name="challenge_min_telemetry_points_balanced" id="challenge_min_telemetry_points_balanced" value="{{ $challengeProfiles['balanced']['points'] ?? 3 }}">
+            <input type="hidden" name="challenge_x_tolerance_balanced" id="challenge_x_tolerance_balanced" value="{{ $challengeProfiles['balanced']['tolerance'] ?? 24 }}">
+            <input type="hidden" name="challenge_min_solve_ms_aggressive" id="challenge_min_solve_ms_aggressive" value="{{ $challengeProfiles['aggressive']['solve'] ?? 200 }}">
+            <input type="hidden" name="challenge_min_telemetry_points_aggressive" id="challenge_min_telemetry_points_aggressive" value="{{ $challengeProfiles['aggressive']['points'] ?? 4 }}">
+            <input type="hidden" name="challenge_x_tolerance_aggressive" id="challenge_x_tolerance_aggressive" value="{{ $challengeProfiles['aggressive']['tolerance'] ?? 24 }}">
+
             <div class="grid gap-4 md:grid-cols-3">
               <div>
                 <label class="mb-1 block text-sm font-medium text-sky-100">Min Solve Time</label>
                 <p class="text-xs text-sky-300/60 mb-1">Minimum ms to solve (rejects bots)</p>
-                <input type="number" name="challenge_min_solve_ms" id="challenge_min_solve_ms" value="{{ $thresholds['challenge_min_solve_ms'] ?? 150 }}" min="50" max="1000" class="es-input w-full" required oninput="detectChallengeMode()">
+                <input type="number" id="challenge_min_solve_ms" value="{{ $challengeProfiles['balanced']['solve'] ?? 150 }}" min="50" max="1000" class="es-input w-full" required oninput="detectChallengeMode()">
               </div>
               <div>
                 <label class="mb-1 block text-sm font-medium text-sky-100">Min Telemetry Points</label>
                 <p class="text-xs text-sky-300/60 mb-1">Min mouse/touch data points</p>
-                <input type="number" name="challenge_min_telemetry_points" id="challenge_min_telemetry_points" value="{{ $thresholds['challenge_min_telemetry_points'] ?? 3 }}" min="2" max="20" class="es-input w-full" required oninput="detectChallengeMode()">
+                <input type="number" id="challenge_min_telemetry_points" value="{{ $challengeProfiles['balanced']['points'] ?? 3 }}" min="2" max="20" class="es-input w-full" required oninput="detectChallengeMode()">
               </div>
               <div>
                 <label class="mb-1 block text-sm font-medium text-sky-100">X Tolerance</label>
                 <p class="text-xs text-sky-300/60 mb-1">Pixel tolerance for slider position</p>
-                <input type="number" name="challenge_x_tolerance" id="challenge_x_tolerance" value="{{ $thresholds['challenge_x_tolerance'] ?? 24 }}" min="5" max="50" class="es-input w-full" required oninput="detectChallengeMode()">
+                <input type="number" id="challenge_x_tolerance" value="{{ $challengeProfiles['balanced']['tolerance'] ?? 24 }}" min="5" max="50" class="es-input w-full" required oninput="detectChallengeMode()">
               </div>
             </div>
           </div>
@@ -427,60 +429,84 @@
       });
     });
 
-    function setChallengePreset(mode) {
-      const presets = {
-        balanced:   { solve: 150, points: 3, tolerance: 24 },
-        aggressive: { solve: 200, points: 4, tolerance: 24 },
+    const challengeProfiles = @json($challengeProfiles);
+    let activeChallengeMode = "{{ strtolower((string) ($config['security_mode'] ?? 'balanced')) === 'aggressive' ? 'aggressive' : 'balanced' }}";
+
+    function normalizeChallengeProfile(profile, fallback) {
+      const safe = profile && typeof profile === 'object' ? profile : {};
+      const solve = Number.isFinite(Number(safe.solve)) ? Number(safe.solve) : fallback.solve;
+      const points = Number.isFinite(Number(safe.points)) ? Number(safe.points) : fallback.points;
+      const tolerance = Number.isFinite(Number(safe.tolerance)) ? Number(safe.tolerance) : fallback.tolerance;
+      return { solve, points, tolerance };
+    }
+
+    function getCurrentChallengeProfileFromInputs() {
+      return {
+        solve: Number(document.getElementById('challenge_min_solve_ms').value),
+        points: Number(document.getElementById('challenge_min_telemetry_points').value),
+        tolerance: Number(document.getElementById('challenge_x_tolerance').value),
       };
-      const p = presets[mode];
-      if (!p) return;
-      document.getElementById('challenge_min_solve_ms').value = p.solve;
-      document.getElementById('challenge_min_telemetry_points').value = p.points;
-      document.getElementById('challenge_x_tolerance').value = p.tolerance;
+    }
+
+    function applyChallengeProfileToInputs(profile) {
+      document.getElementById('challenge_min_solve_ms').value = profile.solve;
+      document.getElementById('challenge_min_telemetry_points').value = profile.points;
+      document.getElementById('challenge_x_tolerance').value = profile.tolerance;
+    }
+
+    function syncChallengeHiddenFields() {
+      const balanced = challengeProfiles.balanced;
+      const aggressive = challengeProfiles.aggressive;
+      document.getElementById('challenge_min_solve_ms_balanced').value = balanced.solve;
+      document.getElementById('challenge_min_telemetry_points_balanced').value = balanced.points;
+      document.getElementById('challenge_x_tolerance_balanced').value = balanced.tolerance;
+      document.getElementById('challenge_min_solve_ms_aggressive').value = aggressive.solve;
+      document.getElementById('challenge_min_telemetry_points_aggressive').value = aggressive.points;
+      document.getElementById('challenge_x_tolerance_aggressive').value = aggressive.tolerance;
+    }
+
+    function setChallengePreset(mode) {
+      if (mode !== 'balanced' && mode !== 'aggressive') return;
+      challengeProfiles[activeChallengeMode] = getCurrentChallengeProfileFromInputs();
+      activeChallengeMode = mode;
+      applyChallengeProfileToInputs(challengeProfiles[mode]);
       highlightChallengeTab(mode);
+      syncChallengeHiddenFields();
     }
 
     function detectChallengeMode() {
-      const solve = Number(document.getElementById('challenge_min_solve_ms').value);
-      const points = Number(document.getElementById('challenge_min_telemetry_points').value);
-      const tol = Number(document.getElementById('challenge_x_tolerance').value);
-      if (solve === 150 && points === 3 && tol === 24) {
-        highlightChallengeTab('balanced');
-      } else if (solve === 200 && points === 4 && tol === 24) {
-        highlightChallengeTab('aggressive');
-      } else {
-        highlightChallengeTab('custom');
-      }
+      challengeProfiles[activeChallengeMode] = getCurrentChallengeProfileFromInputs();
+      syncChallengeHiddenFields();
     }
 
     function highlightChallengeTab(active) {
-      const customTab = document.getElementById('tab-custom');
       document.querySelectorAll('.challenge-tab').forEach(t => {
         t.classList.remove(
           'bg-emerald-500/25','text-emerald-200','border-emerald-400',
           'bg-rose-500/25','text-rose-200','border-rose-400',
-          'bg-sky-500/25','text-sky-200','border-sky-400',
           'shadow-[inset_0_-2px_0]'
         );
         t.classList.add('bg-gray-800/40','text-gray-400');
       });
-
-      // Show/hide the Custom tab
-      customTab.style.display = (active === 'custom') ? 'flex' : 'none';
 
       const tab = document.getElementById('tab-' + active);
       if (!tab) return;
       tab.classList.remove('bg-gray-800/40','text-gray-400');
       if (active === 'balanced') {
         tab.classList.add('bg-emerald-500/25','text-emerald-200','shadow-[inset_0_-2px_0]','border-emerald-400');
-      } else if (active === 'aggressive') {
-        tab.classList.add('bg-rose-500/25','text-rose-200','shadow-[inset_0_-2px_0]','border-rose-400');
       } else {
-        tab.classList.add('bg-sky-500/25','text-sky-200','shadow-[inset_0_-2px_0]','border-sky-400');
+        tab.classList.add('bg-rose-500/25','text-rose-200','shadow-[inset_0_-2px_0]','border-rose-400');
       }
     }
 
-    // Auto-detect active tab on page load
-    (function() { detectChallengeMode(); })();
+    // Init on load: sanitize profiles, open mode tab, and sync hidden submit fields.
+    (function() {
+      challengeProfiles.balanced = normalizeChallengeProfile(challengeProfiles.balanced, { solve: 150, points: 3, tolerance: 24 });
+      challengeProfiles.aggressive = normalizeChallengeProfile(challengeProfiles.aggressive, { solve: 200, points: 4, tolerance: 24 });
+      if (activeChallengeMode !== 'aggressive') activeChallengeMode = 'balanced';
+      applyChallengeProfileToInputs(challengeProfiles[activeChallengeMode]);
+      highlightChallengeTab(activeChallengeMode);
+      syncChallengeHiddenFields();
+    })();
   </script>
 @endsection

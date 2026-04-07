@@ -335,12 +335,38 @@ function challengeDefaults(mode: string): Pick<DomainThresholds, 'challenge_min_
 }
 
 /**
+ * Resolves challenge threshold value from either:
+ * 1) legacy scalar number
+ * 2) per-mode object: { balanced: number, aggressive: number }
+ */
+function resolveModeChallengeValue(raw: unknown, mode: 'balanced' | 'aggressive', fallback: number): number {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const typed = raw as Record<string, unknown>;
+    const perMode = typed[mode];
+    if (Number.isFinite(Number(perMode))) {
+      return Number(perMode);
+    }
+    if (Number.isFinite(Number(typed.balanced))) {
+      return Number(typed.balanced);
+    }
+    if (Number.isFinite(Number(typed.aggressive))) {
+      return Number(typed.aggressive);
+    }
+  }
+  if (Number.isFinite(Number(raw))) {
+    return Number(raw);
+  }
+  return fallback;
+}
+
+/**
  * Parses the dynamic thresholds JSON from the DomainConfigRecord.
  * Provides safe fallback defaults if parsing fails or fields are missing.
  * Challenge thresholds adapt automatically to the domain's security_mode.
  */
 export function parseThresholds(config: DomainConfigRecord | null): DomainThresholds {
   const mode = String(config?.security_mode || 'balanced').toLowerCase();
+  const modeKey: 'balanced' | 'aggressive' = mode === 'aggressive' ? 'aggressive' : 'balanced';
   const chal = challengeDefaults(mode);
 
   const defaults: DomainThresholds = {
@@ -388,9 +414,9 @@ export function parseThresholds(config: DomainConfigRecord | null): DomainThresh
       auto_aggr_pressure_seconds: Number.isFinite(Number(parsed.auto_aggr_pressure_seconds)) ? Number(parsed.auto_aggr_pressure_seconds) : defaults.auto_aggr_pressure_seconds,
       auto_aggr_active_seconds: Number.isFinite(Number(parsed.auto_aggr_active_seconds)) ? Number(parsed.auto_aggr_active_seconds) : defaults.auto_aggr_active_seconds,
       auto_aggr_trigger_subnets: Number.isFinite(Number(parsed.auto_aggr_trigger_subnets)) ? Number(parsed.auto_aggr_trigger_subnets) : defaults.auto_aggr_trigger_subnets,
-      challenge_min_solve_ms: Number.isFinite(Number(parsed.challenge_min_solve_ms)) ? Number(parsed.challenge_min_solve_ms) : defaults.challenge_min_solve_ms,
-      challenge_min_telemetry_points: Number.isFinite(Number(parsed.challenge_min_telemetry_points)) ? Number(parsed.challenge_min_telemetry_points) : defaults.challenge_min_telemetry_points,
-      challenge_x_tolerance: Number.isFinite(Number(parsed.challenge_x_tolerance)) ? Number(parsed.challenge_x_tolerance) : defaults.challenge_x_tolerance,
+      challenge_min_solve_ms: resolveModeChallengeValue(parsed.challenge_min_solve_ms, modeKey, defaults.challenge_min_solve_ms),
+      challenge_min_telemetry_points: resolveModeChallengeValue(parsed.challenge_min_telemetry_points, modeKey, defaults.challenge_min_telemetry_points),
+      challenge_x_tolerance: resolveModeChallengeValue(parsed.challenge_x_tolerance, modeKey, defaults.challenge_x_tolerance),
     };
   } catch {
     return defaults;
