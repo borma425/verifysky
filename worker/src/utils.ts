@@ -11,7 +11,7 @@
 //   createErrorResponse() — Standardized error response builder
 // ============================================================================
 
-import type { RequestMeta, DomainConfigRecord, DomainThresholds } from "./types";
+import type { RequestMeta, DomainConfigRecord, DomainThresholds, Env } from "./types";
 
 // ---------------------------------------------------------------------------
 // Type assertion for Cloudflare's IncomingRequestCfProperties
@@ -414,4 +414,151 @@ export function isAdTraffic(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared IP / CIDR Utility Functions
+// Used by index.ts, challenge.ts, and ai-defense.ts
+// ---------------------------------------------------------------------------
+
+export function isIPv4(ip: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
+}
+
+export function ipv4ToInt(ip: string): number | null {
+  if (!isIPv4(ip)) return null;
+  const octets = ip.split(".").map((o) => parseInt(o, 10));
+  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) {
+    return null;
+  }
+  return (
+    ((octets[0] << 24) >>> 0) +
+    ((octets[1] << 16) >>> 0) +
+    ((octets[2] << 8) >>> 0) +
+    (octets[3] >>> 0)
+  ) >>> 0;
+}
+
+export function isIPv4InCidr(ip: string, cidr: string): boolean {
+  const [base, maskText] = cidr.split("/");
+  if (!base || !maskText) return false;
+  const maskBits = parseInt(maskText, 10);
+  if (!Number.isFinite(maskBits) || maskBits < 0 || maskBits > 32) return false;
+
+  const ipInt = ipv4ToInt(ip);
+  const baseInt = ipv4ToInt(base);
+  if (ipInt === null || baseInt === null) return false;
+
+  if (maskBits === 0) return true;
+  const mask = (0xffffffff << (32 - maskBits)) >>> 0;
+  return (ipInt & mask) === (baseInt & mask);
+}
+
+export function ipv6ToBigInt(ip: string): bigint | null {
+  if (!ip.includes(":")) return null;
+  const parts = ip.split("::");
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(":") : [];
+  const right = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
+  if (parts.length === 1 && left.length !== 8) return null;
+  const missing = 8 - (left.length + right.length);
+  if (missing < 0) return null;
+  const groups = [...left, ...Array<string>(missing).fill("0"), ...right];
+  let val = 0n;
+  for (let i = 0; i < 8; i++) {
+    const groupVal = groups[i] === "" ? 0 : parseInt(groups[i], 16);
+    if (Number.isNaN(groupVal) || groupVal > 0xffff || groupVal < 0) return null;
+    val = (val << 16n) | BigInt(groupVal);
+  }
+  return val;
+}
+
+export function isIPv6InCidr(ip: string, cidr: string): boolean {
+  const [base, maskText] = cidr.split("/");
+  if (!base || !maskText) return false;
+  const maskBits = parseInt(maskText, 10);
+  if (!Number.isFinite(maskBits) || maskBits < 0 || maskBits > 128) return false;
+  const ipInt = ipv6ToBigInt(ip);
+  const baseInt = ipv6ToBigInt(base);
+  if (ipInt === null || baseInt === null) return false;
+  if (maskBits === 0) return true;
+  const shiftBits = 128n - BigInt(maskBits);
+  return (ipInt >> shiftBits) === (baseInt >> shiftBits);
+}
+
+export function isIpInCidr(ip: string, cidr: string): boolean {
+  if (cidr.includes(":")) {
+    if (!ip.includes(":")) return false;
+    return isIPv6InCidr(ip, cidr);
+  } else if (cidr.includes(".")) {
+    if (!ip.includes(".")) return false;
+    return isIPv4InCidr(ip, cidr);
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Shared: Extract Domain from Request Metadata
+// ---------------------------------------------------------------------------
+
+export function extractDomainFromMeta(meta: RequestMeta): string | null {
+  try {
+    const host = new URL(meta.url).hostname.trim().toLowerCase();
+    return host === "" ? null : host;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared: IP Allow-List Check (D1 Custom Firewall Rules)
+// Checks if an IP matches any 'allow' or 'bypass' rule.
+// Used by IP Farm pipelines in both index.ts and challenge.ts.
+// ---------------------------------------------------------------------------
+
+export async function isIpAllowListed(ip: string, env: Env): Promise<boolean> {
+  try {
+    const rulesRes = await env.DB.prepare(
+      `SELECT expression_json FROM custom_firewall_rules
+       WHERE (action = 'allow' OR action = 'bypass')
+         AND paused = 0
+         AND (expires_at IS NULL OR expires_at > ?)
+       LIMIT 200`
+    )
+      .bind(Math.floor(Date.now() / 1000))
+      .all<{ expression_json: string }>();
+
+    if (!rulesRes.results) return false;
+
+    const lowerIp = ip.toLowerCase();
+    for (const rule of rulesRes.results) {
+      try {
+        const expr = JSON.parse(rule.expression_json);
+        if (expr.field === "ip.src") {
+          if (expr.operator === "eq" && expr.value.toLowerCase() === lowerIp) return true;
+          if (expr.operator === "in") {
+            const list = String(expr.value).split(",").map((v: string) => v.trim().toLowerCase());
+            if (list.some((target: string) => target.includes("/") ? isIpInCidr(ip, target) : target === lowerIp)) return true;
+          }
+        }
+      } catch {
+        // Skip invalid JSON
+      }
+    }
+    return false;
+  } catch {
+    return false; // Fail-open: don't block the farm pipeline
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared: Private IP Check for IP Farm safety
+// ---------------------------------------------------------------------------
+
+export function isPrivateOrReservedIP(ip: string): boolean {
+  if (!ip || ip === "127.0.0.1" || ip === "::1") return true;
+  if (/^10\./.test(ip)) return true;
+  if (/^192\.168\./.test(ip)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return true;
+  return false;
 }

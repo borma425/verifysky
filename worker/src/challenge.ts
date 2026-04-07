@@ -34,6 +34,9 @@ import {
   createJsonResponse,
   createErrorResponse,
   sanitizeInput,
+  extractDomainFromMeta,
+  isIpAllowListed,
+  isPrivateOrReservedIP,
 } from "./utils";
 import { SLIDER_RUNTIME_SCRIPT } from "./generated/slider-runtime";
 
@@ -1207,7 +1210,10 @@ async function markIPTemporarilyBanned(
   const targetPath = meta?.path || "/es-verify";
   const banTtl = thresholds ? thresholds.temp_ban_ttl_seconds : 86400; // default 24h
   try {
-    const banKey = domainName ? `ban:domainIP:${domainName}:${ip}` : `ban:ip:${ip}`;
+    // Always use domain-scoped key. If domain is unknown, use a generic marker
+    // that the main handler's isTemporarilyBanned() will still check.
+    const effectiveDomain = domainName || "_unknown_";
+    const banKey = `ban:domainIP:${effectiveDomain}:${ip}`;
     await env.SESSION_KV.put(banKey, "1", { expirationTtl: banTtl });
     await env.DB.prepare(
       `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
@@ -1237,8 +1243,12 @@ const IP_FARM_DESC_PREFIX_CH = "[IP-FARM]";
 const IP_FARM_MAX_PER_RULE = 500;
 
 async function addToIpFarm(env: Env, ip: string, reason: string): Promise<void> {
-  if (!ip || ip === "127.0.0.1" || ip === "::1") return;
-  if (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return;
+  // Skip private/reserved IPs
+  if (isPrivateOrReservedIP(ip)) return;
+
+  // Check allow-list before permanent banning — prevents admin-allowed IPs
+  // from being accidentally added to the permanent ban graveyard.
+  if (await isIpAllowListed(ip, env)) return;
 
   const lowerIp = ip.toLowerCase().trim();
 
@@ -1324,14 +1334,7 @@ async function addToIpFarm(env: Env, ip: string, reason: string): Promise<void> 
     .run();
 }
 
-function extractDomainFromMeta(meta: RequestMeta): string | null {
-  try {
-    const host = new URL(meta.url).hostname.trim().toLowerCase();
-    return host === "" ? null : host;
-  } catch {
-    return null;
-  }
-}
+// extractDomainFromMeta — imported from ./utils
 
 // ---------------------------------------------------------------------------
 // Challenge HTML Page Builder (Phase 6: Enhanced UI + Runtime Script)

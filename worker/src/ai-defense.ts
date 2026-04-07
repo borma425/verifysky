@@ -22,6 +22,7 @@ import type {
   ThreatAnalysisResponse,
   DomainConfigRecord,
 } from "./types";
+import { extractDomainFromMeta } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -771,11 +772,5 @@ async function logAIDefenseEvent(
   }
 }
 
-function extractDomainFromMeta(meta: RequestMeta): string | null {
-  try {
-    const host = new URL(meta.url).hostname.trim().toLowerCase();
-    return host === "" ? null : host;
-  } catch {
-    return null;
-  }
-}
+// extractDomainFromMeta — imported from ./utils
+

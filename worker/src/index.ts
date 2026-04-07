@@ -36,6 +36,11 @@ import {
   getDailyHoneypotPaths,
   parseThresholds,
   isAdTraffic,
+  isIpInCidr,
+  isIPv4,
+  extractDomainFromMeta,
+  isIpAllowListed,
+  isPrivateOrReservedIP,
 } from "./utils";
 import {
   evaluateRisk,
@@ -226,7 +231,7 @@ async function resolveDomainIpRules(
     if (cached) {
       return JSON.parse(cached) as IpAccessRuleRecord[];
     }
-  } catch {}
+  } catch { }
 
   try {
     const { results } = await env.DB.prepare(
@@ -253,7 +258,7 @@ async function resolveDomainIpRules(
       await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
         expirationTtl: IP_RULES_CACHE_TTL,
       });
-    } catch {}
+    } catch { }
 
     return rules;
   } catch {
@@ -275,7 +280,7 @@ async function resolveSensitivePaths(domain: string, env: Env): Promise<Sensitiv
   try {
     const cached = await env.SESSION_KV.get(cacheKey);
     if (cached) return JSON.parse(cached) as SensitivePathRecord[];
-  } catch {}
+  } catch { }
 
   try {
     const { results } = await env.DB.prepare(
@@ -287,8 +292,8 @@ async function resolveSensitivePaths(domain: string, env: Env): Promise<Sensitiv
       await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
         expirationTtl: IP_RULES_CACHE_TTL,
       });
-    } catch {}
-    
+    } catch { }
+
     return rules;
   } catch {
     return [];
@@ -307,7 +312,7 @@ async function resolveCustomFirewallRules(
     if (cached) {
       return JSON.parse(cached) as CustomFirewallRuleRecord[];
     }
-  } catch {}
+  } catch { }
 
   try {
     const { results } = await env.DB.prepare(
@@ -342,7 +347,7 @@ async function resolveCustomFirewallRules(
       await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
         expirationTtl: IP_RULES_CACHE_TTL,
       });
-    } catch {}
+    } catch { }
 
     return rules;
   } catch {
@@ -539,14 +544,7 @@ async function incrementHistoricalAttackCounters(
   }
 }
 
-function extractDomainFromMeta(meta: RequestMeta): string | null {
-  try {
-    const host = new URL(meta.url).hostname.trim().toLowerCase();
-    return host === "" ? null : host;
-  } catch {
-    return null;
-  }
-}
+// extractDomainFromMeta — imported from ./utils
 
 // ---------------------------------------------------------------------------
 // Dynamic Log Sampling — reduces D1 write pressure for normal-pass events
@@ -785,9 +783,7 @@ async function isCustomFirewallIpAllowed(
   return false;
 }
 
-function isIPv4(ip: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
-}
+// isIPv4 — imported from ./utils
 
 function toIPv4PtrDomain(ip: string): string | null {
   if (!isIPv4(ip)) return null;
@@ -885,77 +881,7 @@ async function verifyCrawlerByReverseDns(
   return verified;
 }
 
-function ipv4ToInt(ip: string): number | null {
-  if (!isIPv4(ip)) return null;
-  const octets = ip.split(".").map((o) => parseInt(o, 10));
-  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) {
-    return null;
-  }
-  return (
-    ((octets[0] << 24) >>> 0) +
-    ((octets[1] << 16) >>> 0) +
-    ((octets[2] << 8) >>> 0) +
-    (octets[3] >>> 0)
-  ) >>> 0;
-}
-
-function isIPv4InCidr(ip: string, cidr: string): boolean {
-  const [base, maskText] = cidr.split("/");
-  if (!base || !maskText) return false;
-  const maskBits = parseInt(maskText, 10);
-  if (!Number.isFinite(maskBits) || maskBits < 0 || maskBits > 32) return false;
-
-  const ipInt = ipv4ToInt(ip);
-  const baseInt = ipv4ToInt(base);
-  if (ipInt === null || baseInt === null) return false;
-
-  if (maskBits === 0) return true;
-  const mask = (0xffffffff << (32 - maskBits)) >>> 0;
-  return (ipInt & mask) === (baseInt & mask);
-}
-
-function ipv6ToBigInt(ip: string): bigint | null {
-  if (!ip.includes(":")) return null;
-  const parts = ip.split("::");
-  if (parts.length > 2) return null;
-  const left = parts[0] ? parts[0].split(":") : [];
-  const right = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
-  if (parts.length === 1 && left.length !== 8) return null;
-  const missing = 8 - (left.length + right.length);
-  if (missing < 0) return null;
-  const groups = [...left, ...Array<string>(missing).fill("0"), ...right];
-  let val = 0n;
-  for (let i = 0; i < 8; i++) {
-    const groupVal = groups[i] === "" ? 0 : parseInt(groups[i], 16);
-    if (Number.isNaN(groupVal) || groupVal > 0xffff || groupVal < 0) return null;
-    val = (val << 16n) | BigInt(groupVal);
-  }
-  return val;
-}
-
-function isIPv6InCidr(ip: string, cidr: string): boolean {
-  const [base, maskText] = cidr.split("/");
-  if (!base || !maskText) return false;
-  const maskBits = parseInt(maskText, 10);
-  if (!Number.isFinite(maskBits) || maskBits < 0 || maskBits > 128) return false;
-  const ipInt = ipv6ToBigInt(ip);
-  const baseInt = ipv6ToBigInt(base);
-  if (ipInt === null || baseInt === null) return false;
-  if (maskBits === 0) return true;
-  const shiftBits = 128n - BigInt(maskBits);
-  return (ipInt >> shiftBits) === (baseInt >> shiftBits);
-}
-
-function isIpInCidr(ip: string, cidr: string): boolean {
-  if (cidr.includes(":")) {
-    if (!ip.includes(":")) return false;
-    return isIPv6InCidr(ip, cidr);
-  } else if (cidr.includes(".")) {
-    if (!ip.includes(".")) return false;
-    return isIPv4InCidr(ip, cidr);
-  }
-  return false;
-}
+// ipv4ToInt, isIPv4InCidr, ipv6ToBigInt, isIPv6InCidr, isIpInCidr — imported from ./utils
 
 function isAdminSourceAllowed(ip: string, env: Env): boolean {
   const rawAllowlist = (env.ES_ADMIN_ALLOWED_IPS || "").trim();
@@ -1219,9 +1145,9 @@ async function handleAdminIPRoute(
       fallbacks: savedFallbacks
         ? savedFallbacks.split(",").map((m) => m.trim()).filter(Boolean)
         : ((env.OPENROUTER_FALLBACK_MODELS || "")
-            .split(",")
-            .map((m) => m.trim())
-            .filter(Boolean)),
+          .split(",")
+          .map((m) => m.trim())
+          .filter(Boolean)),
       source: {
         model: savedModel ? "kv" : "env",
         fallbacks: savedFallbacks ? "kv" : "env",
@@ -1410,44 +1336,7 @@ function shouldAutoBanMalicious(risk: RiskAssessment): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Checks whether the given IP matches any 'allow' or 'bypass' rule in the
- * custom_firewall_rules table for 'global' or any domain. If so, the IP
- * must NOT be added to the farm.
- */
-async function isIpAllowListed(ip: string, env: Env): Promise<boolean> {
-  try {
-    const rulesRes = await env.DB.prepare(
-      `SELECT expression_json FROM custom_firewall_rules
-       WHERE (action = 'allow' OR action = 'bypass')
-         AND paused = 0
-         AND (expires_at IS NULL OR expires_at > ?)
-       LIMIT 200`
-    )
-      .bind(Math.floor(Date.now() / 1000))
-      .all<{ expression_json: string }>();
-
-    if (!rulesRes.results) return false;
-
-    const lowerIp = ip.toLowerCase();
-    for (const rule of rulesRes.results) {
-      try {
-        const expr = JSON.parse(rule.expression_json);
-        if (expr.field === "ip.src") {
-          if (expr.operator === "eq" && expr.value.toLowerCase() === lowerIp) return true;
-          if (expr.operator === "in") {
-            const list = String(expr.value).split(",").map((v: string) => v.trim().toLowerCase());
-            if (list.some((target: string) => target.includes("/") ? isIpInCidr(ip, target) : target === lowerIp)) return true;
-          }
-        }
-      } catch {
-        // Skip invalid JSON
-      }
-    }
-    return false;
-  } catch {
-    return false; // Fail-open: don't block the farm pipeline
-  }
-}
+// isIpAllowListed — imported from ./utils
 
 /**
  * Permanently bans an IP by adding it to a Global Firewall [IP-FARM] rule.
@@ -1466,9 +1355,8 @@ async function markForIpFarm(
   reason: string
 ): Promise<void> {
   try {
-    // Validate IP
-    if (!ip || ip === "127.0.0.1" || ip === "::1") return;
-    if (/^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return;
+    // Validate IP — skip private/reserved addresses
+    if (isPrivateOrReservedIP(ip)) return;
 
     // Check allow-list bypass
     if (await isIpAllowListed(ip, env)) return;
@@ -1577,7 +1465,7 @@ async function markForIpFarm(
     // Purge KV cache so the worker picks up the change instantly
     try {
       await env.SESSION_KV.delete("cfr:global");
-    } catch {}
+    } catch { }
 
     // Log the farm event
     await logSecurityEvent(
@@ -1868,6 +1756,22 @@ const worker: ExportedHandler<Env> = {
       return handleAdminIPRoute(request, meta, domain, env);
     }
 
+    // --- Resolve Domain Configuration (EARLY) ---
+    // Must be checked BEFORE any security checks so that paused/revoked
+    // domains bypass ALL protection, including temp bans and firewall rules.
+    const domainConfig = await resolveDomainConfig(domain, env);
+
+    if (!domainConfig) {
+      // Domain not onboarded — transparently pass through.
+      return fetch(request);
+    }
+
+    if (domainConfig.status !== "active") {
+      // Paused/revoked domains should bypass protection transparently.
+      // No temp bans, no firewall rules, no risk scoring — just pass through.
+      return fetch(request);
+    }
+
     // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
     const crawlerDecision = await evaluateCrawlerAllowDecision(meta, env);
     if (crawlerDecision.allowed) {
@@ -1943,14 +1847,9 @@ const worker: ExportedHandler<Env> = {
           null,
           `Temporarily banned IP`
         )
-        );
+      );
       return handleHardBlock(env);
     }
-
-    // --- Resolve Domain Configuration ---
-    // In test mode, we might not have a domain config, so we resolve it here but don't strictly require it
-    // yet. We'll check again after the test mode block.
-    const domainConfig = await resolveDomainConfig(domain, env);
 
     // --- Test Mode (for development/staging verification) ---
     // Activate with: ?__es_test=challenge | block | risk
@@ -1999,16 +1898,6 @@ const worker: ExportedHandler<Env> = {
       }
     }
 
-    if (!domainConfig) {
-      // Domain not onboarded — transparently pass through.
-      return fetch(request);
-    }
-
-    if (domainConfig.status !== "active") {
-      // Paused/revoked domains should bypass protection transparently.
-      return fetch(request);
-    }
-
     // --- Handle Dynamic Challenge Submission (POST) — HIGHEST PRIORITY ---
     // Must run BEFORE custom firewall rules and sensitive path checks.
     // Otherwise, broad rules (e.g. "user_agent ne mobi" → managed_challenge)
@@ -2046,11 +1935,11 @@ const worker: ExportedHandler<Env> = {
     // High-priority evaluation for critical internal URIs (.env, wp-login, etc.)
     const sensitivePaths = await resolveSensitivePaths(domain, env);
     const lowercasePath = meta.path.toLowerCase();
-    
+
     for (const rule of sensitivePaths) {
       let isMatch = false;
       const pattern = rule.path_pattern.toLowerCase();
-      
+
       if (rule.match_type === "exact") {
         isMatch = (lowercasePath === pattern);
       } else if (rule.match_type === "contains") {
@@ -2058,46 +1947,46 @@ const worker: ExportedHandler<Env> = {
       } else if (rule.match_type === "ends_with") {
         isMatch = lowercasePath.endsWith(pattern);
       }
-      
-      if (isMatch) {
-         const isBlock = rule.action === "block";
-         const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
-         
-         const logAction = isBlock ? "hard_block" : (isChallenge ? (session ? "session_created" : "challenge_issued") : "session_created");
-         
-         ctx.waitUntil(
-            logSecurityEvent(
-               env,
-               logAction as any,
-               meta,
-               isBlock ? 100 : 0,
-               null,
-               `Sensitive Path Protection: ${pattern} (${rule.match_type})${isChallenge && session ? ' (Bypassed via session)' : ''}`
-            )
-         );
 
-         if (isBlock) {
-             try {
-                await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
-                  expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
-                });
-             } catch {}
-              // IP Farm: Hard Block sensitive path → permanent ban
-              ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path hard block: ${pattern} (${rule.match_type})`));
-             return handleHardBlock(env);
-         } else if (isChallenge) {
-             if (session) {
-                 continue; // They already solved a challenge, proceed to next WAF rule
-             }
-              // IP Farm: Challenge sensitive path — only if IP has prior failures
-              try {
-                const priorFails = await env.SESSION_KV.get(`failrate:${meta.ip}`);
-                if (priorFails && parseInt(priorFails, 10) > 0) {
-                  ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path challenge with ${priorFails} prior failures: ${pattern}`));
-                }
-              } catch {}
-             return serveChallengePagePlaceholder(meta, domainConfig, env);
-         }
+      if (isMatch) {
+        const isBlock = rule.action === "block";
+        const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
+
+        const logAction = isBlock ? "hard_block" : (isChallenge ? (session ? "session_created" : "challenge_issued") : "session_created");
+
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            logAction as any,
+            meta,
+            isBlock ? 100 : 0,
+            null,
+            `Sensitive Path Protection: ${pattern} (${rule.match_type})${isChallenge && session ? ' (Bypassed via session)' : ''}`
+          )
+        );
+
+        if (isBlock) {
+          try {
+            await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+              expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
+            });
+          } catch { }
+          // IP Farm: Hard Block sensitive path → permanent ban
+          ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path hard block: ${pattern} (${rule.match_type})`));
+          return handleHardBlock(env);
+        } else if (isChallenge) {
+          if (session) {
+            continue; // They already solved a challenge, proceed to next WAF rule
+          }
+          // IP Farm: Challenge sensitive path — only if IP has prior failures
+          try {
+            const priorFails = await env.SESSION_KV.get(`failrate:${meta.ip}`);
+            if (priorFails && parseInt(priorFails, 10) > 0) {
+              ctx.waitUntil(markForIpFarm(meta.ip, env, meta, `Sensitive path challenge with ${priorFails} prior failures: ${pattern}`));
+            }
+          } catch { }
+          return serveChallengePagePlaceholder(meta, domainConfig, env);
+        }
       }
     }
 
@@ -2119,80 +2008,91 @@ const worker: ExportedHandler<Env> = {
         const field = expr.field;
         const operator = expr.operator;
         const targetValue = String(expr.value).toLowerCase();
-        
+
         let actualValue = "";
         if (field === "ip.src") {
-            actualValue = meta.ip.toLowerCase();
+          actualValue = meta.ip.toLowerCase();
         } else if (field === "ip.src.country") {
-            actualValue = (meta.country || "").toLowerCase();
+          actualValue = (meta.country || "").toLowerCase();
         } else if (field === "ip.src.asnum") {
-            actualValue = (meta.asn || "").toLowerCase();
+          actualValue = (meta.asn || "").toLowerCase();
         } else if (field === "http.request.uri.path") {
-            actualValue = meta.path.toLowerCase();
+          actualValue = meta.path.toLowerCase();
         } else if (field === "http.request.method") {
-            actualValue = meta.method.toLowerCase();
+          actualValue = meta.method.toLowerCase();
         } else if (field === "http.user_agent") {
-            actualValue = meta.userAgent.toLowerCase();
+          actualValue = meta.userAgent.toLowerCase();
         }
 
         if (operator === "eq") {
+          if (field === "ip.src" && targetValue.includes("/")) {
+            conditionMatch = isIpInCidr(meta.ip, targetValue);
+          } else {
             conditionMatch = (actualValue === targetValue);
+          }
         } else if (operator === "ne") {
-            conditionMatch = (actualValue !== targetValue);
+          conditionMatch = (actualValue !== targetValue);
         } else if (operator === "contains") {
-            conditionMatch = actualValue.includes(targetValue);
+          conditionMatch = actualValue.includes(targetValue);
         } else if (operator === "not_contains") {
-            conditionMatch = !actualValue.includes(targetValue);
+          conditionMatch = !actualValue.includes(targetValue);
         } else if (operator === "starts_with") {
-            conditionMatch = actualValue.startsWith(targetValue);
+          conditionMatch = actualValue.startsWith(targetValue);
         } else if (operator === "in") {
-            const list = targetValue.split(",").map((v: string) => v.trim());
-            if (field === "ip.src") {
-                 conditionMatch = list.some((target: string) => target.includes("/") ? isIpInCidr(meta.ip, target) : meta.ip === target);
-            } else {
-                 conditionMatch = list.includes(actualValue);
-            }
+          const list = targetValue.split(",").map((v: string) => v.trim());
+          if (field === "ip.src") {
+            conditionMatch = list.some((target: string) => target.includes("/") ? isIpInCidr(meta.ip, target) : meta.ip === target);
+          } else {
+            conditionMatch = list.includes(actualValue);
+          }
         } else if (operator === "not_in") {
-            const list = targetValue.split(",").map((v: string) => v.trim());
-            if (field === "ip.src") {
-                 conditionMatch = !list.some((target: string) => target.includes("/") ? isIpInCidr(meta.ip, target) : meta.ip === target);
-            } else {
-                 conditionMatch = !list.includes(actualValue);
-            }
+          const list = targetValue.split(",").map((v: string) => v.trim());
+          if (field === "ip.src") {
+            conditionMatch = !list.some((target: string) => target.includes("/") ? isIpInCidr(meta.ip, target) : meta.ip === target);
+          } else {
+            conditionMatch = !list.includes(actualValue);
+          }
         }
       } catch (e) {
-         // Silently ignore corrupted rules so they don't break the worker flow
+        // Silently ignore corrupted rules so they don't break the worker flow
       }
 
       if (conditionMatch) {
-         const isBlock = rule.action === "block";
-         const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
-         const isAllow = rule.action === "allow" || rule.action === "bypass";
-         
-         const logAction = isBlock ? "hard_block" : (isChallenge ? (session ? "session_created" : "challenge_issued") : "session_created");
-         
-         ctx.waitUntil(
-            logSecurityEvent(
-               env,
-               logAction as any,
-               meta,
-               isBlock ? 100 : 0,
-               null,
-               `Custom FW rule: ${rule.description || ("Action " + rule.action)}${isChallenge && session ? ' (Bypassed via session)' : ''}`
-            )
-         );
+        const isBlock = rule.action === "block";
+        const isChallenge = rule.action === "challenge" || rule.action === "managed_challenge" || rule.action === "js_challenge";
+        const isAllow = rule.action === "allow" || rule.action === "bypass";
 
-         if (isBlock) {
-             return handleHardBlock(env);
-         } else if (isAllow) {
-            return fetchWithInjectors(request, meta, env, true);
-         } else if (isChallenge) {
-             if (session) {
-                 continue; // They already solved a challenge, proceed to next rule
-             }
-             return serveChallengePagePlaceholder(meta, domainConfig, env);
-         }
-         // if action is "log", we just continue checking next rules.
+        const logAction = isBlock ? "hard_block" : (isChallenge ? (session ? "session_created" : "challenge_issued") : "session_created");
+
+        ctx.waitUntil(
+          logSecurityEvent(
+            env,
+            logAction as any,
+            meta,
+            isBlock ? 100 : 0,
+            null,
+            `Custom FW rule: ${rule.description || ("Action " + rule.action)}${isChallenge && session ? ' (Bypassed via session)' : ''}`
+          )
+        );
+
+        if (isBlock) {
+          // Set temp ban so future requests are short-circuited at the temp-ban
+          // check instead of re-evaluating all firewall rules every time.
+          try {
+            await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+              expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
+            });
+          } catch { }
+          return handleHardBlock(env);
+        } else if (isAllow) {
+          return fetchWithInjectors(request, meta, env, true);
+        } else if (isChallenge) {
+          if (session) {
+            continue; // They already solved a challenge, proceed to next rule
+          }
+          return serveChallengePagePlaceholder(meta, domainConfig, env);
+        }
+        // if action is "log", we just continue checking next rules.
       }
     }
 
@@ -2216,7 +2116,7 @@ const worker: ExportedHandler<Env> = {
         let hasGrace = false;
         try {
           hasGrace = (await env.SESSION_KV.get(graceKey)) === "1";
-        } catch {}
+        } catch { }
 
         // Layer 1: Flood protection (catches burst attacks — rapid requests)
         // Skip counter increment during grace — user just proved human.
@@ -2239,7 +2139,7 @@ const worker: ExportedHandler<Env> = {
                 await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
                   expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
                 });
-              } catch {}
+              } catch { }
               ctx.waitUntil(logSecurityEvent(env, "flood_blocked" as any, meta, 90, null, floodDetails));
               return handleHardBlock(env);
             }
@@ -2252,7 +2152,7 @@ const worker: ExportedHandler<Env> = {
               await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
                 expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
               });
-            } catch {}
+            } catch { }
             ctx.waitUntil(logSecurityEvent(env, "flood_blocked" as any, meta, 90, null,
               `Post-CAPTCHA abuse: ${floodDetails} — 24h ban applied`));
             return handleHardBlock(env);
@@ -2271,7 +2171,7 @@ const worker: ExportedHandler<Env> = {
               await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
                 expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
               });
-            } catch {}
+            } catch { }
             ctx.waitUntil(
               logSecurityEvent(
                 env,
@@ -2303,12 +2203,12 @@ const worker: ExportedHandler<Env> = {
       // Layer 1.5: Daily Visit Counter
       const dailyVisits = await checkAndIncrementDailyVisitCounter(meta, domain, env);
       if (dailyVisits > thresholds.daily_visit_limit) {
-        try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch {}
+        try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch { }
         try {
           await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
             expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
           });
-        } catch {}
+        } catch { }
         ctx.waitUntil(
           logSecurityEvent(
             env, "hard_block", meta, 95, null,
@@ -2322,7 +2222,7 @@ const worker: ExportedHandler<Env> = {
       if (meta.asn) {
         const asnVisits = await checkAndIncrementASNVisitCounter(meta.asn, domain, env);
         if (asnVisits > thresholds.asn_hourly_visit_limit) {
-          try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch {}
+          try { await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip)); } catch { }
           ctx.waitUntil(
             logSecurityEvent(env, "challenge_issued" as any, meta, 50, null, `Trusted IP ASN (${meta.asn}) exceeded hourly limit (${asnVisits}/${thresholds.asn_hourly_visit_limit}) — trust revoked`)
           );
@@ -2337,7 +2237,7 @@ const worker: ExportedHandler<Env> = {
         // Invalidate trust — this IP is suspicious
         try {
           await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip));
-        } catch {}
+        } catch { }
         ctx.waitUntil(
           logSecurityEvent(
             env,
@@ -2358,7 +2258,7 @@ const worker: ExportedHandler<Env> = {
         // Burst detected — invalidate trust
         try {
           await env.SESSION_KV.delete(getTrustedIpKey(domain, meta.ip));
-        } catch {}
+        } catch { }
         ctx.waitUntil(
           logSecurityEvent(
             env,
@@ -2374,7 +2274,7 @@ const worker: ExportedHandler<Env> = {
             await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
               expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
             });
-          } catch {}
+          } catch { }
           return handleHardBlock(env);
         }
         return serveChallengePagePlaceholder(meta, domainConfig, env);
@@ -2416,7 +2316,7 @@ const worker: ExportedHandler<Env> = {
             await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
               expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
             });
-          } catch {}
+          } catch { }
           ctx.waitUntil(
             logSecurityEvent(
               env,
@@ -2535,7 +2435,7 @@ const worker: ExportedHandler<Env> = {
         );
         return serveChallengePagePlaceholder(meta, domainConfig, env);
       }
-    } catch {}
+    } catch { }
 
     // --- Risk Scoring Engine ---
     const fingerprintHint = await getSessionFingerprintHint(request, env);
@@ -2571,7 +2471,7 @@ const worker: ExportedHandler<Env> = {
               await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
                 expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
               });
-            } catch {}
+            } catch { }
             ctx.waitUntil(logSecurityEvent(env, "hard_block", meta, 95, null, `Low-risk IP exceeded daily visit limit (${dailyVisits}/${thresholds.daily_visit_limit} in 24h) — 24h ban applied`));
             return handleHardBlock(env);
           }
@@ -2593,7 +2493,7 @@ const worker: ExportedHandler<Env> = {
               getTrustedIpKey(domain, meta.ip),
               "1",
               { expirationTtl: TRUSTED_IP_TTL_SECONDS }
-            ).catch(() => {})
+            ).catch(() => { })
           );
         }
         return fetchWithInjectors(request, meta, env, true);
@@ -2664,14 +2564,14 @@ const worker: ExportedHandler<Env> = {
 
         // Track ASN daily attack reputation
         if (meta.asn) {
-           ctx.waitUntil((async () => {
-              try {
-                const asnAttackKey = `attack:asn:day:${new Date().toISOString().slice(0, 10)}:${meta.asn}`;
-                const currentStr = await env.SESSION_KV.get(asnAttackKey);
-                const current = currentStr ? parseInt(currentStr, 10) : 0;
-                await env.SESSION_KV.put(asnAttackKey, String(current + 1), { expirationTtl: 86400 });
-              } catch {}
-           })());
+          ctx.waitUntil((async () => {
+            try {
+              const asnAttackKey = `attack:asn:day:${new Date().toISOString().slice(0, 10)}:${meta.asn}`;
+              const currentStr = await env.SESSION_KV.get(asnAttackKey);
+              const current = currentStr ? parseInt(currentStr, 10) : 0;
+              await env.SESSION_KV.put(asnAttackKey, String(current + 1), { expirationTtl: 86400 });
+            } catch { }
+          })());
         }
 
         return handleHardBlock(env);
@@ -2718,7 +2618,7 @@ async function isAICooldownLikelyActive(env: Env): Promise<boolean> {
 }
 
 class HoneypotInjector {
-  constructor(private paths: string[]) {}
+  constructor(private paths: string[]) { }
 
   element(el: Element) {
     // Multi-Trap Strategy with varying stealth techniques
@@ -2726,7 +2626,7 @@ class HoneypotInjector {
     const trap1 = `<a href="${this.paths[0]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">API Metrics</a>`;
     const trap2 = `<a href="${this.paths[1]}" aria-hidden="true" tabindex="-1" style="display:none; visibility:hidden;" rel="nofollow">Fallback Style</a>`;
     const trap3 = `<a href="${this.paths[2]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">Legacy Script</a>`;
-    
+
     el.append(trap1 + trap2 + trap3, { html: true });
   }
 }
