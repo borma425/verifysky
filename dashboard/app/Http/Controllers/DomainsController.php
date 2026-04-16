@@ -31,55 +31,52 @@ class DomainsController extends Controller
         $this->edgeShield->ensureThresholdsColumn();
         $validated = $request->validate([
             'domain_name' => ['required', 'string', 'max:255'],
-            'zone_id' => ['nullable', 'string', 'max:128'],
-            'turnstile_sitekey' => ['nullable', 'string', 'max:255'],
-            'turnstile_secret' => ['nullable', 'string', 'max:255'],
             'security_mode' => ['nullable', 'in:monitor,balanced,aggressive'],
         ]);
         $securityMode = $validated['security_mode'] ?? 'balanced';
 
-        $provisioned = $this->edgeShield->autoProvisionDomainConfig(
-            $validated['domain_name'],
-            $validated['zone_id'] ?? null,
-            $validated['turnstile_sitekey'] ?? null,
-            $validated['turnstile_secret'] ?? null
-        );
+        $provisioned = $this->edgeShield->provisionSaasCustomHostname($validated['domain_name']);
 
         if (!$provisioned['ok']) {
-            return back()->withInput()->with('error', $provisioned['error'] ?? 'Failed to auto-provision domain settings from Cloudflare.');
-        }
-
-        $routeSync = $this->edgeShield->ensureWorkerRoute(
-            (string) $provisioned['zone_id'],
-            (string) $provisioned['domain_name']
-        );
-        if (!$routeSync['ok']) {
-            return back()->withInput()->with(
-                'error',
-                ($routeSync['error'] ?? 'Failed to attach worker route for this domain.')
-            );
+            return back()->withInput()->with('error', $provisioned['error'] ?? 'Failed to create Cloudflare Custom Hostname.');
         }
 
         $sql = sprintf(
-            "INSERT INTO domain_configs (domain_name, zone_id, turnstile_sitekey, turnstile_secret, status, force_captcha, security_mode)
-             VALUES ('%s', '%s', '%s', '%s', 'active', 0, '%s')
+            "INSERT INTO domain_configs (
+                domain_name, zone_id, turnstile_sitekey, turnstile_secret, status, force_captcha, security_mode,
+                custom_hostname_id, cname_target, hostname_status, ssl_status, ownership_verification_json, updated_at
+             )
+             VALUES ('%s', '%s', '%s', '%s', 'active', 0, '%s', '%s', '%s', '%s', '%s', '%s', CURRENT_TIMESTAMP)
              ON CONFLICT(domain_name) DO UPDATE SET
                zone_id = excluded.zone_id,
                turnstile_sitekey = excluded.turnstile_sitekey,
                turnstile_secret = excluded.turnstile_secret,
                security_mode = excluded.security_mode,
+               custom_hostname_id = excluded.custom_hostname_id,
+               cname_target = excluded.cname_target,
+               hostname_status = excluded.hostname_status,
+               ssl_status = excluded.ssl_status,
+               ownership_verification_json = excluded.ownership_verification_json,
+               updated_at = CURRENT_TIMESTAMP,
                status = 'active'",
             str_replace("'", "''", (string) $provisioned['domain_name']),
             str_replace("'", "''", (string) $provisioned['zone_id']),
             str_replace("'", "''", (string) $provisioned['turnstile_sitekey']),
             str_replace("'", "''", (string) $provisioned['turnstile_secret']),
-            str_replace("'", "''", (string) $securityMode)
+            str_replace("'", "''", (string) $securityMode),
+            str_replace("'", "''", (string) $provisioned['custom_hostname_id']),
+            str_replace("'", "''", (string) $provisioned['cname_target']),
+            str_replace("'", "''", (string) $provisioned['hostname_status']),
+            str_replace("'", "''", (string) $provisioned['ssl_status']),
+            str_replace("'", "''", (string) $provisioned['ownership_verification_json'])
         );
 
         $result = $this->edgeShield->queryD1($sql);
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Domain added/updated successfully (auto-provisioned + route synced).' : ($result['error'] ?: 'Failed to add domain')
+            $result['ok']
+                ? 'Custom hostname added. Ask the customer to CNAME their domain to '.$this->edgeShield->saasCnameTarget().'.'
+                : ($result['error'] ?: 'Failed to add domain')
         );
     }
 
@@ -90,7 +87,7 @@ class DomainsController extends Controller
         ]);
 
         $sql = sprintf(
-            "UPDATE domain_configs SET status = '%s' WHERE domain_name = '%s'",
+            "UPDATE domain_configs SET status = '%s', updated_at = CURRENT_TIMESTAMP WHERE domain_name = '%s'",
             $validated['status'],
             str_replace("'", "''", $domain)
         );
@@ -106,7 +103,7 @@ class DomainsController extends Controller
     {
         $escapedDomain = str_replace("'", "''", strtolower(trim($domain)));
         $readSql = sprintf(
-            "SELECT domain_name, zone_id, turnstile_sitekey FROM domain_configs WHERE domain_name = '%s' LIMIT 1",
+            "SELECT domain_name, custom_hostname_id FROM domain_configs WHERE domain_name = '%s' LIMIT 1",
             $escapedDomain
         );
         $read = $this->edgeShield->queryD1($readSql);
@@ -120,11 +117,7 @@ class DomainsController extends Controller
             return back()->with('error', 'Domain not found in configuration.');
         }
 
-        $cleanup = $this->edgeShield->removeDomainSecurityArtifacts(
-            (string) ($row['zone_id'] ?? ''),
-            (string) ($row['domain_name'] ?? ''),
-            (string) ($row['turnstile_sitekey'] ?? '')
-        );
+        $cleanup = $this->edgeShield->deleteSaasCustomHostname((string) ($row['custom_hostname_id'] ?? ''));
 
         $deleteSql = sprintf(
             "DELETE FROM domain_configs WHERE domain_name = '%s'",
@@ -136,13 +129,10 @@ class DomainsController extends Controller
         }
 
         if (!$cleanup['ok']) {
-            return back()->with(
-                'status',
-                'Domain removed from configuration, but cleanup reported warnings: '.implode(' | ', $cleanup['details'] ?? [])
-            );
+            return back()->with('status', 'Domain removed from configuration, but Cloudflare cleanup reported: '.($cleanup['error'] ?? 'unknown warning'));
         }
 
-        return back()->with('status', 'Domain removed completely (config + route + Turnstile widget).');
+        return back()->with('status', 'Domain removed completely.');
     }
 
     public function toggleForceCaptcha(string $domain, Request $request): RedirectResponse
@@ -152,7 +142,7 @@ class DomainsController extends Controller
         ]);
 
         $sql = sprintf(
-            "UPDATE domain_configs SET force_captcha = %d WHERE domain_name = '%s'",
+            "UPDATE domain_configs SET force_captcha = %d, updated_at = CURRENT_TIMESTAMP WHERE domain_name = '%s'",
             (int) $validated['force_captcha'],
             str_replace("'", "''", $domain)
         );
@@ -172,7 +162,7 @@ class DomainsController extends Controller
         ]);
 
         $sql = sprintf(
-            "UPDATE domain_configs SET security_mode = '%s' WHERE domain_name = '%s'",
+            "UPDATE domain_configs SET security_mode = '%s', updated_at = CURRENT_TIMESTAMP WHERE domain_name = '%s'",
             str_replace("'", "''", $validated['security_mode']),
             str_replace("'", "''", $domain)
         );
@@ -186,27 +176,12 @@ class DomainsController extends Controller
 
     public function syncRoute(string $domain): RedirectResponse
     {
-        $sql = sprintf(
-            "SELECT domain_name, zone_id FROM domain_configs WHERE domain_name = '%s' LIMIT 1",
-            str_replace("'", "''", $domain)
-        );
-        $result = $this->edgeShield->queryD1($sql);
-        if (!$result['ok']) {
-            return back()->with('error', $result['error'] ?: 'Failed to read domain config.');
-        }
-
-        $rows = $this->edgeShield->parseWranglerJson($result['output'])[0]['results'] ?? [];
-        $row = is_array($rows[0] ?? null) ? $rows[0] : null;
-        if (!$row || !isset($row['zone_id'], $row['domain_name'])) {
-            return back()->with('error', 'Domain not found in configuration.');
-        }
-
-        $sync = $this->edgeShield->ensureWorkerRoute((string) $row['zone_id'], (string) $row['domain_name']);
+        $sync = $this->edgeShield->refreshSaasCustomHostname($domain);
         return back()->with(
             $sync['ok'] ? 'status' : 'error',
             $sync['ok']
-                ? 'Worker route synced successfully.'
-                : ($sync['error'] ?? 'Failed to sync worker route.')
+                ? 'Cloudflare hostname status refreshed.'
+                : ($sync['error'] ?? 'Failed to refresh hostname status.')
         );
     }
 

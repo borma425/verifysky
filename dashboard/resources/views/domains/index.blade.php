@@ -3,13 +3,12 @@
 @section('content')
   <div class="es-card es-animate mb-4 p-5 md:p-6">
     <h2 class="es-title mb-3">Domains</h2>
-    <p class="es-subtitle mb-3">Add only the domain and the dashboard will auto-fetch Zone ID and create Turnstile keys from Cloudflare. Advanced fields below are optional overrides.</p>
+    <p class="es-subtitle mb-3">Add the customer hostname. VerifySky creates a Cloudflare Custom Hostname and the customer points CNAME to <span class="font-semibold text-sky-100">{{ config('app.saas_cname_target', env('SAAS_CNAME_TARGET', 'customers.verifysky.com')) }}</span>.</p>
     @if($error)<div class="mb-3 rounded-xl border border-rose-400/30 bg-rose-500/15 px-4 py-3 text-sm text-rose-200">{{ $error }}</div>@endif
     <form method="POST" action="{{ route('domains.store') }}">
       @csrf
-      <div class="grid gap-3 md:grid-cols-3">
-        <div><label class="mb-1 block text-sm text-sky-100">Domain</label><input class="es-input" name="domain_name" placeholder="example.com" required></div>
-        <div><label class="mb-1 block text-sm text-sky-100">Zone ID (optional)</label><input class="es-input" name="zone_id" placeholder="Auto if empty"></div>
+      <div class="grid gap-3 md:grid-cols-2">
+        <div><label class="mb-1 block text-sm text-sky-100">Customer hostname</label><input class="es-input" name="domain_name" placeholder="app.customer.com" required></div>
         <div>
           <label class="mb-1 block text-sm text-sky-100">Security Mode</label>
           <select class="es-input" name="security_mode">
@@ -19,18 +18,14 @@
           </select>
         </div>
       </div>
-      <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div><label class="mb-1 block text-sm text-sky-100">Turnstile Site Key (optional)</label><input class="es-input" name="turnstile_sitekey" placeholder="Auto if empty"></div>
-        <div><label class="mb-1 block text-sm text-sky-100">Turnstile Secret (optional)</label><input class="es-input" name="turnstile_secret" placeholder="Auto if empty"></div>
-      </div>
-      <button class="es-btn mt-4" type="submit">Add / Update Domain</button>
+      <button class="es-btn mt-4" type="submit">Create Custom Hostname</button>
     </form>
   </div>
 
   <div class="es-card es-animate es-animate-delay relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 p-5 md:p-6">
     <div class="overflow-x-auto">
     <table class="es-table min-w-[1450px]">
-      <thead><tr><th>Domain</th><th>Zone ID</th><th>Status</th><th>Security Mode</th><th>Force CAPTCHA</th><th>Created</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Hostname</th><th>CNAME target</th><th>Hostname</th><th>SSL</th><th>Status</th><th>Security Mode</th><th>Force CAPTCHA</th><th>Created</th><th>Actions</th></tr></thead>
       <tbody>
       @forelse($domains as $d)
         @php $forced = (int)($d['force_captcha'] ?? 0) === 1; @endphp
@@ -38,7 +33,9 @@
         @php $status = strtolower((string)($d['status'] ?? '')); @endphp
         <tr>
           <td class="whitespace-nowrap">{{ $d['domain_name'] ?? '' }}</td>
-          <td class="whitespace-nowrap">{{ $d['zone_id'] ?? '' }}</td>
+          <td class="whitespace-nowrap">{{ $d['cname_target'] ?? env('SAAS_CNAME_TARGET', 'customers.verifysky.com') }}</td>
+          <td class="whitespace-nowrap">{{ $d['hostname_status'] ?? 'pending' }}</td>
+          <td class="whitespace-nowrap">{{ $d['ssl_status'] ?? 'pending_validation' }}</td>
           <td class="whitespace-nowrap">{{ $d['status'] ?? '' }}</td>
           <td>
             <span class="es-chip {{ $mode === 'aggressive' ? 'border-rose-400/35 bg-rose-500/20 text-rose-200' : ($mode === 'monitor' ? 'border-amber-400/35 bg-amber-500/20 text-amber-100' : 'border-sky-400/35 bg-sky-500/20 text-sky-100') }}">
@@ -56,7 +53,7 @@
             <form method="POST" action="{{ route('domains.sync_route', ['domain' => $d['domain_name']]) }}">
               @csrf
               <button class="es-btn" type="submit">
-                Sync Route
+                Refresh Status
               </button>
             </form>
             <a href="{{ route('domains.tuning', ['domain' => $d['domain_name']]) }}" class="es-btn es-btn-secondary">
@@ -113,7 +110,7 @@
           </td>
         </tr>
       @empty
-        <tr><td colspan="7" class="text-slate-300">No domains found.</td></tr>
+        <tr><td colspan="9" class="text-slate-300">No domains found.</td></tr>
       @endforelse
       </tbody>
     </table>

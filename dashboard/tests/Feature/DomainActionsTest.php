@@ -35,75 +35,62 @@ class DomainActionsTest extends TestCase
     {
         $mock = $this->bindServiceMock();
         $mock->shouldReceive('ensureSecurityModeColumn')->once();
-        $mock->shouldReceive('queryD1')->once()->andReturn([
+        $mock->shouldReceive('ensureThresholdsColumn')->once();
+        $mock->shouldReceive('listDomains')->once()->andReturn([
             'ok' => true,
-            'output' => 'ignored',
             'error' => null,
-        ]);
-        $mock->shouldReceive('parseWranglerJson')->once()->andReturn([[
-            'results' => [[
+            'domains' => [[
                 'domain_name' => 'example.com',
                 'zone_id' => 'zone1',
+                'cname_target' => 'customers.verifysky.com',
+                'hostname_status' => 'active',
+                'ssl_status' => 'active',
                 'status' => 'active',
                 'force_captcha' => 1,
                 'security_mode' => 'balanced',
                 'created_at' => '2026-03-22 00:00:00',
             ]],
-        ]]);
+        ]);
 
         $response = $this->withSession(['is_admin' => true])->get('/domains');
 
         $response->assertOk()
-            ->assertSee('Rules')
-            ->assertSee('Sync Route')
+            ->assertSee('Customer hostname')
+            ->assertSee('customers.verifysky.com')
+            ->assertSee('Refresh Status')
             ->assertSee('Disable Forced CAPTCHA')
             ->assertSee('Pause')
             ->assertSee('Delete');
     }
 
-    public function test_rules_route_loads_domain_rules_screen(): void
+    public function test_tuning_route_loads_domain_tuning_screen(): void
     {
         $mock = $this->bindServiceMock();
+        $mock->shouldReceive('ensureThresholdsColumn')->once();
         $mock->shouldReceive('getDomainConfig')->once()->andReturn([
             'ok' => true,
-            'domain' => [
+            'error' => null,
+            'config' => [
                 'domain_name' => 'example.com',
                 'zone_id' => 'zone1',
                 'status' => 'active',
                 'force_captcha' => 1,
+                'thresholds_json' => '{}',
             ],
         ]);
-        $mock->shouldReceive('listZoneWorkerRoutes')->once()->andReturn([
-            'ok' => true,
-            'routes' => [],
-        ]);
-        $mock->shouldReceive('listZoneFirewallRules')->once()->andReturn([
-            'ok' => true,
-            'rules' => [],
-        ]);
 
-        $response = $this->withSession(['is_admin' => true])->get('/domains/example.com/rules');
+        $response = $this->withSession(['is_admin' => true])->get('/domains/example.com/tuning');
 
-        $response->assertOk()->assertSee('Rules Management: example.com');
+        $response->assertOk()->assertSee('Protection Tuning for example.com');
     }
 
-    public function test_sync_route_button_endpoint_works(): void
+    public function test_refresh_hostname_status_endpoint_works(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('queryD1')->once()->andReturn([
+        $mock->shouldReceive('refreshSaasCustomHostname')->once()->with('example.com')->andReturn([
             'ok' => true,
-            'output' => 'ignored',
             'error' => null,
-        ]);
-        $mock->shouldReceive('parseWranglerJson')->once()->andReturn([[
-            'results' => [[
-                'domain_name' => 'example.com',
-                'zone_id' => 'zone1',
-            ]],
-        ]]);
-        $mock->shouldReceive('ensureWorkerRoute')->once()->with('zone1', 'example.com')->andReturn([
-            'ok' => true,
-            'action' => 'created',
+            'custom_hostname' => [],
         ]);
 
         $response = $this->withSession(['is_admin' => true])->post('/domains/example.com/sync-route');
@@ -161,13 +148,13 @@ class DomainActionsTest extends TestCase
         $mock->shouldReceive('parseWranglerJson')->once()->andReturn([[
             'results' => [[
                 'domain_name' => 'example.com',
-                'zone_id' => 'zone1',
-                'turnstile_sitekey' => 'sitekey1',
+                'custom_hostname_id' => 'custom-hostname-1',
             ]],
         ]]);
-        $mock->shouldReceive('removeDomainSecurityArtifacts')->once()->with('zone1', 'example.com', 'sitekey1')->andReturn([
+        $mock->shouldReceive('deleteSaasCustomHostname')->once()->with('custom-hostname-1')->andReturn([
             'ok' => true,
-            'details' => ['ok'],
+            'action' => 'deleted',
+            'error' => null,
         ]);
 
         $response = $this->withSession(['is_admin' => true])->delete('/domains/example.com');
@@ -179,44 +166,76 @@ class DomainActionsTest extends TestCase
     {
         $mock = $this->bindServiceMock();
         $mock->shouldReceive('ensureSecurityLogsDomainColumn')->once();
-        $mock->shouldReceive('queryD1')->times(2)->andReturn(
-            [
+        $mock->shouldReceive('listIpFarmRules')->once()->andReturn([
+            'ok' => true,
+            'rules' => [],
+        ]);
+        $mock->shouldReceive('queryD1')->zeroOrMoreTimes()->andReturnUsing(function (string $sql): array {
+            $output = match (true) {
+                str_contains($sql, 'SELECT expression_json FROM custom_firewall_rules') => 'allowed_ips',
+                str_contains($sql, "SELECT 'domain' AS bucket") => 'filter_options',
+                str_contains($sql, 'COUNT(*) AS total_rows') => 'count_rows',
+                str_contains($sql, 'WITH filtered AS') => 'log_rows',
+                str_contains($sql, 'SELECT domain_name, thresholds_json FROM domain_configs') => 'domain_configs',
+                str_contains($sql, 'total_attacks') => 'general_stats',
+                str_contains($sql, 'SELECT country, COUNT(*) as attack_count') => 'top_countries',
+                default => 'empty',
+            };
+
+            return [
                 'ok' => true,
-                'output' => 'ignored-filter-options',
+                'output' => $output,
                 'error' => null,
-            ],
-            [
-                'ok' => true,
-                'output' => 'ignored-rows',
-                'error' => null,
-            ]
-        );
-        $mock->shouldReceive('parseWranglerJson')->times(2)->andReturn(
-            [[
-                'results' => [
-                    [
-                        'bucket' => 'domain',
-                        'value' => 'example.com',
+            ];
+        });
+        $mock->shouldReceive('parseWranglerJson')->zeroOrMoreTimes()->andReturnUsing(function (string $output): array {
+            return match ($output) {
+                'filter_options' => [[
+                    'results' => [
+                        [
+                            'bucket' => 'domain',
+                            'value' => 'example.com',
+                        ],
+                        [
+                            'bucket' => 'event',
+                            'value' => 'challenge_issued',
+                        ],
                     ],
-                    [
-                        'bucket' => 'event',
-                        'value' => 'challenge_issued',
-                    ],
-                ],
-            ]],
-            [[
-                'results' => [[
-                    'event_type' => 'challenge_issued',
-                    'ip_address' => '203.0.113.10',
-                    'asn' => '13335',
-                    'country' => 'US',
-                    'target_path' => '/',
-                    'details' => '{"domain":"example.com"}',
-                    'created_at' => '2026-03-22 00:00:00',
-                    'total_rows' => 120,
                 ]],
-            ]]
-        );
+                'count_rows' => [[
+                    'results' => [
+                        [
+                            'total_rows' => 1,
+                        ],
+                    ],
+                ]],
+                'log_rows' => [[
+                    'results' => [[
+                        'event_type' => 'challenge_issued',
+                        'ip_address' => '203.0.113.10',
+                        'asn' => '13335',
+                        'country' => 'US',
+                        'domain_name' => 'example.com',
+                        'target_path' => '/',
+                        'details' => '{"domain":"example.com"}',
+                        'created_at' => '2026-03-22 00:00:00',
+                        'requests' => 1,
+                        'requests_today' => 1,
+                        'requests_yesterday' => 0,
+                        'requests_month' => 1,
+                    ]],
+                ]],
+                'general_stats' => [[
+                    'results' => [[
+                        'total_attacks' => 1,
+                        'total_visitors' => 1,
+                    ]],
+                ]],
+                default => [[
+                    'results' => [],
+                ]],
+            };
+        });
 
         $response = $this->withSession(['is_admin' => true])->get('/logs');
 

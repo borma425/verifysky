@@ -8,7 +8,6 @@ use App\Http\Controllers\LogsController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\SensitivePathsController;
 use App\Http\Controllers\SettingsController;
-use App\Http\Controllers\TrapNetworkController;
 use App\Http\Controllers\IpFarmController;
 use App\Http\Middleware\AdminAuth;
 use App\Http\Middleware\NoIndexSensitivePages;
@@ -60,9 +59,6 @@ if (!function_exists('resolveAdminLoginPath')) {
 $adminLoginPath = resolveAdminLoginPath();
 
 Route::get('/', [MarketingController::class, 'index'])->name('home');
-Route::post('/contact/interest', [MarketingController::class, 'storeLead'])
-    ->middleware('throttle:20,1')
-    ->name('marketing.lead');
 
 Route::get('/'.$adminLoginPath, [AuthController::class, 'show'])
     ->middleware(NoIndexSensitivePages::class)
@@ -106,9 +102,6 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
-
-    Route::get('/trap-network', [TrapNetworkController::class, 'index'])->name('trap_network.index');
-    Route::delete('/trap-network/{lead}', [TrapNetworkController::class, 'destroy'])->name('trap_network.destroy');
 
     Route::get('/ip-farm', [IpFarmController::class, 'index'])->name('ip_farm.index');
 });

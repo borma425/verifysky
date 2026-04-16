@@ -429,16 +429,16 @@ export async function evaluateRisk(
     // KV failure is non-fatal
   }
 
-  // --- Factor 13: Dynamic Honeypot Trap Analysis ---
+  // --- Factor 13: Dynamic Honeypot Decoy Analysis ---
   const dailyHoneypots = await getDailyHoneypotPaths(env);
   if (dailyHoneypots.includes(meta.path)) {
     if (!meta.isPrefetch) {
       try {
-        const trapKey = `trap_hit:${meta.ip}`;
-        const currentStr = await env.SESSION_KV.get(trapKey);
+        const decoyKey = `honeypot_hit:${meta.ip}`;
+        const currentStr = await env.SESSION_KV.get(decoyKey);
         const currentCount = currentStr ? parseInt(currentStr, 10) : 0;
         const newCount = currentCount + 1;
-        await env.SESSION_KV.put(trapKey, String(newCount), { expirationTtl: 86400 });
+        await env.SESSION_KV.put(decoyKey, String(newCount), { expirationTtl: 86400 });
 
         if (newCount >= 2) {
           score += 45;
@@ -848,4 +848,3 @@ function safeParseInt(value: string | null): number {
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
-

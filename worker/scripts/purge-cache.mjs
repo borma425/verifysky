@@ -4,7 +4,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
-const D1_DATABASE_NAME = "EDGE_SHIELD_DB";
+const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
 
 function loadDotEnvIfNeeded() {
   if (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN) return;

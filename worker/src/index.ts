@@ -2621,13 +2621,13 @@ class HoneypotInjector {
   constructor(private paths: string[]) { }
 
   element(el: Element) {
-    // Multi-Trap Strategy with varying stealth techniques
+    // Multi-decoy strategy with varying stealth techniques.
     // Removed left:-9999px to prevent layout shift (pulling page to the left)
-    const trap1 = `<a href="${this.paths[0]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">API Metrics</a>`;
-    const trap2 = `<a href="${this.paths[1]}" aria-hidden="true" tabindex="-1" style="display:none; visibility:hidden;" rel="nofollow">Fallback Style</a>`;
-    const trap3 = `<a href="${this.paths[2]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">Legacy Script</a>`;
+    const decoy1 = `<a href="${this.paths[0]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">API Metrics</a>`;
+    const decoy2 = `<a href="${this.paths[1]}" aria-hidden="true" tabindex="-1" style="display:none; visibility:hidden;" rel="nofollow">Fallback Style</a>`;
+    const decoy3 = `<a href="${this.paths[2]}" aria-hidden="true" tabindex="-1" style="position:absolute; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none; z-index:-999;" rel="nofollow">Legacy Script</a>`;
 
-    el.append(trap1 + trap2 + trap3, { html: true });
+    el.append(decoy1 + decoy2 + decoy3, { html: true });
   }
 }
 

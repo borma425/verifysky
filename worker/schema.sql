@@ -162,19 +162,32 @@ CREATE INDEX IF NOT EXISTS idx_security_logs_domain_created
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS domain_configs (
     domain_name       TEXT    PRIMARY KEY,
+    tenant_id         TEXT,
     zone_id           TEXT    NOT NULL,
     turnstile_sitekey TEXT    NOT NULL,
     turnstile_secret  TEXT    NOT NULL,
+    custom_hostname_id TEXT,
+    cname_target      TEXT,
+    hostname_status   TEXT,
+    ssl_status        TEXT,
+    ownership_verification_json TEXT,
     force_captcha     INTEGER NOT NULL DEFAULT 0, -- 0 | 1
     security_mode     TEXT    NOT NULL DEFAULT 'balanced', -- monitor | balanced | aggressive
     status            TEXT    NOT NULL DEFAULT 'active',  -- active | paused | revoked
     thresholds_json   TEXT,
-    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Fast domain lookup (PRIMARY KEY already covers this, but explicit for clarity)
 CREATE INDEX IF NOT EXISTS idx_domain_configs_status
     ON domain_configs (status);
+
+CREATE INDEX IF NOT EXISTS idx_domain_configs_tenant
+    ON domain_configs (tenant_id);
+
+CREATE INDEX IF NOT EXISTS idx_domain_configs_custom_hostname
+    ON domain_configs (custom_hostname_id);
 
 -- ---------------------------------------------------------------------------
 -- 5. IP ACCESS RULES TABLE
@@ -205,7 +218,8 @@ CREATE TABLE IF NOT EXISTS custom_firewall_rules (
     expression_json  TEXT    NOT NULL,  -- Standard JSON format describing the rule conditions
     paused           INTEGER DEFAULT 0, -- 0 = active, 1 = paused
     expires_at       INTEGER,           -- Unix timestamp for automatic expiry
-    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_fw_rules_domain

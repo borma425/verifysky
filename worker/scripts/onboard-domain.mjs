@@ -10,7 +10,7 @@ import { execSync } from "node:child_process";
 // Configuration
 // ---------------------------------------------------------------------------
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
-const D1_DATABASE_NAME = "EDGE_SHIELD_DB";
+const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
 
 // ---------------------------------------------------------------------------
 // CLI Argument Parsing

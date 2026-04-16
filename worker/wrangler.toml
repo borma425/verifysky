@@ -3,11 +3,12 @@
 # Enterprise-Grade Zero-Trust Bot Protection System
 # ============================================================================
 
-name = "edge-shield"
+name = "verifysky-edge-staging"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
-account_id = "8c610bded8021e624eb8abc24833d79a"
+account_id = "5097201ac658e8d27ac706118005116e"
+workers_dev = false
 
 # ---------------------------------------------------------------------------
 # Route Configuration
@@ -23,8 +24,8 @@ account_id = "8c610bded8021e624eb8abc24833d79a"
 # ---------------------------------------------------------------------------
 [[d1_databases]]
 binding = "DB"
-database_name = "EDGE_SHIELD_DB"
-database_id = "3581d2c4-a74c-490a-b9d9-db7e67ad701a"
+database_name = "VERIFY_SKY_STAGING_DB"
+database_id = "d923830f-391f-4c6a-a919-dd3552e9bccd"
 
 # ---------------------------------------------------------------------------
 # KV Namespace Binding
@@ -33,7 +34,7 @@ database_id = "3581d2c4-a74c-490a-b9d9-db7e67ad701a"
 # ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "1557768befa24dfe92292a0ef1c0f7b4"
+id = "c8105e6570f24c58bbe137b10b1c0b82"
 
 # ---------------------------------------------------------------------------
 # Environment Variables (Secrets) — GLOBAL ONLY

@@ -33,6 +33,7 @@ npm run -s build
 - Worker runtime values are sourced from dashboard settings.
 - Legacy path `/opt/lampp/htdocs/edge_shield_dashboard` can be symlinked to `dashboard/` for compatibility.
 
-## Architecture Blueprint
+## Architecture Direction
 
-- Trap + Project blueprint: [docs/TRAP_BLUEPRINT.md](docs/TRAP_BLUEPRINT.md)
+- Dashboard: Laravel control plane for Cloudflare Worker security operations.
+- Worker: Cloudflare edge runtime for hostname resolution, challenge handling, and request policy enforcement.

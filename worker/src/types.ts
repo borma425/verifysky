@@ -140,14 +140,21 @@ export interface SecurityLogRecord {
 /** Row in the `domain_configs` table (Multi-Tenancy) */
 export interface DomainConfigRecord {
   domain_name: string;
+  tenant_id?: string | null;
   zone_id: string;
   turnstile_sitekey: string;
   turnstile_secret: string;
+  custom_hostname_id?: string | null;
+  cname_target?: string | null;
+  hostname_status?: string | null;
+  ssl_status?: string | null;
+  ownership_verification_json?: string | null;
   force_captcha: number;
   security_mode?: "monitor" | "balanced" | "aggressive";
   status: "active" | "paused" | "revoked";
   thresholds_json?: string | null;
   created_at: string;
+  updated_at?: string | null;
 }
 
 /** Parsed dynamic security thresholds per domain */

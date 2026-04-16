@@ -301,15 +301,15 @@ export async function getDailyHoneypotPaths(env: { JWT_SECRET: string }): Promis
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   
-  // Use snippets of the hash for unique but stable daily trap paths
+  // Use snippets of the hash for unique but stable daily decoy paths.
   const h1 = hashHex.slice(0, 6);
   const h2 = hashHex.slice(6, 12);
   const h3 = hashHex.slice(12, 18);
   
   return [
-    `/api/v1/internal-metrics/es-${h1}.json`, // API-like trap
-    `/assets/css/fallback-es-${h2}.css`,      // Asset-like trap
-    `/wp-includes/js/jquery-migrate-es-${h3}.js` // Admin/Legacy trap
+    `/api/v1/internal-metrics/es-${h1}.json`, // API-like decoy
+    `/assets/css/fallback-es-${h2}.css`,      // Asset-like decoy
+    `/wp-includes/js/jquery-migrate-es-${h3}.js` // Admin/legacy decoy
   ];
 }
 

@@ -21,7 +21,7 @@ class EdgeShieldService
 
         $candidates = [
             base_path('../worker'),
-            base_path('../../cloudflare_antibots/worker'),
+            base_path('../../verifysky/worker'),
             base_path('..'),
             dirname(base_path()),
         ];
@@ -233,7 +233,25 @@ class EdgeShieldService
 
         // Optional bootstrap fallback from dashboard app env only.
         $envName = trim((string) env('EDGE_SHIELD_WORKER_NAME', ''));
-        return $envName !== '' ? $envName : 'edge-shield';
+        return $envName !== '' ? $envName : 'verifysky-edge-staging';
+    }
+
+    public function saasZoneId(): ?string
+    {
+        $zoneId = trim((string) env('CLOUDFLARE_ZONE_ID', ''));
+        return $zoneId !== '' ? $zoneId : null;
+    }
+
+    public function saasCnameTarget(): string
+    {
+        $target = trim((string) env('SAAS_CNAME_TARGET', ''));
+        return $target !== '' ? $this->normalizeDomain($target) : 'customers.verifysky.com';
+    }
+
+    private function d1DatabaseName(): string
+    {
+        $name = trim((string) env('D1_DATABASE_NAME', ''));
+        return $name !== '' ? $name : 'EDGE_SHIELD_DB';
     }
 
     private function cloudflareRequest(string $method, string $path, array $query = [], ?array $json = null): array
@@ -393,6 +411,139 @@ class EdgeShieldService
             'turnstile_secret' => $resolvedSecret,
             'cache_rule_action' => $cacheRuleResult['action'] ?? null,
         ];
+    }
+
+    public function provisionSaasCustomHostname(string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $zoneId = $this->saasZoneId();
+        $cnameTarget = $this->saasCnameTarget();
+
+        if ($domain === '') {
+            return ['ok' => false, 'error' => 'Domain name is empty.'];
+        }
+        if ($zoneId === null) {
+            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.'];
+        }
+
+        $existing = $this->findCustomHostname($zoneId, $domain);
+        if (!$existing['ok']) {
+            return ['ok' => false, 'error' => $existing['error']];
+        }
+
+        $customHostname = is_array($existing['result']) ? $existing['result'] : null;
+        $action = 'already_exists';
+        if (!$customHostname) {
+            $create = $this->cloudflareRequest(
+                'POST',
+                '/zones/'.$zoneId.'/custom_hostnames',
+                [],
+                [
+                    'hostname' => $domain,
+                    'custom_origin_server' => $cnameTarget,
+                    'ssl' => [
+                        'method' => 'http',
+                        'type' => 'dv',
+                    ],
+                ]
+            );
+
+            if (!$create['ok']) {
+                return ['ok' => false, 'error' => $create['error']];
+            }
+
+            $customHostname = is_array($create['result']) ? $create['result'] : [];
+            $action = 'created';
+        }
+
+        $accountId = $this->cloudflareAccountId();
+        if (!$accountId) {
+            return ['ok' => false, 'error' => 'Cloudflare Account ID is missing.'];
+        }
+
+        $widget = $this->ensureTurnstileWidgetForDomain($accountId, $domain);
+        if (!$widget['ok']) {
+            return ['ok' => false, 'error' => $widget['error']];
+        }
+
+        $botManagement = $this->ensureSaasBotManagementSettings();
+        $edgeRules = $this->ensureSaasFallbackBypassRules();
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'action' => $action,
+            'domain_name' => $domain,
+            'zone_id' => $zoneId,
+            'cname_target' => $cnameTarget,
+            'custom_hostname_id' => (string) ($customHostname['id'] ?? ''),
+            'hostname_status' => (string) ($customHostname['status'] ?? 'pending'),
+            'ssl_status' => (string) ($customHostname['ssl']['status'] ?? 'pending_validation'),
+            'ownership_verification_json' => json_encode($customHostname['ownership_verification'] ?? null),
+            'turnstile_sitekey' => (string) ($widget['sitekey'] ?? ''),
+            'turnstile_secret' => (string) ($widget['secret'] ?? ''),
+            'bot_management_action' => $botManagement['action'] ?? null,
+            'bot_management_warning' => $botManagement['ok'] ? null : ($botManagement['error'] ?? 'Cloudflare Bot Management settings were not synced.'),
+            'edge_rules_action' => $edgeRules['action'] ?? null,
+            'edge_rules_warning' => $edgeRules['ok'] ? null : ($edgeRules['error'] ?? 'Cloudflare edge bypass rules were not synced.'),
+        ];
+    }
+
+    public function refreshSaasCustomHostname(string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $zoneId = $this->saasZoneId();
+        if ($zoneId === null) {
+            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.'];
+        }
+
+        $existing = $this->findCustomHostname($zoneId, $domain);
+        if (!$existing['ok']) {
+            return ['ok' => false, 'error' => $existing['error']];
+        }
+
+        $customHostname = is_array($existing['result']) ? $existing['result'] : null;
+        if (!$customHostname) {
+            return ['ok' => false, 'error' => 'Custom hostname was not found in Cloudflare.'];
+        }
+
+        $sql = sprintf(
+            "UPDATE domain_configs
+             SET custom_hostname_id = '%s',
+                 hostname_status = '%s',
+                 ssl_status = '%s',
+                 ownership_verification_json = '%s',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE domain_name = '%s'",
+            str_replace("'", "''", (string) ($customHostname['id'] ?? '')),
+            str_replace("'", "''", (string) ($customHostname['status'] ?? 'pending')),
+            str_replace("'", "''", (string) ($customHostname['ssl']['status'] ?? 'pending_validation')),
+            str_replace("'", "''", (string) json_encode($customHostname['ownership_verification'] ?? null)),
+            str_replace("'", "''", $domain)
+        );
+        $result = $this->queryD1($sql);
+
+        return [
+            'ok' => $result['ok'],
+            'error' => $result['ok'] ? null : ($result['error'] ?: 'Failed to update D1 hostname status.'),
+            'custom_hostname' => $customHostname,
+        ];
+    }
+
+    public function deleteSaasCustomHostname(string $customHostnameId): array
+    {
+        $zoneId = $this->saasZoneId();
+        $id = trim($customHostnameId);
+        if ($zoneId === null || $id === '') {
+            return ['ok' => true, 'error' => null, 'action' => 'skipped'];
+        }
+
+        $delete = $this->cloudflareRequest('DELETE', '/zones/'.$zoneId.'/custom_hostnames/'.$id);
+        if (!$delete['ok']) {
+            return ['ok' => false, 'error' => $delete['error'], 'action' => 'failed'];
+        }
+
+        return ['ok' => true, 'error' => null, 'action' => 'deleted'];
     }
 
     public function removeDomainSecurityArtifacts(
@@ -673,6 +824,19 @@ class EdgeShieldService
         $this->queryD1(
             "ALTER TABLE domain_configs ADD COLUMN thresholds_json TEXT"
         );
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN tenant_id INTEGER");
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN custom_hostname_id TEXT");
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN cname_target TEXT");
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN hostname_status TEXT");
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN ssl_status TEXT");
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN ownership_verification_json TEXT");
+        $this->queryD1("ALTER TABLE domain_configs ADD COLUMN updated_at TIMESTAMP");
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_domain_configs_tenant ON domain_configs (tenant_id)"
+        );
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_domain_configs_custom_hostname ON domain_configs (custom_hostname_id)"
+        );
     }
 
     public function ensureSecurityLogsDomainColumn(): void
@@ -714,11 +878,18 @@ class EdgeShieldService
                 action           TEXT    NOT NULL,
                 expression_json  TEXT    NOT NULL,
                 paused           INTEGER DEFAULT 0,
-                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                expires_at       INTEGER,
+                created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )"
         );
+        $this->queryD1("ALTER TABLE custom_firewall_rules ADD COLUMN expires_at INTEGER");
+        $this->queryD1("ALTER TABLE custom_firewall_rules ADD COLUMN updated_at TIMESTAMP");
         $this->queryD1(
             "CREATE INDEX IF NOT EXISTS idx_fw_rules_domain ON custom_firewall_rules (domain_name)"
+        );
+        $this->queryD1(
+            "CREATE INDEX IF NOT EXISTS idx_fw_rules_ai_merge ON custom_firewall_rules (domain_name, action, paused, updated_at DESC)"
         );
     }
 
@@ -822,7 +993,9 @@ class EdgeShieldService
     {
         $this->ensureThresholdsColumn();
         $sql = sprintf(
-            "SELECT domain_name, zone_id, status, force_captcha, turnstile_sitekey, turnstile_secret, thresholds_json, created_at
+            "SELECT domain_name, zone_id, status, force_captcha, turnstile_sitekey, turnstile_secret,
+                    custom_hostname_id, cname_target, hostname_status, ssl_status,
+                    ownership_verification_json, thresholds_json, created_at, updated_at
              FROM domain_configs
              WHERE domain_name = '%s'
              LIMIT 1",
@@ -1233,7 +1406,11 @@ class EdgeShieldService
     {
         $this->ensureThresholdsColumn();
         $result = $this->queryD1(
-            "SELECT domain_name, zone_id, status, force_captcha, security_mode, thresholds_json, created_at FROM domain_configs ORDER BY created_at DESC"
+            "SELECT domain_name, zone_id, status, force_captcha, security_mode,
+                    custom_hostname_id, cname_target, hostname_status, ssl_status,
+                    thresholds_json, created_at, updated_at
+             FROM domain_configs
+             ORDER BY created_at DESC"
         );
         if (!$result['ok']) {
             return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load domains.', 'domains' => []];
@@ -1444,8 +1621,9 @@ class EdgeShieldService
     public function queryD1(string $sql, int $timeout = 90): array
     {
         $cmd = sprintf(
-            '%s d1 execute EDGE_SHIELD_DB --remote --command %s',
+            '%s d1 execute %s --remote --command %s',
             $this->wranglerBin(),
+            escapeshellarg($this->d1DatabaseName()),
             escapeshellarg($sql)
         );
         $effectiveTimeout = max(10, min(300, $timeout));
@@ -1787,6 +1965,70 @@ class EdgeShieldService
         return array_values(array_unique([$domain, 'www.'.$domain]));
     }
 
+    private function findCustomHostname(string $zoneId, string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $list = $this->cloudflareRequest('GET', '/zones/'.$zoneId.'/custom_hostnames', [
+            'hostname' => $domain,
+            'page' => 1,
+            'per_page' => 1,
+        ]);
+
+        if (!$list['ok']) {
+            return ['ok' => false, 'error' => $list['error'], 'result' => null];
+        }
+
+        $rows = is_array($list['result']) ? $list['result'] : [];
+        return ['ok' => true, 'error' => null, 'result' => is_array($rows[0] ?? null) ? $rows[0] : null];
+    }
+
+    private function ensureTurnstileWidgetForDomain(string $accountId, string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $widgetCreate = $this->cloudflareRequest(
+            'POST',
+            '/accounts/'.$accountId.'/challenges/widgets',
+            [],
+            [
+                'name' => 'VerifySky - '.$domain,
+                'domains' => $this->turnstileAllowedDomains($domain),
+                'mode' => 'invisible',
+            ]
+        );
+
+        if (!$widgetCreate['ok']) {
+            return ['ok' => false, 'error' => $widgetCreate['error']];
+        }
+
+        $widget = is_array($widgetCreate['result']) ? $widgetCreate['result'] : [];
+        $siteKey = (string) ($widget['sitekey'] ?? '');
+        $secret = (string) ($widget['secret'] ?? '');
+
+        if ($siteKey !== '' && $secret === '') {
+            $rotate = $this->cloudflareRequest(
+                'POST',
+                '/accounts/'.$accountId.'/challenges/widgets/'.$siteKey.'/rotate_secret',
+                [],
+                ['invalidate_immediately' => false]
+            );
+            if ($rotate['ok']) {
+                $rotateWidget = is_array($rotate['result']) ? $rotate['result'] : [];
+                $secret = (string) ($rotateWidget['secret'] ?? $secret);
+            }
+        }
+
+        if ($siteKey === '' || $secret === '') {
+            return ['ok' => false, 'error' => 'Turnstile widget was created but keys were not returned by Cloudflare.'];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'sitekey' => $siteKey,
+            'secret' => $secret,
+        ];
+    }
+
     private function resolveZoneAccountId(string $zoneId): array
     {
         $zone = trim($zoneId);
@@ -1978,10 +2220,136 @@ class EdgeShieldService
         }
     }
 
+    public function ensureSaasFallbackBypassRules(): array
+    {
+        $zone = $this->saasZoneId();
+        $host = $this->saasCnameTarget();
+        if ($zone === null || $host === '') {
+            return ['ok' => false, 'error' => 'SaaS zone ID or CNAME target is missing.'];
+        }
+
+        $rules = [
+            [
+                'ref' => 'verifysky_saas_skip_legacy_security_products',
+                'description' => 'VerifySky SaaS fallback: skip legacy Cloudflare security products',
+                'expression' => '(http.host eq "'.$host.'")',
+                'action' => 'skip',
+                'action_parameters' => [
+                    'products' => ['zoneLockdown', 'uaBlock', 'bic', 'hot', 'securityLevel', 'rateLimit', 'waf'],
+                ],
+            ],
+            [
+                'ref' => 'verifysky_saas_skip_later_security_phases',
+                'description' => 'VerifySky SaaS fallback: skip later Cloudflare security phases',
+                'expression' => '(http.host eq "'.$host.'")',
+                'action' => 'skip',
+                'action_parameters' => [
+                    'phases' => ['http_ratelimit', 'http_request_firewall_managed', 'http_request_sbfm'],
+                ],
+            ],
+        ];
+
+        $entrypointPath = '/zones/'.$zone.'/rulesets/phases/http_request_firewall_custom/entrypoint';
+        $entrypoint = $this->cloudflareRequest('GET', $entrypointPath);
+
+        if (!$entrypoint['ok'] && str_contains((string) $entrypoint['error'], '10003')) {
+            $create = $this->cloudflareRequest('POST', '/zones/'.$zone.'/rulesets', [], [
+                'name' => 'default',
+                'description' => 'VerifySky SaaS Cloudflare security bypass for fallback hostname',
+                'kind' => 'zone',
+                'phase' => 'http_request_firewall_custom',
+                'rules' => $rules,
+            ]);
+
+            return [
+                'ok' => $create['ok'],
+                'error' => $create['error'],
+                'action' => $create['ok'] ? 'created' : null,
+            ];
+        }
+
+        if (!$entrypoint['ok']) {
+            return ['ok' => false, 'error' => $entrypoint['error'], 'action' => null];
+        }
+
+        $current = is_array($entrypoint['result']) ? $entrypoint['result'] : [];
+        $currentRules = is_array($current['rules'] ?? null) ? $current['rules'] : [];
+        $existingRefs = [];
+        foreach ($currentRules as $rule) {
+            if (is_array($rule) && is_string($rule['ref'] ?? null)) {
+                $existingRefs[$rule['ref']] = true;
+            }
+        }
+
+        $added = 0;
+        foreach (array_reverse($rules) as $rule) {
+            if (!isset($existingRefs[$rule['ref']])) {
+                array_unshift($currentRules, $rule);
+                $added++;
+            }
+        }
+
+        if ($added === 0) {
+            return ['ok' => true, 'error' => null, 'action' => 'already_exists'];
+        }
+
+        $update = $this->cloudflareRequest('PUT', $entrypointPath, [], [
+            'name' => (string) ($current['name'] ?? 'default'),
+            'description' => (string) ($current['description'] ?? 'VerifySky SaaS Cloudflare security bypass for fallback hostname'),
+            'kind' => 'zone',
+            'phase' => 'http_request_firewall_custom',
+            'rules' => $currentRules,
+        ]);
+
+        return [
+            'ok' => $update['ok'],
+            'error' => $update['error'],
+            'action' => $update['ok'] ? 'updated' : null,
+        ];
+    }
+
+    public function ensureSaasBotManagementSettings(): array
+    {
+        $zone = $this->saasZoneId();
+        if ($zone === null) {
+            return ['ok' => false, 'error' => 'SaaS zone ID is missing.', 'action' => null];
+        }
+
+        $current = $this->cloudflareRequest('GET', '/zones/'.$zone.'/bot_management');
+        if (!$current['ok']) {
+            return ['ok' => false, 'error' => $current['error'], 'action' => null];
+        }
+
+        $settings = is_array($current['result']) ? $current['result'] : [];
+        $desired = $settings;
+        $desired['enable_js'] = false;
+        $desired['fight_mode'] = false;
+
+        if (($settings['enable_js'] ?? null) === false && ($settings['fight_mode'] ?? null) === false) {
+            return ['ok' => true, 'error' => null, 'action' => 'already_disabled'];
+        }
+
+        // using_latest_model is read-only in the response and must not be sent back.
+        unset($desired['using_latest_model']);
+
+        $update = $this->cloudflareRequest('PUT', '/zones/'.$zone.'/bot_management', [], $desired);
+        return [
+            'ok' => $update['ok'],
+            'error' => $update['error'],
+            'action' => $update['ok'] ? 'disabled_fight_mode' : null,
+        ];
+    }
+
     private function getDashboardSetting(string $key): ?string
     {
         if ($this->settingsCache === null) {
-            $settings = DashboardSetting::query()->get();
+            try {
+                $settings = DashboardSetting::query()->get();
+            } catch (\Throwable) {
+                $this->settingsCache = [];
+                return null;
+            }
+
             foreach ($settings as $setting) {
                 if (!$setting instanceof DashboardSetting || !$setting->isSensitiveKey()) {
                     continue;
