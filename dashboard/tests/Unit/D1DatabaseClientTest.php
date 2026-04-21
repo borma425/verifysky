@@ -34,7 +34,7 @@ class D1DatabaseClientTest extends TestCase
 
             public function d1DatabaseName(): string
             {
-                return 'VERIFY_SKY_STAGING_DB';
+                return 'VERIFY_SKY_TEST_DB';
             }
 
             public function cloudflareAccountId(): ?string
@@ -73,7 +73,7 @@ class D1DatabaseClientTest extends TestCase
         $this->assertSame(10, $runner->timeout);
         $this->assertStringContainsString('--local', $runner->command);
         $this->assertStringNotContainsString('--remote', $runner->command);
-        $this->assertStringContainsString('VERIFY_SKY_STAGING_DB', $runner->command);
+        $this->assertStringContainsString('VERIFY_SKY_TEST_DB', $runner->command);
         $this->assertFalse($config->remoteCredentialsWereRead);
     }
 
@@ -93,7 +93,7 @@ class D1DatabaseClientTest extends TestCase
 
             public function d1DatabaseName(): string
             {
-                return 'VERIFY_SKY_STAGING_DB';
+                return 'VERIFY_SKY_TEST_DB';
             }
 
             public function d1ReadCacheTtl(): int
@@ -141,7 +141,7 @@ class D1DatabaseClientTest extends TestCase
 
             public function d1DatabaseName(): string
             {
-                return 'VERIFY_SKY_STAGING_DB';
+                return 'VERIFY_SKY_TEST_DB';
             }
 
             public function d1ReadCacheTtl(): int

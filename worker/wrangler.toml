@@ -3,7 +3,7 @@
 # Enterprise-Grade Zero-Trust Bot Protection System
 # ============================================================================
 
-name = "verifysky-edge-staging"
+name = "verifysky-edge"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -20,12 +20,12 @@ workers_dev = false
 # ---------------------------------------------------------------------------
 # D1 Database Binding
 # Stores challenges, device fingerprints, and security event logs.
-# Create with: wrangler d1 create EDGE_SHIELD_DB
+# Create with: wrangler d1 create VERIFY_SKY_PRODUCTION_DB
 # ---------------------------------------------------------------------------
 [[d1_databases]]
 binding = "DB"
-database_name = "VERIFY_SKY_STAGING_DB"
-database_id = "d923830f-391f-4c6a-a919-dd3552e9bccd"
+database_name = "VERIFY_SKY_PRODUCTION_DB"
+database_id = "b7cc89c4-c6de-4353-b438-e10ca956d566"
 
 # ---------------------------------------------------------------------------
 # KV Namespace Binding
@@ -34,7 +34,7 @@ database_id = "d923830f-391f-4c6a-a919-dd3552e9bccd"
 # ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "c8105e6570f24c58bbe137b10b1c0b82"
+id = "effdc34b66704947bc30dce9a7644571"
 
 # ---------------------------------------------------------------------------
 # Environment Variables (Secrets) — GLOBAL ONLY
@@ -69,6 +69,26 @@ local_protocol = "http"
 # Global Variables
 # ---------------------------------------------------------------------------
 [vars]
+OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"
+OPENROUTER_FALLBACK_MODELS = "openai/gpt-4o-mini"
+ES_TEST_MODE = "off"
+ES_DISABLE_WAF_AUTODEPLOY = "on"
+ES_TURNSTILE_STRICT = "on"
+ES_STRICT_CONTEXT_BINDING = "off"
+
+[env.staging]
+name = "verifysky-edge-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "VERIFY_SKY_STAGING_DB_V2"
+database_id = "57656d70-8d1a-4fff-b38b-fe705303bac1"
+
+[[env.staging.kv_namespaces]]
+binding = "SESSION_KV"
+id = "230e5e4702d24cf8b84abd0c6dddad43"
+
+[env.staging.vars]
 OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"
 OPENROUTER_FALLBACK_MODELS = "openai/gpt-4o-mini"
 ES_TEST_MODE = "off"

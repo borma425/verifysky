@@ -10,6 +10,8 @@ use Illuminate\View\View;
 
 class SettingsController extends Controller
 {
+    private const DEFAULT_WORKER_SCRIPT_NAME = 'verifysky-edge';
+
     private const SENSITIVE_SETTING_KEYS = [
         'cf_api_token',
         'openrouter_api_key',
@@ -32,6 +34,8 @@ class SettingsController extends Controller
             $sensitiveConfigured[$key] = trim((string) ($settings[$key] ?? '')) !== '';
             unset($settings[$key]);
         }
+
+        $settings['worker_script_name'] = $this->normalizeWorkerScriptName((string) ($settings['worker_script_name'] ?? ''));
 
         return view('settings.index', [
             'settings' => $settings,
@@ -77,6 +81,9 @@ class SettingsController extends Controller
         foreach ($validated as $key => $value) {
             if ($key === 'admin_login_path') {
                 $value = $this->normalizeLoginPath((string) $value);
+            }
+            if ($key === 'worker_script_name') {
+                $value = $this->normalizeWorkerScriptName((string) $value);
             }
             if (in_array($key, self::SENSITIVE_SETTING_KEYS, true) && trim((string) ($value ?? '')) === '') {
                 $existing = $existingSensitive->get($key);
@@ -135,6 +142,16 @@ class SettingsController extends Controller
         $plain = preg_replace('/\e\[[0-9;]*[A-Za-z]/', '', $text) ?? $text;
 
         return trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
+    }
+
+    private function normalizeWorkerScriptName(string $value): string
+    {
+        $candidate = trim($value);
+
+        return match ($candidate) {
+            '', 'verifysky-edge-staging', 'verifysky-edge-production' => self::DEFAULT_WORKER_SCRIPT_NAME,
+            default => $candidate,
+        };
     }
 
     private function hasAlreadySyncedRoutes(array $sync): bool

@@ -31,13 +31,15 @@ npm run -s build
 
 - Dashboard-to-Worker sync is automatic on settings save.
 - Worker runtime values are sourced from dashboard settings.
+- `worker/wrangler.toml` uses `verifysky-edge` as the production default and `[env.staging]` for CLI/CI staging deploys.
 - Legacy path `/opt/lampp/htdocs/edge_shield_dashboard` can be symlinked to `dashboard/` for compatibility.
 
 ## Architecture Direction
 
 - Dashboard: Laravel control plane for Cloudflare Worker security operations.
 - Worker: Cloudflare edge runtime for hostname resolution, challenge handling, and request policy enforcement.
-- Production deploys must not reuse the staging Worker/D1/KV bindings from `worker/wrangler.toml`; use production-specific Wrangler configuration or CI/CD overrides.
+- Dashboard sync targets production only.
+- Staging is managed through `wrangler deploy --env staging` and the worker CLI scripts with `--env staging`.
 
 ## Architecture Blueprint
 

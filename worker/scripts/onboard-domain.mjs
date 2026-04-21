@@ -1,22 +1,15 @@
 #!/usr/bin/env node
-// ============================================================================
-// Ultimate Edge Shield — Domain Onboarding Script
-// Provisions a new domain into the multi-tenant bot protection system.
-// ============================================================================
+import { execFileSync } from "node:child_process";
+import { resolveRuntimeTarget } from "./runtime-target.mjs";
 
-import { execSync } from "node:child_process";
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
-const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
 
 // ---------------------------------------------------------------------------
 // CLI Argument Parsing
 // ---------------------------------------------------------------------------
-const domain = process.argv[2];
-const apiToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || process.argv[3];
+const { envName, forwardedArgs, d1DatabaseName, workerScriptName, wranglerEnvArgs } = resolveRuntimeTarget();
+const domain = forwardedArgs[0];
+const apiToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || forwardedArgs[1];
 
 if (!domain) {
   console.error("\n╔══════════════════════════════════════════════════════════╗");
@@ -24,6 +17,7 @@ if (!domain) {
   console.error("╠══════════════════════════════════════════════════════════╣");
   console.error("║  Usage: node scripts/onboard-domain.mjs <domain>       ║");
   console.error("║  Example: node scripts/onboard-domain.mjs example.com  ║");
+  console.error("║  Staging: node scripts/onboard-domain.mjs --env staging example.com ║");
   console.error("║                                                        ║");
   console.error("║  Required env: CLOUDFLARE_API_TOKEN                    ║");
   console.error("╚══════════════════════════════════════════════════════════╝\n");
@@ -122,24 +116,25 @@ async function createTurnstileWidget(accountId, domainName) {
 // ---------------------------------------------------------------------------
 
 function insertDomainConfig(domainName, zoneId, sitekey, secret) {
-  console.log(`\n[3/4] Writing domain configuration to D1 (${D1_DATABASE_NAME})`);
+  console.log(`\n[3/4] Writing domain configuration to D1 (${d1DatabaseName})`);
 
   const escapeSql = (val) => val.replace(/'/g, "''");
 
   const sql = `INSERT OR REPLACE INTO domain_configs (domain_name, zone_id, turnstile_sitekey, turnstile_secret, status) VALUES ('${escapeSql(domainName)}', '${escapeSql(zoneId)}', '${escapeSql(sitekey)}', '${escapeSql(secret)}', 'active');`;
 
   try {
-    // Added --remote flag to ensure it writes to Cloudflare servers, not locally
-    execSync(
-      `npx wrangler d1 execute ${D1_DATABASE_NAME} --remote --command="${sql}"`,
+    execFileSync(
+      "npx",
+      ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--remote", "--command", sql],
       { stdio: "inherit", timeout: 30000 }
     );
     console.log(`  ✓ Domain configuration saved to remote D1`);
   } catch (error) {
     console.warn(`  ⚠ Remote D1 insert failed. Attempting local D1 fallback...`);
     try {
-      execSync(
-        `npx wrangler d1 execute ${D1_DATABASE_NAME} --local --command="${sql}"`,
+      execFileSync(
+        "npx",
+        ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--local", "--command", sql],
         { stdio: "inherit", timeout: 30000 }
       );
       console.log(`  ✓ Domain configuration saved to local D1`);
@@ -158,12 +153,12 @@ function insertDomainConfig(domainName, zoneId, sitekey, secret) {
 // ---------------------------------------------------------------------------
 
 async function deployWorkerRoute(zoneId, domainName) {
-  console.log(`\n[4/4] Deploying Worker route for: ${domainName}`);
+  console.log(`\n[4/4] Deploying Worker route for: ${domainName} via ${workerScriptName}`);
 
   try {
     const data = await cfApiRequest("POST", `/zones/${zoneId}/workers/routes`, {
       pattern: `${domainName}/*`,
-      script: "edge-shield",
+      script: workerScriptName,
     });
 
     console.log(`  ✓ Worker route deployed: ${domainName}/*`);
@@ -187,6 +182,7 @@ async function main() {
   console.log("  Ultimate Edge Shield — Domain Onboarding");
   console.log("═".repeat(60));
   console.log(`  Domain: ${domain}`);
+  console.log(`  Env:    ${envName}`);
   console.log(`  Time:   ${new Date().toISOString()}`);
   console.log("═".repeat(60));
 
@@ -208,9 +204,11 @@ async function main() {
     console.log("  ✅ ONBOARDING COMPLETE");
     console.log("═".repeat(60));
     console.log(`  Domain:          ${domain}`);
+    console.log(`  Environment:     ${envName}`);
     console.log(`  Zone ID:         ${zoneId}`);
     console.log(`  Turnstile Key:   ${turnstile.sitekey}`);
     console.log(`  Status:          active`);
+    console.log(`  Worker Script:   ${workerScriptName}`);
     console.log(`  Worker Route:    ${domain}/*`);
     console.log("═".repeat(60));
     console.log("\n  The domain is now protected by Edge Shield.\n");

@@ -2,6 +2,8 @@
 
 namespace App\Services\EdgeShield;
 
+use App\Models\DashboardSetting;
+
 class EdgeShieldConfig
 {
     public function projectRoot(): string
@@ -74,20 +76,28 @@ class EdgeShieldConfig
     public function cloudflareApiToken(): ?string
     {
         $value = trim((string) config('edgeshield.cloudflare_api_token', ''));
+        if ($value !== '') {
+            return $value;
+        }
 
-        return $value !== '' ? $value : null;
+        return $this->dashboardSettingValue('cf_api_token');
     }
 
     public function cloudflareAccountId(): ?string
     {
         $value = trim((string) config('edgeshield.cloudflare_account_id', ''));
+        if ($value !== '') {
+            return $value;
+        }
 
-        return $value !== '' ? $value : null;
+        return $this->dashboardSettingValue('cf_account_id');
     }
 
     public function workerScriptName(): string
     {
-        return trim((string) config('edgeshield.worker_name', 'verifysky-edge-staging'));
+        $value = trim((string) config('edgeshield.worker_name', ''));
+
+        return $value !== '' ? $value : 'verifysky-edge';
     }
 
     public function saasZoneId(): ?string
@@ -180,5 +190,18 @@ class EdgeShieldConfig
         $domain = explode('/', $domain, 2)[0];
 
         return trim($domain);
+    }
+
+    private function dashboardSettingValue(string $key): ?string
+    {
+        try {
+            $setting = DashboardSetting::query()->where('key', $key)->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $value = trim((string) ($setting?->value ?? ''));
+
+        return $value !== '' ? $value : null;
     }
 }

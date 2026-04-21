@@ -11,7 +11,7 @@
         <div><label class="mb-1 block text-sm text-sky-100">OpenRouter Fallback Models</label><input class="es-input" name="openrouter_fallback_models" value="{{ $settings['openrouter_fallback_models'] ?? '' }}" placeholder="openai/gpt-oss-120b:free,nvidia/nemotron-3-super:free"></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div><label class="mb-1 block text-sm text-sky-100">Worker Script Name</label><input class="es-input" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'verifysky-edge-staging' }}" placeholder="verifysky-edge-staging"></div>
+        <div><label class="mb-1 block text-sm text-sky-100">Worker Script Name</label><input class="es-input" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'verifysky-edge' }}" placeholder="verifysky-edge"></div>
         <div>
           <label class="mb-1 block text-sm text-sky-100">ES Admin Token</label>
           <input class="es-input" type="password" autocomplete="new-password" name="es_admin_token" value="" placeholder="{{ ($sensitiveConfigured['es_admin_token'] ?? false) ? 'Configured (leave blank to keep)' : 'token used for /es-admin/* endpoints' }}">

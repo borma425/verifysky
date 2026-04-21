@@ -15,7 +15,7 @@ Primary technical reference:
 - Domain management (`domain_configs` in remote D1)
 - Security logs viewer (`security_logs` in remote D1)
 - Settings/secrets vault (stored in dashboard local DB)
-- Operational actions (`typecheck`, `build`, `deploy`, D1 init) against worker project
+- Operational actions (`typecheck`, `build`, `deploy`, D1 init) against the production worker project
 
 ## Important Environment Variables
 
@@ -37,6 +37,7 @@ Set these in `.env`:
 Important separation:
 
 - `.env` configures Laravel, backend access to Cloudflare/Wrangler, and payment provider credentials.
+- The dashboard sync path deploys the default production worker only. Staging remains CLI/CI-managed through `worker/wrangler.toml` environments.
 
 ## D1 Schema Bootstrap
 

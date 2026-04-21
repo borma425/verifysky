@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { resolveRuntimeTarget } from "./runtime-target.mjs";
 
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
-const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
+const { envName, d1DatabaseName, wranglerEnvArgs } = resolveRuntimeTarget();
 
 function loadDotEnvIfNeeded() {
   if (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN) return;
@@ -39,8 +40,7 @@ function extractJsonPayload(stdout) {
 
 function getActiveZoneIds() {
   const sql = "SELECT DISTINCT zone_id FROM domain_configs WHERE status = 'active' AND zone_id IS NOT NULL AND zone_id != ''";
-  const cmd = `npx wrangler d1 execute ${D1_DATABASE_NAME} --remote --json --command="${sql}"`;
-  const raw = execSync(cmd, {
+  const raw = execFileSync("npx", ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--remote", "--json", "--command", sql], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60000,
@@ -98,11 +98,11 @@ async function main() {
   }
 
   if (!zoneIds.length) {
-    console.log("[purge] No active zones found. Nothing to purge.");
+    console.log(`[purge] No active zones found in ${envName}. Nothing to purge.`);
     return;
   }
 
-  console.log(`[purge] Purging cache for ${zoneIds.length} zone(s)...`);
+  console.log(`[purge] Purging cache for ${zoneIds.length} zone(s) in ${envName}...`);
   let failures = 0;
   for (const zoneId of zoneIds) {
     try {

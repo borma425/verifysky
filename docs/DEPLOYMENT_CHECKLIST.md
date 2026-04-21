@@ -65,7 +65,7 @@ scripts/setup_edge_shield_runtime.sh verify
 
 - Confirm the Cloudflare KV namespace used for runtime bundle caching exists and matches `CLOUDFLARE_KV_NAMESPACE_ID`.
 - Confirm the Worker project resolves the correct D1 production database through `D1_DATABASE_ID` and/or `worker/wrangler.toml`.
-- Confirm Worker deploys are pointed at production resources. The checked-in `worker/wrangler.toml` currently names the staging worker/database; production launch requires either a production-specific Wrangler environment/config or explicit CI/CD overrides for worker name, D1 database, KV namespace, and account bindings.
+- Confirm the default `worker/wrangler.toml` target is production (`verifysky-edge`) and that `[env.staging]` points to isolated staging D1/KV resources.
 
 ## 3. Required `.env` for Dashboard Production
 
@@ -106,7 +106,7 @@ The dashboard `.env` is responsible for Laravel runtime, worker backend access, 
 - `D1_DATABASE_NAME`
 - `D1_DATABASE_ID`
 - `SAAS_CNAME_TARGET`
-- `EDGE_SHIELD_WORKER_NAME`
+- `EDGE_SHIELD_WORKER_NAME=verifysky-edge`
 
 ### PayPal live mode
 
@@ -202,6 +202,7 @@ Pass condition:
 
 - deploy succeeds
 - route sync succeeds
+- production sync does not use `--env staging`
 
 ### Check 2: Queue path
 

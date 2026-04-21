@@ -3,8 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { resolveRuntimeTarget } from "./runtime-target.mjs";
 
-const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
+const { envName, d1DatabaseName, wranglerEnvArgs } = resolveRuntimeTarget();
 const LOCAL_DOMAIN = process.env.ES_LOCAL_TEST_DOMAIN || "www.cashup.cash";
 const LOCAL_TENANT_ID = process.env.ES_LOCAL_TEST_TENANT_ID || "1";
 const SAMPLE_MARKER = "[LOCAL-E2E]";
@@ -103,12 +104,12 @@ const sqlFile = path.join(tempDir, "local-seed.sql");
 
 try {
   fs.writeFileSync(sqlFile, sql, "utf8");
-  execFileSync("npx", ["wrangler", "d1", "execute", D1_DATABASE_NAME, "--local", "--file", sqlFile], {
+  execFileSync("npx", ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--local", "--file", sqlFile], {
     cwd: process.cwd(),
     stdio: "inherit",
     timeout: 60000,
   });
-  console.log(`[seed-local-d1] Seeded local D1 "${D1_DATABASE_NAME}" for ${LOCAL_DOMAIN}`);
+  console.log(`[seed-local-d1] Seeded ${envName} local D1 "${d1DatabaseName}" for ${LOCAL_DOMAIN}`);
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }

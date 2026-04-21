@@ -44,4 +44,64 @@ class WorkerSecretSyncTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame(['JWT_SECRET is required in Dashboard settings before sync.'], $result['errors']);
     }
+
+    public function test_worker_secret_sync_deploys_to_default_production_script_without_env_override(): void
+    {
+        DashboardSetting::query()->create(['key' => 'cf_api_token', 'value' => 'cf-token']);
+        DashboardSetting::query()->create(['key' => 'jwt_secret', 'value' => str_repeat('a', 32)]);
+        DashboardSetting::query()->create(['key' => 'es_admin_token', 'value' => 'admin-token']);
+
+        $config = Mockery::mock(EdgeShieldConfig::class);
+        $config->shouldReceive('wranglerBin')->andReturn('npx wrangler');
+
+        $runner = Mockery::mock(WranglerProcessRunner::class);
+        $runner->shouldReceive('runInProject')
+            ->times(4)
+            ->andReturnUsing(function (string $command): array {
+                if (str_contains($command, 'deploy --keep-vars')) {
+                    $this->assertStringNotContainsString('--env staging', $command);
+                    $this->assertStringContainsString('OPENROUTER_MODEL:qwen/qwen3-next-80b-a3b-instruct:free', $command);
+
+                    return ['ok' => true, 'output' => 'deploy ok', 'error' => null, 'exit_code' => 0];
+                }
+
+                return ['ok' => true, 'output' => 'secret ok', 'error' => null, 'exit_code' => 0];
+            });
+
+        $domains = Mockery::mock(DomainConfigService::class);
+        $domains->shouldReceive('listActiveDomainsForRouteSync')
+            ->once()
+            ->andReturn([
+                'ok' => true,
+                'rows' => [
+                    ['domain_name' => 'example.com', 'zone_id' => 'zone-123'],
+                ],
+            ]);
+
+        $routes = Mockery::mock(WorkerRouteService::class);
+        $routes->shouldReceive('ensureWorkerRoute')
+            ->once()
+            ->with('zone-123', 'example.com', Mockery::type('array'))
+            ->andReturn([
+                'ok' => true,
+                'action' => 'example.com/*:updated',
+            ]);
+
+        $saas = Mockery::mock(SaasSecurityService::class);
+        $saas->shouldReceive('ensureCacheRuleForEdgeShield')
+            ->once()
+            ->with('zone-123', 'example.com')
+            ->andReturn([
+                'ok' => true,
+                'action' => 'created',
+            ]);
+
+        $sync = new WorkerSecretSyncService($config, $runner, $domains, $routes, $saas);
+
+        $result = $sync->syncFromDashboardSettings();
+
+        $this->assertTrue($result['ok']);
+        $this->assertEmpty($result['errors']);
+        $this->assertContains('deploy-with-vars exit=0', $result['logs']);
+    }
 }

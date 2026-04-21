@@ -16,9 +16,10 @@
 //   - Worker already created via `wrangler deploy` or `wrangler publish`
 // ============================================================================
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
+import { resolveRuntimeTarget } from "./runtime-target.mjs";
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -53,9 +54,10 @@ function prompt(question) {
  * Pushes a secret to Wrangler by piping the value via stdin.
  * This avoids exposing the secret in shell history or process arguments.
  */
-function pushSecret(name, value) {
+function pushSecret(name, value, wranglerEnvArgs) {
   try {
-    execSync(`echo "${value}" | npx wrangler secret put ${name}`, {
+    execFileSync("npx", ["wrangler", "secret", "put", name, ...wranglerEnvArgs], {
+      input: value,
       stdio: ["pipe", "inherit", "inherit"],
       timeout: 30000,
     });
@@ -72,11 +74,13 @@ function pushSecret(name, value) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  const { envName, wranglerEnvArgs } = resolveRuntimeTarget();
   console.log("\n" + "═".repeat(60));
   console.log("  Ultimate Edge Shield — Global Secrets Bootstrap");
   console.log("═".repeat(60));
   console.log("  This script will configure the global secrets");
   console.log("  required by the Edge Shield Worker.");
+  console.log(`  Target environment: ${envName}`);
   console.log("═".repeat(60) + "\n");
 
   // Step 1: Generate JWT_SECRET + METER_SECRET
@@ -122,10 +126,10 @@ async function main() {
   console.log("═".repeat(60) + "\n");
 
   const results = [
-    pushSecret("JWT_SECRET", jwtSecret),
-    pushSecret("METER_SECRET", meterSecret),
-    pushSecret("CF_API_TOKEN", cfApiToken),
-    pushSecret("OPENROUTER_API_KEY", openRouterKey),
+    pushSecret("JWT_SECRET", jwtSecret, wranglerEnvArgs),
+    pushSecret("METER_SECRET", meterSecret, wranglerEnvArgs),
+    pushSecret("CF_API_TOKEN", cfApiToken, wranglerEnvArgs),
+    pushSecret("OPENROUTER_API_KEY", openRouterKey, wranglerEnvArgs),
   ];
 
   const allSuccess = results.every(Boolean);
