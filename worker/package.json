@@ -12,8 +12,9 @@
     "predeploy": "npm run build:slider",
     "purge:cache": "node scripts/purge-cache.mjs",
     "openrouter:smoke": "node scripts/openrouter-smoke-test.mjs",
-    "db:init": "wrangler d1 execute EDGE_SHIELD_DB --file=./schema.sql",
-    "db:init:local": "wrangler d1 execute EDGE_SHIELD_DB --local --file=./schema.sql",
+    "db:init": "wrangler d1 execute ${D1_DATABASE_NAME:-VERIFY_SKY_STAGING_DB} --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute ${D1_DATABASE_NAME:-VERIFY_SKY_STAGING_DB} --local --file=./schema.sql",
+    "db:seed:local": "node scripts/seed-local-d1.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

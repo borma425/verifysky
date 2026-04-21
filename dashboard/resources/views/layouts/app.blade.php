@@ -4,73 +4,243 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
-  <link rel="icon" type="image/png" sizes="512x512" href="{{ asset('Logo.png') }}">
+  <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('apple-touch-icon.png') }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32x32.png') }}">
   <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16x16.png') }}">
   <link rel="manifest" href="{{ asset('site.webmanifest') }}">
-  <title>{{ $title ?? 'Edge Shield Dashboard' }}</title>
+  <title>{{ $title ?? 'VerifySky Control Plane' }}</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body class="min-h-full text-slate-100" x-data="{ isNavigating: false }" x-on:beforeunload.window="isNavigating = true" x-on:pageshow.window="if ($event.persisted) isNavigating = false">
+@php
+  $flashModal = null;
+  $safeSessionError = session('error') !== null
+      ? \App\Support\UserFacingErrorSanitizer::sanitize((string) session('error'))
+      : null;
 
-  <!-- Global Premium Loading Overlay -->
-  <div x-show="isNavigating" x-transition.opacity.duration.300ms style="display: none;" class="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md">
-    <div class="flex flex-col items-center gap-5">
-      <div class="relative flex h-20 w-20 items-center justify-center">
-        <div class="absolute inset-0 rounded-full border-t-2 border-sky-400 animate-[spin_1s_linear_infinite]"></div>
-        <div class="absolute inset-2 rounded-full border-r-2 border-rose-400 animate-[spin_1.5s_linear_infinite_reverse]"></div>
-        <div class="absolute inset-4 rounded-full border-b-2 border-emerald-400 animate-[spin_2s_linear_infinite]"></div>
+  if (session('status')) {
+      $flashModal = [
+          'type' => 'success',
+          'title' => 'Operation Completed',
+          'message' => session('status'),
+          'icon' => 'circle-check.svg',
+          'action_label' => 'Understood',
+          'helper_text' => 'This message came from the current request result.',
+          'action_event' => null,
+      ];
+  } elseif ($safeSessionError !== null) {
+      $flashModal = [
+          'type' => session('domain_origin_detection_failed') ? 'warning' : 'error',
+          'title' => session('domain_origin_detection_failed') ? 'Enter The Server IP' : 'Action Could Not Complete',
+          'message' => session('domain_origin_detection_failed')
+              ? 'We could not detect the real server automatically because this domain already sits behind Cloudflare or another proxy. Enter the real server IP to continue setup.'
+              : $safeSessionError,
+          'icon' => session('domain_origin_detection_failed') ? 'shield-keyhole.svg' : 'triangle-exclamation.svg',
+          'action_label' => session('domain_origin_detection_failed') ? 'Add Server IP' : 'Understood',
+          'helper_text' => session('domain_origin_detection_failed')
+              ? 'Your domain stays filled in. We will reopen the same step and show the server IP field automatically.'
+              : 'This message came from the current request result.',
+          'action_event' => session('domain_origin_detection_failed') ? 'verifysky-open-server-ip' : null,
+      ];
+  } elseif ($errors->any()) {
+      $flashModal = [
+          'type' => 'error',
+          'title' => 'Please Review The Form',
+          'message' => implode("\n", $errors->all()),
+          'icon' => 'triangle-exclamation.svg',
+          'action_label' => 'Understood',
+          'helper_text' => 'This message came from the current request result.',
+          'action_event' => null,
+      ];
+  }
+@endphp
+
+<body class="es-body" x-data="{ isNavigating: false, navOpen: false }" x-on:beforeunload.window="isNavigating = true" x-on:pageshow.window="if ($event.persisted) isNavigating = false">
+
+  <div x-show="isNavigating" x-transition.opacity.duration.250ms style="display: none;" class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#171C26]/88 backdrop-blur-md">
+    <div class="flex flex-col items-center gap-4">
+      <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-loader-logo animate-pulse">
+      <div class="text-[11px] font-bold uppercase tracking-[0.24em] text-[#D7E1F5]">Syncing Control Plane...</div>
+    </div>
+  </div>
+
+  @if($flashModal)
+    <div
+      x-data="{ open: true }"
+      x-show="open"
+      x-cloak
+      x-on:keydown.escape.window="open = false"
+      class="fixed inset-0 z-[9998] flex items-center justify-center px-4 py-6 sm:px-6"
+      style="display: none;"
+      aria-live="assertive"
+      aria-modal="true"
+      role="dialog"
+    >
+      <div x-show="open" x-transition.opacity.duration.180ms class="absolute inset-0 bg-[#0D1118]/72 backdrop-blur-[3px]"></div>
+
+      <div
+        x-show="open"
+        x-transition:enter="transition ease-out duration-220"
+        x-transition:enter-start="opacity-0 translate-y-3 sm:scale-95"
+        x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+        x-transition:leave="transition ease-in duration-160"
+        x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+        x-transition:leave-end="opacity-0 translate-y-2 sm:scale-95"
+        class="es-flash-tulip w-full max-w-xl"
+        x-bind:class="'es-flash-tulip-' + @js($flashModal['type'])"
+      >
+        <button type="button" x-on:click="open = false" class="es-flash-close" aria-label="Close notification">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+
+        <div class="es-flash-accent"></div>
+
+        <div class="flex items-start gap-4">
+          <span class="es-flash-icon-wrap">
+            <img src="{{ asset('duotone/'.$flashModal['icon']) }}" alt="" class="es-duotone-icon h-5 w-5 {{ $flashModal['type'] === 'success' ? 'es-icon-tone-success' : ($flashModal['type'] === 'error' ? 'es-icon-tone-coral' : 'es-icon-tone-brass') }}">
+          </span>
+
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="es-flash-pill">
+                {{ $flashModal['type'] === 'success' ? 'Success' : ($flashModal['type'] === 'warning' ? 'Needs Attention' : 'Error') }}
+              </span>
+              <span class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">VerifySky Notification</span>
+            </div>
+
+            <h3 class="mt-3 text-xl font-extrabold tracking-[-0.02em] text-[#FFFFFF]">{{ $flashModal['title'] }}</h3>
+
+            <div class="mt-3 space-y-2 text-sm leading-7 text-[#D7E1F5]">
+              @foreach(preg_split("/\\r\\n|\\r|\\n/", $flashModal['message']) as $line)
+                @if(trim($line) !== '')
+                  <p>{{ $line }}</p>
+                @endif
+              @endforeach
+            </div>
+
+            <div class="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                x-on:click="
+                  open = false;
+                  @if(!empty($flashModal['action_event']))
+                    window.dispatchEvent(new CustomEvent(@js($flashModal['action_event'])));
+                  @endif
+                "
+                class="es-btn es-flash-btn"
+                x-bind:class="'es-flash-btn-' + @js($flashModal['type'])"
+              >
+                <img src="{{ asset('duotone/circle-check.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
+                {{ $flashModal['action_label'] }}
+              </button>
+              <div class="text-xs text-[#AEB9CC]">{{ $flashModal['helper_text'] }}</div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="text-xs font-bold uppercase tracking-widest text-sky-200 animate-pulse">Processing...</div>
     </div>
-  </div>
+  @endif
 
-  <div class="pointer-events-none fixed inset-0 overflow-hidden">
-    <div class="absolute -left-36 -top-24 h-80 w-80 rounded-full bg-cyan-400/15 blur-3xl"></div>
-    <div class="absolute -right-36 top-10 h-96 w-96 rounded-full bg-sky-500/15 blur-3xl"></div>
-  </div>
+  @php
+    $navItems = [
+      ['route' => 'dashboard', 'label' => 'Overview', 'desc' => 'Telemetry', 'icon' => 'grid-horizontal.svg'],
+      ['route' => 'billing.index', 'label' => 'Billing', 'desc' => 'Subscription', 'icon' => 'circle-check.svg'],
+      ['route' => 'domains.index', 'label' => 'Domains', 'desc' => 'Onboarding', 'icon' => 'network-wired.svg'],
+      ['route' => 'firewall.index', 'label' => 'Global Firewall', 'desc' => 'Policy Layer', 'icon' => 'shield-keyhole.svg'],
+      ['route' => 'sensitive_paths.index', 'label' => 'Sensitive Paths', 'desc' => 'Hard Locks', 'icon' => 'lock-keyhole.svg'],
+      ['route' => 'logs.index', 'label' => 'Security Logs', 'desc' => 'Incidents', 'icon' => 'clipboard.svg'],
+      ['route' => 'ip_farm.index', 'label' => 'IP Farm', 'desc' => 'Network Feed', 'icon' => 'signal-good.svg'],
+    ];
+  @endphp
 
-  <div class="relative z-10 border-b border-white/10 bg-slate-950/65 text-slate-100 backdrop-blur-xl">
-    <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 md:gap-5 md:py-4">
-      <a href="{{ route('dashboard') }}" class="mr-2 flex items-center gap-3 md:gap-4">
-        <img src="{{ asset('Logo.png') }}" alt="Edge Shield" class="h-14 w-14 rounded-xl border border-sky-400/40 bg-slate-900/80 object-cover shadow-lg shadow-sky-500/30 md:h-16 md:w-16">
-        <span class="text-base font-extrabold tracking-wide text-sky-200 md:text-lg">Edge Shield Admin</span>
-      </a>
-      @php
-          $navItems = [
-            ['route' => 'dashboard', 'icon' => 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', 'label' => 'Dashboard'],
-            ['route' => 'domains.index', 'icon' => 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9', 'label' => 'Domains Mgmt'],
-            ['route' => 'firewall.index', 'icon' => 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', 'label' => 'Global Firewall'],
-            ['route' => 'sensitive_paths.index', 'icon' => 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', 'label' => 'Sensitive Paths'],
-            ['route' => 'logs.index', 'icon' => 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', 'label' => 'Security Logs'],
-            ['route' => 'settings.index', 'icon' => 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z', 'label' => 'Settings'],
-          ];
-        @endphp
-      <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('dashboard') }}">Overview</a>
-      <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('domains.index') }}">Domains</a>
-      <a class="rounded-lg px-2 py-1 text-sm {{ request()->routeIs('firewall.*') ? 'text-white bg-white/10' : 'text-slate-300' }} transition hover:bg-white/10 hover:text-white" href="{{ route('firewall.index') }}">Global Firewall</a>
-      <a class="rounded-lg px-2 py-1 text-sm {{ request()->routeIs('sensitive_paths.*') ? 'text-white bg-white/10' : 'text-slate-300' }} transition hover:bg-rose-500/20 hover:text-rose-200" href="{{ route('sensitive_paths.index') }}">Sensitive Paths</a>
-      <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('logs.index') }}">Logs</a>
-      <a class="rounded-lg px-2 py-1 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white" href="{{ route('settings.index') }}">Settings</a>
-      <a class="rounded-lg px-2 py-1 text-sm {{ request()->routeIs('ip_farm.*') ? 'text-rose-200 bg-rose-500/20' : 'text-slate-300' }} transition hover:bg-rose-500/20 hover:text-rose-200" href="{{ route('ip_farm.index') }}">☠️ IP Farm</a>
-      <div class="flex-1"></div>
-      <form method="POST" action="{{ route('logout') }}">
-        @csrf
-        <button class="es-btn es-btn-secondary" type="submit">Logout</button>
-      </form>
+  <div class="relative z-10 flex min-h-screen">
+    <div x-show="navOpen" x-on:click="navOpen = false" class="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm lg:hidden" style="display:none;"></div>
+
+    <aside class="es-sidebar fixed inset-y-0 left-0 z-40 w-80 -translate-x-full transition-transform duration-200 lg:translate-x-0" x-bind:class="navOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
+      <div class="flex h-full flex-col">
+        <a href="{{ route('dashboard') }}" class="es-brand-panel">
+          <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-brand-logo">
+          <div class="sr-only">
+            <div>VerifySky</div>
+            <div>VerifySky Control Plane</div>
+          </div>
+        </a>
+
+        <nav class="flex-1 space-y-1 px-3 py-4">
+          @foreach($navItems as $item)
+            @php $active = request()->routeIs(str_replace('.index', '.*', $item['route'])) || request()->routeIs($item['route']); @endphp
+            <a href="{{ route($item['route']) }}" class="es-nav-link {{ $active ? 'es-nav-link-active' : '' }}">
+              <span class="es-nav-icon-wrap">
+                <img src="{{ asset('duotone/'.$item['icon']) }}" alt="{{ $item['label'] }}" class="es-duotone-icon {{ $active ? 'es-icon-tone-brass' : 'es-icon-tone-muted' }} h-4 w-4">
+              </span>
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold">{{ $item['label'] }}</span>
+                <span class="block truncate text-[10px] uppercase tracking-[0.18em] text-[#76859C]">{{ $item['desc'] }}</span>
+              </span>
+            </a>
+          @endforeach
+        </nav>
+
+        <div class="border-t border-white/8 px-4 py-4">
+          <div class="rounded-lg border border-white/10 bg-[#313A4B] px-3 py-2.5 text-[11px]">
+            <div class="flex items-center gap-2">
+              <img src="{{ asset('duotone/shield-check.svg') }}" alt="role" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
+              <span class="font-semibold text-[#FFFFFF]">{{ session('user_name', session('admin_user', 'User')) }}</span>
+            </div>
+            <div class="mt-1 uppercase tracking-[0.18em] text-[10px] text-[#76859C]">{{ ucfirst((string) session('user_role', session('is_admin') ? 'admin' : 'user')) }}</div>
+          </div>
+          <form method="POST" action="{{ route('logout') }}" class="mt-3">
+            @csrf
+            <button class="es-btn es-btn-secondary w-full" type="submit">Logout</button>
+          </form>
+        </div>
+      </div>
+    </aside>
+
+    <div class="min-w-0 flex-1 lg:pl-80">
+      <header class="es-topbar sticky top-0 z-20">
+        <div class="flex items-center justify-between px-4 py-3 sm:px-6">
+          <div class="flex items-center gap-3">
+            <button class="es-icon-btn es-btn-secondary lg:hidden" x-on:click="navOpen = true" type="button" aria-label="Open navigation">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="hidden sm:block">
+              <div class="text-[10px] uppercase tracking-[0.24em] text-[#76859C]">Command Layer</div>
+              <div class="text-sm font-semibold text-[#FFFFFF]">Traffic Intelligence, Policy and Edge Enforcement</div>
+            </div>
+          </div>
+          <div class="rounded-full border border-white/10 bg-[#313A4B] px-3 py-1.5 text-[11px] text-[#D7E1F5]">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#FCB900]"></span>
+            <span class="ml-1.5 uppercase tracking-[0.15em]">Edge Mesh Healthy</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="px-4 py-6 sm:px-6 lg:py-8">
+        <div class="mx-auto w-full max-w-[1280px]">
+          @if(!empty($layoutBillingStatus['is_pass_through']))
+            <div class="es-billing-banner">
+              <div class="es-billing-banner-shell">
+                <div class="es-billing-banner-copy">
+                  <span class="es-billing-banner-pill">Protection Disabled</span>
+                  <div>
+                    <div class="es-billing-banner-title">Your current VerifySky quota has been exhausted.</div>
+                    <p class="es-billing-banner-text">All of your domains are currently running without VerifySky protection. Upgrade or reset your cycle to restore active enforcement.</p>
+                  </div>
+                </div>
+                <div class="es-billing-banner-meta">
+                  <div class="es-billing-banner-meta-label">Current Cycle</div>
+                  <div class="es-billing-banner-meta-value">{{ $layoutBillingStatus['current_cycle_start_at']->format('Y-m-d') }} to {{ $layoutBillingStatus['current_cycle_end_at']->format('Y-m-d') }}</div>
+                </div>
+              </div>
+            </div>
+          @endif
+
+          @yield('content')
+        </div>
+      </main>
     </div>
-  </div>
-
-  <div class="relative z-10 mx-auto max-w-7xl px-4 py-6 md:py-8">
-    @if(session('status'))
-      <div class="mb-4 es-card border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{{ session('status') }}</div>
-    @endif
-    @if(session('error'))
-      <div class="mb-4 es-card border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{{ session('error') }}</div>
-    @endif
-    @yield('content')
   </div>
 </body>
 </html>

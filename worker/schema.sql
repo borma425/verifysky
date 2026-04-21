@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS domain_configs (
     turnstile_secret  TEXT    NOT NULL,
     custom_hostname_id TEXT,
     cname_target      TEXT,
+    origin_server     TEXT,
     hostname_status   TEXT,
     ssl_status        TEXT,
     ownership_verification_json TEXT,
@@ -213,6 +214,8 @@ CREATE INDEX IF NOT EXISTS idx_ip_rules_domain
 CREATE TABLE IF NOT EXISTS custom_firewall_rules (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     domain_name      TEXT    NOT NULL,
+    tenant_id        TEXT,
+    scope            TEXT    NOT NULL DEFAULT 'domain', -- domain | tenant | platform
     description      TEXT,
     action           TEXT    NOT NULL,  -- block, challenge, js_challenge, managed_challenge, log, allow, bypass
     expression_json  TEXT    NOT NULL,  -- Standard JSON format describing the rule conditions
@@ -225,6 +228,9 @@ CREATE TABLE IF NOT EXISTS custom_firewall_rules (
 CREATE INDEX IF NOT EXISTS idx_fw_rules_domain
     ON custom_firewall_rules (domain_name);
 
+CREATE INDEX IF NOT EXISTS idx_fw_rules_tenant_scope
+    ON custom_firewall_rules (tenant_id, scope, paused);
+
 CREATE INDEX IF NOT EXISTS idx_fw_rules_ai_merge
     ON custom_firewall_rules (domain_name, action, paused, updated_at DESC);
 
@@ -235,6 +241,8 @@ CREATE INDEX IF NOT EXISTS idx_fw_rules_ai_merge
 CREATE TABLE IF NOT EXISTS sensitive_paths (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     domain_name      TEXT    NOT NULL,
+    tenant_id        TEXT,
+    scope            TEXT    NOT NULL DEFAULT 'domain', -- domain | tenant | platform
     path_pattern     TEXT    NOT NULL,
     match_type       TEXT    NOT NULL,  -- exact, contains, ends_with
     action           TEXT    NOT NULL,  -- block, challenge
@@ -243,3 +251,6 @@ CREATE TABLE IF NOT EXISTS sensitive_paths (
 
 CREATE INDEX IF NOT EXISTS idx_sensitive_paths_domain
     ON sensitive_paths (domain_name);
+
+CREATE INDEX IF NOT EXISTS idx_sensitive_paths_tenant_scope
+    ON sensitive_paths (tenant_id, scope);

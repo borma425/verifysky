@@ -52,6 +52,14 @@ import {
   incrementFloodCounters,
   getFloodStatus,
 } from "./risk";
+import {
+  buildMeterCookie,
+  generateMeterToken,
+  isMeterableHtmlRequest,
+  METER_COOKIE_NAME,
+  verifyMeterToken,
+  type MeteringState,
+} from "./metering";
 
 // Forward declarations — these modules will be created in Phases 4 and 5.
 // We import them dynamically to avoid circular dependency issues during build.
@@ -71,6 +79,8 @@ const SESSION_TTL_SECONDS = 1 * 60 * 60;
 /** KV key prefix for domain config caching */
 const DOMAIN_CACHE_PREFIX = "dcfg:";
 const DOMAIN_CACHE_TTL_SECONDS = 300; // 5 minutes cache for domain configs
+const RUNTIME_BUNDLE_CACHE_PREFIX = "cfg:";
+const RUNTIME_BUNDLE_CACHE_TTL_SECONDS = 900;
 
 // Domain-scoped KV Key Helpers
 function getTempBanKey(domain: string, ip: string) { return `ban:domainIP:${domain}:${ip}`; }
@@ -88,6 +98,10 @@ function getDomainKeyVariants(domain: string): string[] {
     variants.add(`www.${normalized}`);
   }
   return Array.from(variants);
+}
+
+function normalizeDomainName(domain: string): string {
+  return domain.trim().toLowerCase();
 }
 
 /** KV key prefix for IP rules caching */
@@ -138,6 +152,12 @@ const AUTO_AGGR_PRESSURE_TTL_SECONDS = 3 * 60;
 const AUTO_AGGR_ACTIVE_TTL_SECONDS = 10 * 60;
 const AUTO_AGGR_TRIGGER_COUNT = 8;
 
+interface RuntimeBundle {
+  domainConfig: DomainConfigRecord | null;
+  sensitivePaths: SensitivePathRecord[];
+  customFirewallRules: CustomFirewallRuleRecord[];
+}
+
 // Dynamic log sampling — reduces D1 pressure for normal-pass events
 const TRAFFIC_COUNTER_KEY = "traffic:current_minute";
 const TRAFFIC_COUNTER_TTL = 60;
@@ -168,7 +188,7 @@ async function resolveDomainConfig(
   domain: string,
   env: Env
 ): Promise<DomainConfigRecord | null> {
-  const normalizedDomain = domain.toLowerCase();
+  const normalizedDomain = normalizeDomainName(domain);
   const cacheKey = `${DOMAIN_CACHE_PREFIX}${normalizedDomain}`;
 
   // Fast path: check KV cache
@@ -216,6 +236,32 @@ async function resolveDomainConfig(
   }
 }
 
+async function queryDomainConfigFromD1(
+  normalizedDomain: string,
+  env: Env
+): Promise<DomainConfigRecord | null> {
+  try {
+    let config = await env.DB.prepare(
+      "SELECT * FROM domain_configs WHERE domain_name = ?"
+    )
+      .bind(normalizedDomain)
+      .first<DomainConfigRecord>();
+
+    if (!config && normalizedDomain.startsWith("www.")) {
+      const apexDomain = normalizedDomain.slice(4);
+      config = await env.DB.prepare(
+        "SELECT * FROM domain_configs WHERE domain_name = ?"
+      )
+        .bind(apexDomain)
+        .first<DomainConfigRecord>();
+    }
+
+    return config || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolves the custom IP access rules (allow/block) for a domain from D1 with KV caching.
  */
@@ -223,7 +269,7 @@ async function resolveDomainIpRules(
   domain: string,
   env: Env
 ): Promise<IpAccessRuleRecord[]> {
-  const normalizedDomain = domain.toLowerCase();
+  const normalizedDomain = normalizeDomainName(domain);
   const cacheKey = `${IP_RULES_CACHE_PREFIX}${normalizedDomain}`;
 
   try {
@@ -269,13 +315,42 @@ async function resolveDomainIpRules(
 interface SensitivePathRecord {
   id: number;
   domain_name: string;
+  tenant_id?: string | null;
+  scope?: "domain" | "tenant" | "platform" | null;
   path_pattern: string;
   match_type: string;
   action: string;
 }
 
+async function querySensitivePathsFromD1(
+  normalizedDomain: string,
+  env: Env,
+  tenantId?: string | null
+): Promise<SensitivePathRecord[]> {
+  try {
+    const apexDomain = normalizedDomain.startsWith("www.")
+      ? normalizedDomain.slice(4)
+      : normalizedDomain;
+    const tenant = (tenantId || "").trim();
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM sensitive_paths
+       WHERE (
+         domain_name IN (?, ?)
+         OR (tenant_id = ? AND scope = 'tenant')
+         OR scope = 'platform'
+         OR (domain_name = 'global' AND tenant_id IS NULL AND (scope IS NULL OR scope = 'platform'))
+       )
+       ORDER BY id DESC`
+    ).bind(normalizedDomain, apexDomain, tenant).all<SensitivePathRecord>();
+
+    return results || [];
+  } catch {
+    return [];
+  }
+}
+
 async function resolveSensitivePaths(domain: string, env: Env): Promise<SensitivePathRecord[]> {
-  const normalizedDomain = domain.toLowerCase();
+  const normalizedDomain = normalizeDomainName(domain);
   const cacheKey = `cfr:sensitive_paths:${normalizedDomain}`;
   try {
     const cached = await env.SESSION_KV.get(cacheKey);
@@ -283,11 +358,8 @@ async function resolveSensitivePaths(domain: string, env: Env): Promise<Sensitiv
   } catch { }
 
   try {
-    const { results } = await env.DB.prepare(
-      "SELECT * FROM sensitive_paths WHERE (domain_name = ? OR domain_name = 'global') ORDER BY id DESC"
-    ).bind(normalizedDomain).all<SensitivePathRecord>();
-
-    const rules = results || [];
+    const domainConfig = await queryDomainConfigFromD1(normalizedDomain, env);
+    const rules = await querySensitivePathsFromD1(normalizedDomain, env, domainConfig?.tenant_id);
     try {
       await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
         expirationTtl: IP_RULES_CACHE_TTL,
@@ -300,11 +372,51 @@ async function resolveSensitivePaths(domain: string, env: Env): Promise<Sensitiv
   }
 }
 
+function sortFirewallRulesByPriority(rules: CustomFirewallRuleRecord[]): CustomFirewallRuleRecord[] {
+  return [...rules].sort((a, b) => {
+    const aIsAllow = a.action === "allow" || a.action === "bypass" ? 0 : 1;
+    const bIsAllow = b.action === "allow" || b.action === "bypass" ? 0 : 1;
+    return aIsAllow - bIsAllow;
+  });
+}
+
+async function queryCustomFirewallRulesFromD1(
+  normalizedDomain: string,
+  env: Env,
+  tenantId?: string | null
+): Promise<CustomFirewallRuleRecord[]> {
+  try {
+    const apexDomain = normalizedDomain.startsWith("www.")
+      ? normalizedDomain.slice(4)
+      : normalizedDomain;
+    const tenant = (tenantId || "").trim();
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM custom_firewall_rules
+       WHERE paused = 0
+         AND (
+           domain_name IN (?, ?)
+           OR (tenant_id = ? AND scope = 'tenant')
+           OR scope = 'platform'
+           OR (domain_name = 'global' AND tenant_id IS NULL AND (scope IS NULL OR scope = 'platform'))
+         )
+       ORDER BY id DESC`
+    )
+      .bind(normalizedDomain, apexDomain, tenant)
+      .all<CustomFirewallRuleRecord>();
+
+    let rules = results || [];
+
+    return sortFirewallRulesByPriority(rules);
+  } catch {
+    return [];
+  }
+}
+
 async function resolveCustomFirewallRules(
   domain: string,
   env: Env
 ): Promise<CustomFirewallRuleRecord[]> {
-  const normalizedDomain = domain.toLowerCase();
+  const normalizedDomain = normalizeDomainName(domain);
   const cacheKey = `cfr:${normalizedDomain}`;
 
   try {
@@ -315,33 +427,8 @@ async function resolveCustomFirewallRules(
   } catch { }
 
   try {
-    const { results } = await env.DB.prepare(
-      "SELECT * FROM custom_firewall_rules WHERE (domain_name = ? OR domain_name = 'global') AND paused = 0 ORDER BY id DESC"
-    )
-      .bind(normalizedDomain)
-      .all<CustomFirewallRuleRecord>();
-
-    let rules = results || [];
-
-    if (rules.length === 0 && normalizedDomain.startsWith("www.")) {
-      const apexDomain = normalizedDomain.slice(4);
-      const apexRes = await env.DB.prepare(
-        "SELECT * FROM custom_firewall_rules WHERE (domain_name = ? OR domain_name = 'global') AND paused = 0 ORDER BY id DESC"
-      )
-        .bind(apexDomain)
-        .all<CustomFirewallRuleRecord>();
-      if (apexRes.results) {
-        rules = apexRes.results;
-      }
-    }
-
-    // PRIORITY SORT: Allow/bypass rules MUST be evaluated before block rules.
-    // This ensures admin allow-list always overrides IP Farm permanent bans.
-    rules.sort((a, b) => {
-      const aIsAllow = a.action === "allow" || a.action === "bypass" ? 0 : 1;
-      const bIsAllow = b.action === "allow" || b.action === "bypass" ? 0 : 1;
-      return aIsAllow - bIsAllow;
-    });
+    const domainConfig = await queryDomainConfigFromD1(normalizedDomain, env);
+    const rules = await queryCustomFirewallRulesFromD1(normalizedDomain, env, domainConfig?.tenant_id);
 
     try {
       await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
@@ -353,6 +440,76 @@ async function resolveCustomFirewallRules(
   } catch {
     return [];
   }
+}
+
+function parseRuntimeBundle(raw: string): RuntimeBundle | null {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const domainConfig =
+      (parsed.domainConfig || parsed.domain_config || null) as DomainConfigRecord | null;
+    const sensitivePaths =
+      (parsed.sensitivePaths || parsed.sensitive_paths || []) as SensitivePathRecord[];
+    const customFirewallRules =
+      (parsed.customFirewallRules || parsed.custom_firewall_rules || []) as CustomFirewallRuleRecord[];
+
+    return {
+      domainConfig,
+      sensitivePaths: Array.isArray(sensitivePaths) ? sensitivePaths : [],
+      customFirewallRules: Array.isArray(customFirewallRules)
+        ? sortFirewallRulesByPriority(customFirewallRules)
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadRuntimeBundle(domain: string, env: Env): Promise<RuntimeBundle> {
+  const normalizedDomain = normalizeDomainName(domain);
+  const emptyBundle: RuntimeBundle = {
+    domainConfig: null,
+    sensitivePaths: [],
+    customFirewallRules: [],
+  };
+
+  if (!normalizedDomain) return emptyBundle;
+
+  const cacheKey = `${RUNTIME_BUNDLE_CACHE_PREFIX}${normalizedDomain}`;
+  try {
+    const cached = await env.SESSION_KV.get(cacheKey);
+    if (cached) {
+      const bundle = parseRuntimeBundle(cached);
+      if (bundle) return bundle;
+    }
+  } catch {
+    // KV read failure — fall back to D1.
+  }
+
+  const domainConfig = await queryDomainConfigFromD1(normalizedDomain, env);
+  if (!domainConfig) {
+    return emptyBundle;
+  }
+
+  const [sensitivePaths, customFirewallRules] = await Promise.all([
+    querySensitivePathsFromD1(normalizedDomain, env, domainConfig.tenant_id),
+    queryCustomFirewallRulesFromD1(normalizedDomain, env, domainConfig.tenant_id),
+  ]);
+
+  const bundle: RuntimeBundle = {
+    domainConfig,
+    sensitivePaths,
+    customFirewallRules,
+  };
+
+  try {
+    await env.SESSION_KV.put(cacheKey, JSON.stringify(bundle), {
+      expirationTtl: RUNTIME_BUNDLE_CACHE_TTL_SECONDS,
+    });
+  } catch {
+    // Bundle cache writes are an optimization only.
+  }
+
+  return bundle;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +528,8 @@ async function validateSession(
   meta: RequestMeta,
   env: Env
 ): Promise<SessionTokenClaims | null> {
+  if (!hasJwtSecret(env)) return null;
+
   // Extract session cookie
   const cookieHeader = request.headers.get("Cookie");
   if (!cookieHeader) return null;
@@ -406,6 +565,8 @@ async function getSessionFingerprintHint(
   request: Request,
   env: Env
 ): Promise<string | null> {
+  if (!hasJwtSecret(env)) return null;
+
   const cookieHeader = request.headers.get("Cookie");
   if (!cookieHeader) return null;
 
@@ -437,6 +598,100 @@ function parseCookieValue(
   }
 
   return null;
+}
+
+function hasJwtSecret(env: Env): boolean {
+  return typeof env.JWT_SECRET === "string" && env.JWT_SECRET.trim().length > 0;
+}
+
+function getMeterSecret(env: Env): string | null {
+  const secret = typeof env.METER_SECRET === "string" ? env.METER_SECRET.trim() : "";
+  return secret.length > 0 ? secret : null;
+}
+
+async function prepareMeteringState(
+  request: Request,
+  meta: RequestMeta,
+  domain: string,
+  env: Env
+): Promise<MeteringState> {
+  if (!isMeterableHtmlRequest(request, meta)) {
+    return { shouldMeter: false, alreadyMetered: false, cookieHeader: null };
+  }
+
+  const secret = getMeterSecret(env);
+  if (!secret) {
+    console.warn("METER_SECRET is missing. Skipping metering token.");
+    return { shouldMeter: false, alreadyMetered: false, cookieHeader: null };
+  }
+
+  const cookieHeader = request.headers.get("Cookie") || "";
+  const meterToken = parseCookieValue(cookieHeader, METER_COOKIE_NAME);
+  const alreadyMetered = await verifyMeterToken(
+    meterToken,
+    domain,
+    meta.ip,
+    meta.userAgent,
+    secret
+  );
+
+  if (alreadyMetered) {
+    return { shouldMeter: false, alreadyMetered: true, cookieHeader: null };
+  }
+
+  const token = await generateMeterToken(domain, meta.ip, meta.userAgent, secret);
+  return {
+    shouldMeter: true,
+    alreadyMetered: false,
+    cookieHeader: buildMeterCookie(token),
+  };
+}
+
+async function recordProtectedSession(
+  env: Env,
+  meta: RequestMeta,
+  details: string
+): Promise<void> {
+  await logSecurityEvent(env, "session_created", meta, 0, null, details);
+}
+
+function shouldAttachMeterCookie(response: Response): boolean {
+  return response.status >= 200 && response.status < 400;
+}
+
+function applyMeteringToOriginResponse(
+  response: Response,
+  metering: MeteringState,
+  env: Env,
+  ctx: ExecutionContext,
+  meta: RequestMeta
+): Response {
+  if (!metering.shouldMeter || !metering.cookieHeader || !shouldAttachMeterCookie(response)) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  headers.append("Set-Cookie", metering.cookieHeader);
+  ctx.waitUntil(
+    recordProtectedSession(env, meta, "Protected session metered via es_meter").catch(() => { })
+  );
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function meterOriginResponse(
+  responsePromise: Promise<Response>,
+  metering: MeteringState,
+  env: Env,
+  ctx: ExecutionContext,
+  meta: RequestMeta
+): Promise<Response> {
+  const response = await responsePromise;
+  return applyMeteringToOriginResponse(response, metering, env, ctx, meta);
 }
 
 // ---------------------------------------------------------------------------
@@ -731,10 +986,11 @@ async function isAdminAllowedIP(ip: string, domain: string, env: Env): Promise<b
 async function isCustomFirewallIpAllowed(
   ip: string,
   domain: string,
-  env: Env
+  env: Env,
+  preloadedRules?: CustomFirewallRuleRecord[]
 ): Promise<boolean> {
   try {
-    const rules = await resolveCustomFirewallRules(domain, env);
+    const rules = preloadedRules ?? await resolveCustomFirewallRules(domain, env);
     if (!rules.length) return false;
 
     const nowSecs = Math.floor(Date.now() / 1000);
@@ -1352,7 +1608,8 @@ async function markForIpFarm(
   ip: string,
   env: Env,
   meta: RequestMeta,
-  reason: string
+  reason: string,
+  tenantIdHint?: string | null
 ): Promise<void> {
   try {
     // Validate IP — skip private/reserved addresses
@@ -1362,7 +1619,17 @@ async function markForIpFarm(
     if (await isIpAllowListed(ip, env)) return;
 
     const lowerIp = ip.toLowerCase().trim();
-    const nowSecs = Math.floor(Date.now() / 1000);
+    let requestDomain = "";
+    try {
+      requestDomain = normalizeDomainName(new URL(meta.url).hostname);
+    } catch { }
+    const domainConfig = requestDomain
+      ? await queryDomainConfigFromD1(requestDomain, env)
+      : null;
+    const tenantId = (tenantIdHint || domainConfig?.tenant_id || "").trim();
+    const farmScopeWhere = tenantId
+      ? "AND tenant_id = ?"
+      : "AND tenant_id IS NULL AND (scope IS NULL OR scope = 'platform')";
 
     // Fetch all existing [IP-FARM] rules
     const existingRes = await env.DB.prepare(
@@ -1371,9 +1638,10 @@ async function markForIpFarm(
        WHERE description LIKE ?
          AND action = 'block'
          AND paused = 0
+         ${farmScopeWhere}
        ORDER BY id ASC`
     )
-      .bind(`${IP_FARM_DESC_PREFIX}%`)
+      .bind(...(tenantId ? [`${IP_FARM_DESC_PREFIX}%`, tenantId] : [`${IP_FARM_DESC_PREFIX}%`]))
       .all<{ id: number; expression_json: string }>();
 
     const parsedRules: { id: number; expression_json: string; targets: string[] }[] = [];
@@ -1452,10 +1720,12 @@ async function markForIpFarm(
       });
 
       await env.DB.prepare(
-        `INSERT INTO custom_firewall_rules (domain_name, description, action, expression_json, paused, expires_at)
-         VALUES ('global', ?, 'block', ?, 0, NULL)`
+        `INSERT INTO custom_firewall_rules (domain_name, tenant_id, scope, description, action, expression_json, paused, expires_at)
+         VALUES ('global', ?, ?, ?, 'block', ?, 0, NULL)`
       )
         .bind(
+          tenantId || null,
+          tenantId ? "tenant" : "platform",
           `${IP_FARM_DESC_PREFIX} IP Farm ${farmNumber} (1 IPs)`,
           newExpression
         )
@@ -1465,6 +1735,10 @@ async function markForIpFarm(
     // Purge KV cache so the worker picks up the change instantly
     try {
       await env.SESSION_KV.delete("cfr:global");
+      if (requestDomain) {
+        await env.SESSION_KV.delete(`cfg:${requestDomain}`);
+        await env.SESSION_KV.delete(`cfr:${requestDomain}`);
+      }
     } catch { }
 
     // Log the farm event
@@ -1591,6 +1865,14 @@ async function serveChallengePagePlaceholder(
   domainConfig: DomainConfigRecord,
   env: Env
 ): Promise<Response> {
+  if (!hasJwtSecret(env)) {
+    return createErrorResponse(
+      "WORKER_MISCONFIGURED",
+      "Challenge signing secret is not configured",
+      503
+    );
+  }
+
   // Phase 4 will implement the full challenge generation.
   // For now, we generate a placeholder that will be replaced.
   // The actual implementation will:
@@ -1709,6 +1991,16 @@ function handleHardBlock(env: Env): Response {
   );
 }
 
+function handleStatelessBlock(): Response {
+  return new Response("Forbidden", {
+    status: 403,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Dynamic Submit Path Validation
 // ---------------------------------------------------------------------------
@@ -1730,9 +2022,59 @@ function isFallbackSubmitRequest(request: Request): boolean {
   return /^[a-f0-9]{16}$/i.test(nonceHeader);
 }
 
+function normalizePathForSecurityMatch(path: string): string {
+  try {
+    return decodeURIComponent(path).toLowerCase();
+  } catch {
+    return path.toLowerCase();
+  }
+}
+
+function isTier0SecretProbePath(path: string): boolean {
+  const normalizedPath = normalizePathForSecurityMatch(path);
+
+  if (
+    normalizedPath === "/.env" ||
+    normalizedPath.endsWith("/.env") ||
+    normalizedPath.includes("/.env.") ||
+    normalizedPath.includes("/.env/")
+  ) {
+    return true;
+  }
+
+  if (
+    normalizedPath === "/.git" ||
+    normalizedPath.startsWith("/.git/") ||
+    normalizedPath.includes("/.git/")
+  ) {
+    return true;
+  }
+
+  if (/(^|\/)(?:_?php[-_]?info|phpinfo)\.php$/.test(normalizedPath)) {
+    return true;
+  }
+
+  if (/(^|\/)(?:composer\.(?:json|lock)|\.user\.ini|\.htaccess|\.htpasswd)$/.test(normalizedPath)) {
+    return true;
+  }
+
+  return /(^|\/)(?:backup|dump|database|db|site|www|public_html)[^/]*\.(?:sql|sqlite|db|bak|old|zip|tar|tgz|gz|rar|7z)$/.test(normalizedPath);
+}
+
 function isStaticAssetPath(path: string): boolean {
   if (path === "/favicon.ico") return true;
   return /\.(?:png|jpe?g|gif|webp|svg|ico|css|js|mjs|woff2?|ttf|eot|map|json|txt|xml)$/i.test(path);
+}
+
+function isEarlyStaticBypassRequest(request: Request, path: string): boolean {
+  const method = request.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return false;
+
+  if (path === "/favicon.ico" || path === "/robots.txt" || path === "/sitemap.xml") {
+    return true;
+  }
+
+  return /\.(?:png|jpe?g|gif|webp|avif|svg|ico|css|js|mjs|woff2?|ttf|eot|map)$/i.test(path);
 }
 
 // ---------------------------------------------------------------------------
@@ -1745,6 +2087,28 @@ const worker: ExportedHandler<Env> = {
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
+    try {
+      return await handleWorkerRequest(request, env, ctx);
+    } catch (error) {
+      console.error("Unhandled worker exception", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+
+      return createErrorResponse(
+        "WORKER_EXCEPTION",
+        "VerifySky edge runtime failed safely",
+        500
+      );
+    }
+  },
+};
+
+async function handleWorkerRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<Response> {
     const meta = extractRequestMeta(request);
     const domain = getDomainFromRequest(request);
 
@@ -1756,20 +2120,35 @@ const worker: ExportedHandler<Env> = {
       return handleAdminIPRoute(request, meta, domain, env);
     }
 
+    // --- Tier 0 Stateless Blocks (no KV/D1) ---
+    // These are platform-wide secret/probe paths with negligible false-positive
+    // risk. Customer-managed CMS paths remain in the configurable WAF layer.
+    if (isTier0SecretProbePath(meta.path)) {
+      return handleStatelessBlock();
+    }
+
+    // --- Early Static Asset Bypass (no KV/D1) ---
+    // Only GET/HEAD web assets are bypassed here. JSON/API-like resources stay
+    // in the normal protection path to avoid weakening customer applications.
+    if (isEarlyStaticBypassRequest(request, meta.path)) {
+      return safeOriginFetch(request);
+    }
+
     // --- Resolve Domain Configuration (EARLY) ---
     // Must be checked BEFORE any security checks so that paused/revoked
     // domains bypass ALL protection, including temp bans and firewall rules.
-    const domainConfig = await resolveDomainConfig(domain, env);
+    const runtimeBundle = await loadRuntimeBundle(domain, env);
+    const domainConfig = runtimeBundle.domainConfig;
 
     if (!domainConfig) {
       // Domain not onboarded — transparently pass through.
-      return fetch(request);
+      return safeOriginFetch(request);
     }
 
     if (domainConfig.status !== "active") {
       // Paused/revoked domains should bypass protection transparently.
       // No temp bans, no firewall rules, no risk scoring — just pass through.
-      return fetch(request);
+      return safeOriginFetch(request);
     }
 
     // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
@@ -1785,8 +2164,16 @@ const worker: ExportedHandler<Env> = {
           crawlerDecision.reason || "Crawler allow-listed"
         )
       );
-      return fetch(request);
+      return safeOriginFetch(request);
     }
+
+    let metering: MeteringState | null = null;
+    const getMeteringState = async (): Promise<MeteringState> => {
+      if (!metering) {
+        metering = await prepareMeteringState(request, meta, domain, env);
+      }
+      return metering;
+    };
 
     // Admin manual allow-list override.
     if (await isAdminAllowedIP(meta.ip, domain, env)) {
@@ -1800,13 +2187,13 @@ const worker: ExportedHandler<Env> = {
           "Admin allow-listed IP override"
         )
       );
-      return fetchWithInjectors(request, meta, env, false);
+      return meterOriginResponse(fetchWithInjectors(request, meta, env, false), await getMeteringState(), env, ctx, meta);
     }
 
     // Custom firewall allow-list override for explicit IP rules.
     // This is evaluated before temp-ban checks so intentional allow-rules
     // can safely override stale temporary ban markers.
-    if (await isCustomFirewallIpAllowed(meta.ip, domain, env)) {
+    if (await isCustomFirewallIpAllowed(meta.ip, domain, env, runtimeBundle.customFirewallRules)) {
       ctx.waitUntil(
         logSecurityEvent(
           env,
@@ -1817,7 +2204,7 @@ const worker: ExportedHandler<Env> = {
           "Custom firewall allow-listed IP override"
         )
       );
-      return fetchWithInjectors(request, meta, env, true);
+      return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
     }
 
     // --- Trusted IP Decision Cache ---
@@ -1933,7 +2320,7 @@ const worker: ExportedHandler<Env> = {
 
     // --- Sensitive Paths WAF Module ---
     // High-priority evaluation for critical internal URIs (.env, wp-login, etc.)
-    const sensitivePaths = await resolveSensitivePaths(domain, env);
+    const sensitivePaths = runtimeBundle.sensitivePaths;
     const lowercasePath = meta.path.toLowerCase();
 
     for (const rule of sensitivePaths) {
@@ -1993,7 +2380,7 @@ const worker: ExportedHandler<Env> = {
     // --- Global Custom Firewall Rules ---
     // Evaluated directly at the edge, BEFORE any session or risk checks.
     // Replaces the legacy ip_access_rules because it natively supports complex combinations.
-    const fwRules = await resolveCustomFirewallRules(domain, env);
+    const fwRules = runtimeBundle.customFirewallRules;
     const nowSecs = Math.floor(Date.now() / 1000);
 
     for (const rule of fwRules) {
@@ -2085,7 +2472,7 @@ const worker: ExportedHandler<Env> = {
           } catch { }
           return handleHardBlock(env);
         } else if (isAllow) {
-          return fetchWithInjectors(request, meta, env, true);
+          return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
         } else if (isChallenge) {
           if (session) {
             continue; // They already solved a challenge, proceed to next rule
@@ -2106,7 +2493,7 @@ const worker: ExportedHandler<Env> = {
     // to prevent post-CAPTCHA abuse.
     if (session) {
       // Skip static assets — no need to count CSS/JS/images
-      if (isStaticAssetPath(meta.path)) return fetch(request);
+      if (isStaticAssetPath(meta.path)) return safeOriginFetch(request);
 
       if (!meta.isPrefetch) {
         // Check grace marker first (set by challenge.ts after successful CAPTCHA solve).
@@ -2186,12 +2573,12 @@ const worker: ExportedHandler<Env> = {
           }
         }
       }
-      return fetchWithInjectors(request, meta, env, true);
+      return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
     }
 
     // Do not issue interactive challenges for static assets.
     if (isStaticAssetPath(meta.path)) {
-      return fetch(request);
+      return safeOriginFetch(request);
     }
 
     // --- Trusted IP Path: Visit Counter + Flood Read-Only ---
@@ -2281,7 +2668,7 @@ const worker: ExportedHandler<Env> = {
       }
 
       // Both layers passed — trusted, continue to origin
-      return fetchWithInjectors(request, meta, env, true);
+      return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
     }
 
     // --- Flood Protection (Full Read+Write — new visitors only) ---
@@ -2394,7 +2781,7 @@ const worker: ExportedHandler<Env> = {
 
     // Do not issue interactive challenges for static assets.
     if (isStaticAssetPath(meta.path)) {
-      return fetch(request);
+      return safeOriginFetch(request);
     }
 
     // --- Visit Counter for New Visitors (before risk engine) ---
@@ -2496,7 +2883,7 @@ const worker: ExportedHandler<Env> = {
             ).catch(() => { })
           );
         }
-        return fetchWithInjectors(request, meta, env, true);
+        return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
       }
 
       case RiskLevel.SUSPICIOUS: {
@@ -2577,8 +2964,24 @@ const worker: ExportedHandler<Env> = {
         return handleHardBlock(env);
       }
     }
-  },
-};
+}
+
+async function safeOriginFetch(request: Request): Promise<Response> {
+  try {
+    return await fetch(request);
+  } catch (error) {
+    console.error("Origin fetch failed", {
+      url: request.url,
+      message: error instanceof Error ? error.message : String(error),
+    });
+
+    return createErrorResponse(
+      "ORIGIN_UNAVAILABLE",
+      "The protected origin is temporarily unavailable",
+      502
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Async AI Defense Trigger
@@ -2670,7 +3073,7 @@ class AnalyzerInjector {
 }
 
 async function fetchWithInjectors(request: Request, meta: RequestMeta, env: Env, injectHoneypot: boolean = true): Promise<Response> {
-  let response = await fetch(request);
+  let response = await safeOriginFetch(request);
   if (response.status === 200 && !meta.verifiedBot) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {

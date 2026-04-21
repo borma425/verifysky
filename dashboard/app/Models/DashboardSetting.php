@@ -13,6 +13,7 @@ class DashboardSetting extends Model
         'cf_api_token',
         'openrouter_api_key',
         'jwt_secret',
+        'meter_secret',
         'es_admin_token',
     ];
 
@@ -24,18 +25,21 @@ class DashboardSetting extends Model
     public function setValueAttribute(?string $value): void
     {
         $normalized = (string) ($value ?? '');
-        if (!$this->isSensitiveKey()) {
+        if (! $this->isSensitiveKey()) {
             $this->attributes['value'] = $normalized;
+
             return;
         }
 
         if ($normalized === '') {
             $this->attributes['value'] = '';
+
             return;
         }
 
         if (str_starts_with($normalized, self::ENCRYPTED_PREFIX)) {
             $this->attributes['value'] = $normalized;
+
             return;
         }
 
@@ -45,16 +49,16 @@ class DashboardSetting extends Model
     public function getValueAttribute(?string $value): string
     {
         $raw = (string) ($value ?? '');
-        if ($raw === '' || !$this->isSensitiveKey()) {
+        if ($raw === '' || ! $this->isSensitiveKey()) {
             return $raw;
         }
 
-        if (!str_starts_with($raw, self::ENCRYPTED_PREFIX)) {
+        if (! str_starts_with($raw, self::ENCRYPTED_PREFIX)) {
             return $raw;
         }
 
         $payload = substr($raw, strlen(self::ENCRYPTED_PREFIX));
-        if ($payload === false || $payload === '') {
+        if ($payload === '') {
             return '';
         }
 
@@ -73,6 +77,7 @@ class DashboardSetting extends Model
     public function isSensitiveKey(): bool
     {
         $key = (string) ($this->attributes['key'] ?? $this->key ?? '');
+
         return in_array($key, self::SENSITIVE_KEYS, true);
     }
 }

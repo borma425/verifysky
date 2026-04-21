@@ -1,0 +1,151 @@
+<?php
+
+namespace App\Services\EdgeShield\Concerns;
+
+trait SaasHostnameLifecycleConcern
+{
+    public function saasHostnamesForInput(string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        if ($domain === '') {
+            return [];
+        }
+        if (str_starts_with($domain, 'www.')) {
+            return [$domain];
+        }
+        if ($this->looksLikeApexDomain($domain)) {
+            return ['www.'.$domain];
+        }
+
+        return [$domain];
+    }
+
+    public function refreshSaasCustomHostname(string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $zoneId = $this->config->saasZoneId();
+        if ($zoneId === null) {
+            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.'];
+        }
+
+        $existing = $this->findCustomHostname($zoneId, $domain);
+        if (! $existing['ok']) {
+            return ['ok' => false, 'error' => $existing['error']];
+        }
+
+        $customHostname = is_array($existing['result']) ? $existing['result'] : null;
+        if (! $customHostname) {
+            return ['ok' => false, 'error' => 'Custom hostname was not found in Cloudflare.'];
+        }
+
+        $sql = sprintf(
+            "UPDATE domain_configs
+             SET custom_hostname_id = '%s',
+                 hostname_status = '%s',
+                 ssl_status = '%s',
+                 ownership_verification_json = '%s',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE domain_name = '%s'",
+            str_replace("'", "''", (string) ($customHostname['id'] ?? '')),
+            str_replace("'", "''", (string) ($customHostname['status'] ?? 'pending')),
+            str_replace("'", "''", (string) ($customHostname['ssl']['status'] ?? 'pending_validation')),
+            str_replace("'", "''", (string) json_encode($customHostname['ownership_verification'] ?? null)),
+            str_replace("'", "''", $domain)
+        );
+        $result = $this->d1->query($sql);
+
+        return [
+            'ok' => $result['ok'],
+            'error' => $result['ok'] ? null : ($result['error'] ?: 'Failed to update D1 hostname status.'),
+            'custom_hostname' => $customHostname,
+        ];
+    }
+
+    public function deleteSaasCustomHostname(string $customHostnameId): array
+    {
+        $zoneId = $this->config->saasZoneId();
+        $id = trim($customHostnameId);
+        if ($zoneId === null || $id === '') {
+            return ['ok' => true, 'error' => null, 'action' => 'skipped'];
+        }
+
+        $delete = $this->cloudflare->request('DELETE', '/zones/'.$zoneId.'/custom_hostnames/'.$id);
+        if (! $delete['ok']) {
+            return ['ok' => false, 'error' => $delete['error'], 'action' => 'failed'];
+        }
+
+        return ['ok' => true, 'error' => null, 'action' => 'deleted'];
+    }
+
+    public function removeDomainSecurityArtifacts(string $zoneId, string $domainName, ?string $turnstileSiteKey = null): array
+    {
+        $zone = trim($zoneId);
+        $domain = $this->normalizeDomain($domainName);
+        $siteKey = trim((string) ($turnstileSiteKey ?? ''));
+        if ($zone === '' || $domain === '') {
+            return ['ok' => false, 'error' => 'Zone ID or domain is empty.', 'details' => []];
+        }
+
+        $details = [];
+        $routeRemoval = $this->workerRoutes->removeWorkerRoutes($zone, $domain);
+        $details[] = $routeRemoval['ok']
+            ? 'Worker routes removed: '.($routeRemoval['action'] ?? 'none')
+            : 'Worker route cleanup failed: '.($routeRemoval['error'] ?? 'unknown error');
+
+        if ($siteKey !== '') {
+            $widgetRemoval = $this->turnstile->deleteWidgetForZone($zone, $siteKey);
+            $details[] = $widgetRemoval['ok']
+                ? 'Turnstile widget removed.'
+                : 'Turnstile widget cleanup failed: '.($widgetRemoval['error'] ?? 'unknown error');
+        } else {
+            $details[] = 'Turnstile widget key missing; widget cleanup skipped.';
+        }
+
+        $ok = $routeRemoval['ok'] && ($siteKey === '' || ($widgetRemoval['ok'] ?? false));
+
+        return ['ok' => $ok, 'error' => $ok ? null : implode(' | ', $details), 'details' => $details];
+    }
+
+    private function findCustomHostname(string $zoneId, string $domainName): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $list = $this->cloudflare->request('GET', '/zones/'.$zoneId.'/custom_hostnames', ['hostname' => $domain, 'page' => 1, 'per_page' => 1]);
+        if (! $list['ok']) {
+            return ['ok' => false, 'error' => $list['error'], 'result' => null];
+        }
+
+        $rows = is_array($list['result']) ? $list['result'] : [];
+
+        return ['ok' => true, 'error' => null, 'result' => is_array($rows[0] ?? null) ? $rows[0] : null];
+    }
+
+    private function normalizeDomain(string $domainName): string
+    {
+        $domain = strtolower(trim($domainName));
+        $domain = preg_replace('#^https?://#', '', $domain) ?? $domain;
+        $domain = explode('/', $domain, 2)[0];
+
+        return trim($domain);
+    }
+
+    private function looksLikeApexDomain(string $domain): bool
+    {
+        if ($domain === '' || str_contains($domain, '*')) {
+            return false;
+        }
+
+        $labels = array_values(array_filter(explode('.', $domain), fn (string $label): bool => $label !== ''));
+        if (count($labels) === 2) {
+            return true;
+        }
+
+        $suffix = implode('.', array_slice($labels, -2));
+        $commonSecondLevelSuffixes = [
+            'ac.uk', 'co.il', 'co.jp', 'co.nz', 'co.uk',
+            'com.au', 'com.br', 'com.eg', 'com.mx', 'com.sa', 'com.tr', 'com.ua',
+            'net.au', 'net.eg', 'net.sa', 'org.au', 'org.uk',
+        ];
+
+        return count($labels) === 3 && in_array($suffix, $commonSecondLevelSuffixes, true);
+    }
+}

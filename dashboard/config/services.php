@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    'paypal' => [
+        'mode' => env('PAYPAL_MODE', 'sandbox'),
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'secret' => env('PAYPAL_SECRET'),
+        'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
+        'brand_name' => env('PAYPAL_BRAND_NAME', 'VerifySky'),
+        'plans' => [
+            'growth' => env('PAYPAL_PLAN_ID_GROWTH'),
+            'pro' => env('PAYPAL_PLAN_ID_PRO'),
+            'business' => env('PAYPAL_PLAN_ID_BUSINESS'),
+            'scale' => env('PAYPAL_PLAN_ID_SCALE'),
+        ],
+    ],
+
 ];

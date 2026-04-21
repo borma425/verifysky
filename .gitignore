@@ -21,3 +21,9 @@ dashboard/.phpunit.result.cache
 
 # Local embedded runtime
 /dashboard/.runtime/
+
+# Codex plugin local secrets
+plugins/google-stitch/.mcp.json
+
+# Local MCP secrets
+.mcp.json

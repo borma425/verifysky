@@ -1,0 +1,13 @@
+includes:
+    - vendor/nunomaduro/larastan/extension.neon
+
+parameters:
+    paths:
+        - app
+        - config
+        - routes
+    level: 5
+    checkModelProperties: true
+    excludePaths:
+        analyseAndScan:
+            - app/Providers/TelescopeServiceProvider.php (?)

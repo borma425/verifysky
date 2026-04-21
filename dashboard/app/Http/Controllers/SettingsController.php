@@ -14,12 +14,11 @@ class SettingsController extends Controller
         'cf_api_token',
         'openrouter_api_key',
         'jwt_secret',
+        'meter_secret',
         'es_admin_token',
     ];
 
-    public function __construct(private readonly EdgeShieldService $edgeShield)
-    {
-    }
+    public function __construct(private readonly EdgeShieldService $edgeShield) {}
 
     public function index(): View
     {
@@ -38,6 +37,8 @@ class SettingsController extends Controller
             'settings' => $settings,
             'sensitiveConfigured' => $sensitiveConfigured,
             'currentLoginPath' => $this->resolveAdminLoginPath($settings),
+            'layout' => request()->routeIs('admin.*') ? 'layouts.admin' : 'layouts.app',
+            'settingsUpdateRoute' => request()->routeIs('admin.*') ? 'admin.settings.update' : 'settings.update',
         ]);
     }
 
@@ -51,17 +52,22 @@ class SettingsController extends Controller
             'cf_account_id' => ['nullable', 'string', 'max:128'],
             'openrouter_api_key' => ['nullable', 'string', 'max:500'],
             'jwt_secret' => ['nullable', 'string', 'max:500'],
+            'meter_secret' => ['nullable', 'string', 'max:500'],
             'worker_script_name' => ['nullable', 'string', 'max:128'],
             'es_admin_token' => ['nullable', 'string', 'max:500'],
             'es_admin_rate_limit_per_min' => ['nullable', 'integer', 'min:10', 'max:600'],
             'es_disable_waf_autodeploy' => ['nullable', 'in:on,off'],
             'es_allow_ua_crawler_allowlist' => ['nullable', 'in:on,off'],
+            'es_turnstile_strict' => ['nullable', 'in:on,off'],
+            'es_strict_context_binding' => ['nullable', 'in:on,off'],
             'admin_login_path' => ['nullable', 'string', 'max:120', 'regex:/^[a-zA-Z0-9_\/-]+$/'],
         ]);
 
         // Normalize toggle fields to explicit "on"/"off"
         $validated['es_disable_waf_autodeploy'] = ($request->input('es_disable_waf_autodeploy') === 'on') ? 'on' : 'off';
         $validated['es_allow_ua_crawler_allowlist'] = ($request->input('es_allow_ua_crawler_allowlist') === 'on') ? 'on' : 'off';
+        $validated['es_turnstile_strict'] = ($request->input('es_turnstile_strict', 'on') === 'off') ? 'off' : 'on';
+        $validated['es_strict_context_binding'] = ($request->input('es_strict_context_binding') === 'on') ? 'on' : 'off';
 
         $existingSensitive = DashboardSetting::query()
             ->whereIn('key', self::SENSITIVE_SETTING_KEYS)
@@ -85,10 +91,11 @@ class SettingsController extends Controller
         }
 
         $sync = $this->edgeShield->syncCloudflareFromDashboardSettings();
-        if (!$sync['ok']) {
+        if (! $sync['ok']) {
             $errorCount = count($sync['errors'] ?? []);
             $firstError = $this->stripAnsi((string) ($sync['errors'][0] ?? 'Cloudflare sync failed.'));
             $message = "Settings saved, but Cloudflare sync failed ({$errorCount} issue(s)). First issue: {$firstError}";
+
             return back()->with('error', $message);
         }
 
@@ -118,20 +125,22 @@ class SettingsController extends Controller
 
     private function resolveAdminLoginPath(array $settings): string
     {
-        $candidate = (string) ($settings['admin_login_path'] ?? env('DASHBOARD_LOGIN_PATH', 'wow/login'));
+        $candidate = (string) ($settings['admin_login_path'] ?? config('dashboard.login_path', 'wow/login'));
+
         return $this->normalizeLoginPath($candidate);
     }
 
     private function stripAnsi(string $text): string
     {
         $plain = preg_replace('/\e\[[0-9;]*[A-Za-z]/', '', $text) ?? $text;
+
         return trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
     }
 
     private function hasAlreadySyncedRoutes(array $sync): bool
     {
         $logs = $sync['logs'] ?? [];
-        if (!is_array($logs)) {
+        if (! is_array($logs)) {
             return false;
         }
 

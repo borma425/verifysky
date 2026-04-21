@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\PurgeRuntimeBundleCache;
+use App\Models\Tenant;
 use App\Services\EdgeShieldService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class SensitivePathsController extends Controller
 {
@@ -18,9 +21,11 @@ class SensitivePathsController extends Controller
 
     public function index(): View
     {
-        $this->edgeShield->ensureSensitivePathsTable();
-
-        $pathsRes = $this->edgeShield->listSensitivePaths();
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        $isAdmin = (bool) session('is_admin');
+        $pathsRes = $tenantId !== '' && ! $isAdmin
+            ? $this->edgeShield->listTenantSensitivePaths($tenantId)
+            : $this->edgeShield->listSensitivePaths();
         $paths = $pathsRes['ok'] ? ($pathsRes['paths'] ?? []) : [];
         $loadErrors = $pathsRes['ok'] ? [] : [$pathsRes['error']];
 
@@ -36,7 +41,7 @@ class SensitivePathsController extends Controller
             }
         }
 
-        $domainsRes = $this->edgeShield->listDomains();
+        $domainsRes = $this->edgeShield->listDomains(session('current_tenant_id'), (bool) session('is_admin'));
         $domains = $domainsRes['ok'] ? $domainsRes['domains'] : [];
 
         return view('sensitive_paths', compact('criticalPaths', 'mediumPaths', 'domains', 'loadErrors'));
@@ -57,12 +62,19 @@ class SensitivePathsController extends Controller
         $lastError = null;
 
         foreach ($validated['paths'] as $path) {
+            $tenantId = trim((string) session('current_tenant_id', ''));
+            $isAdmin = (bool) session('is_admin');
+            if (! $this->canManageDomain((string) $path['domain_name'], $tenantId, $isAdmin)) {
+                throw new HttpException(403, 'You do not have access to manage sensitive paths for this domain.');
+            }
             $create = $this->edgeShield->createSensitivePath(
                 $path['domain_name'],
                 $path['path_pattern'],
                 $path['match_type'],
                 $path['action'],
-                false // Disable individual cache purge
+                false, // Disable individual cache purge
+                $tenantId !== '' && ! $isAdmin ? $tenantId : null,
+                strtolower((string) $path['domain_name']) === 'global' ? ($tenantId !== '' && ! $isAdmin ? 'tenant' : 'platform') : 'domain'
             );
             if ($create['ok']) {
                 $createdCount++;
@@ -73,7 +85,7 @@ class SensitivePathsController extends Controller
         }
 
         foreach (array_unique($domainsToPurge) as $domain) {
-            $this->edgeShield->purgeSensitivePathsCache($domain);
+            $this->purgeSensitivePathScope((string) $domain);
         }
 
         if ($createdCount > 0) {
@@ -91,7 +103,9 @@ class SensitivePathsController extends Controller
 
     public function destroy(int $pathId): RedirectResponse
     {
+        $path = $this->tenantSensitivePathOrFail($pathId);
         $delete = $this->edgeShield->deleteSensitivePath($pathId);
+        $this->purgeSensitivePathScope((string) ($path['domain_name'] ?? ''));
 
         return back()->with(
             $delete['ok'] ? 'status' : 'error',
@@ -105,12 +119,84 @@ class SensitivePathsController extends Controller
             'path_ids' => ['required', 'array'],
             'path_ids.*' => ['integer'],
         ]);
+        $paths = [];
+        foreach ($validated['path_ids'] as $pathId) {
+            $paths[] = $this->tenantSensitivePathOrFail((int) $pathId);
+        }
 
         $delete = $this->edgeShield->deleteBulkSensitivePaths($validated['path_ids']);
+        foreach ($paths as $path) {
+            $this->purgeSensitivePathScope((string) ($path['domain_name'] ?? ''));
+        }
 
         return back()->with(
             $delete['ok'] ? 'status' : 'error',
             $delete['ok'] ? 'Selected paths unlocked successfully.' : ($delete['error'] ?? 'Failed to unlock paths.')
         );
+    }
+
+    private function canManageDomain(string $domainName, string $tenantId, bool $isAdmin): bool
+    {
+        $domainName = strtolower(trim($domainName));
+        if ($isAdmin) {
+            return true;
+        }
+        if ($tenantId === '') {
+            return false;
+        }
+        if ($domainName === 'global') {
+            return true;
+        }
+
+        $domains = $this->edgeShield->listDomains($tenantId, false);
+        if (! ($domains['ok'] ?? false)) {
+            return false;
+        }
+
+        foreach ($domains['domains'] ?? [] as $domain) {
+            if (strtolower((string) ($domain['domain_name'] ?? '')) === $domainName) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function tenantSensitivePathOrFail(int $pathId): array
+    {
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        if ((bool) session('is_admin') || $tenantId === '') {
+            return ['id' => $pathId];
+        }
+
+        $paths = $this->edgeShield->listTenantSensitivePaths($tenantId)['paths'] ?? [];
+        foreach ($paths as $path) {
+            if ((int) ($path['id'] ?? 0) === $pathId) {
+                return is_array($path) ? $path : ['id' => $pathId];
+            }
+        }
+
+        throw new HttpException(404, 'Sensitive path not found.');
+    }
+
+    private function purgeSensitivePathScope(string $domain): void
+    {
+        if ((bool) session('is_admin') || strtolower(trim($domain)) !== 'global') {
+            $this->edgeShield->purgeSensitivePathsCache($domain);
+
+            return;
+        }
+
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        $tenant = $tenantId !== '' ? Tenant::query()->find($tenantId) : null;
+        if (! $tenant instanceof Tenant) {
+            $this->edgeShield->purgeSensitivePathsCache($domain);
+
+            return;
+        }
+
+        foreach ($tenant->domains()->pluck('hostname') as $hostname) {
+            PurgeRuntimeBundleCache::dispatch((string) $hostname);
+        }
     }
 }

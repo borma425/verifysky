@@ -1,117 +1,286 @@
 @extends('layouts.app')
 
 @section('content')
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 es-animate">
-    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
-      <div class="absolute -right-4 -top-4 w-24 h-24 bg-rose-500/20 rounded-full blur-2xl group-hover:bg-rose-500/30 transition-all"></div>
-      <h3 class="text-sm font-medium text-sky-100 flex items-center gap-2 mb-2">
-        <svg class="w-4 h-4 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-        Attacks Blocked Today
-      </h3>
-      <div class="text-3xl font-bold text-white tracking-tight">{{ number_format($stats['total_attacks_today'] ?? 0) }}</div>
-    </div>
-    
-    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
-      <div class="absolute -right-4 -top-4 w-24 h-24 bg-emerald-500/20 rounded-full blur-2xl group-hover:bg-emerald-500/30 transition-all"></div>
-      <h3 class="text-sm font-medium text-sky-100 flex items-center gap-2 mb-2">
-        <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-        Verified Users Today
-      </h3>
-      <div class="text-3xl font-bold text-white tracking-tight">{{ number_format($stats['total_visitors_today'] ?? 0) }}</div>
-    </div>
-    
-    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl relative overflow-hidden group">
-      <div class="absolute -right-4 -top-4 w-24 h-24 bg-blue-500/20 rounded-full blur-2xl group-hover:bg-blue-500/30 transition-all"></div>
-      <h3 class="text-sm font-medium text-sky-100 flex items-center gap-2 mb-2">
-        <svg class="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-        Active Domains
-      </h3>
-      <div class="text-3xl font-bold text-white tracking-tight">{{ number_format($stats['active_domains'] ?? 0) }}</div>
-    </div>
-  </div>
+  @php
+    $sessionTrustCount = number_format($stats['total_visitors_today'] ?? 0);
 
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 es-animate es-animate-delay">
-    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl">
-      <h3 class="text-sm font-medium text-sky-100 flex items-center gap-2 mb-4">
-        <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-        Top Attacking Countries (Today)
+    $leftSignals = [
+      ['label' => 'Traffic Ingress', 'value' => number_format($stats['total_visitors_today'] ?? 0)],
+      ['label' => 'Bot Signals', 'value' => number_format($stats['total_attacks_today'] ?? 0)],
+      ['label' => 'Policy Checks', 'value' => !empty($stats['recent_critical']) ? 'Live' : 'Idle'],
+      ['label' => 'Session Trust', 'value' => $sessionTrustCount],
+    ];
+
+    $services = [
+      [
+        'label' => 'Protected Domains',
+        'meta' => number_format($stats['active_domains'] ?? 0) . ' active',
+        'icon' => 'globe.svg',
+      ],
+      [
+        'label' => 'Threat Blocks',
+        'meta' => number_format($stats['total_attacks_today'] ?? 0) . ' today',
+        'icon' => 'shield-keyhole.svg',
+      ],
+      [
+        'label' => 'Target Focus',
+        'meta' => preg_replace('/^www\./i', '', $stats['top_domains'][0]['domain_name'] ?? 'No target'),
+        'icon' => 'network-wired.svg',
+      ],
+      [
+        'label' => 'Session Trust',
+        'meta' => $sessionTrustCount . ' verified',
+        'icon' => 'circle-check.svg',
+      ],
+    ];
+
+    $kpis = [
+      [
+        'label' => 'Traffic',
+        'value' => number_format($stats['total_visitors_today'] ?? 0),
+        'meta' => !empty($stats['top_countries']) ? strtoupper($stats['top_countries'][0]['country'] ?? '') . ' active' : 'Live telemetry',
+        'icon' => 'signal-good.svg',
+        'points' => '0,28 16,20 30,24 44,12 58,18 72,8 86,14 100,4',
+      ],
+      [
+        'label' => 'Domains',
+        'value' => number_format($stats['active_domains'] ?? 0),
+        'meta' => number_format(count($stats['top_domains'] ?? [])) . ' high focus',
+        'icon' => 'globe.svg',
+        'points' => '0,24 16,26 32,22 48,19 64,17 80,19 92,22 100,28',
+      ],
+      [
+        'label' => 'Blocks',
+        'value' => number_format($stats['total_attacks_today'] ?? 0),
+        'meta' => !empty($stats['recent_critical']) ? 'Critical events detected' : 'No critical activity',
+        'icon' => 'shield-keyhole.svg',
+        'points' => '0,30 16,24 32,18 48,22 64,10 80,18 100,14',
+        'danger' => !empty($stats['recent_critical']),
+      ],
+      [
+        'label' => 'Uptime',
+        'value' => '99.99%',
+        'meta' => 'Enterprise SLA compliant',
+        'icon' => 'circle-check.svg',
+        'points' => '0,22 20,22 40,22 60,22 80,22 100,22',
+      ],
+    ];
+  @endphp
+
+  <section class="es-overview-page es-animate">
+    <div class="es-overview-shell">
+      @if($billingStatus)
+        @if($billingStatus['active_grant'])
+          <div class="mb-4 rounded-xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
+            Manual {{ strtoupper($billingStatus['active_grant']['granted_plan_key']) }} grant active until {{ $billingStatus['active_grant']['ends_at']?->format('Y-m-d') }}.
+          </div>
+        @endif
+
+        <div class="es-usage-grid">
+          @foreach([
+            [
+              'title' => 'Protected Sessions',
+              'metric' => $billingStatus['protected_sessions'],
+              'meta' => 'Current cycle protection volume',
+            ],
+            [
+              'title' => 'Bot Requests Rejected',
+              'metric' => $billingStatus['bot_requests'],
+              'meta' => 'Fair-use blocked or challenged traffic',
+            ],
+          ] as $usageCard)
+            <div class="es-usage-card">
+              <div class="es-usage-card-head">
+                <div>
+                  <p class="es-usage-card-kicker">{{ $billingStatus['plan_name'] }} Plan</p>
+                  <h2 class="es-usage-card-title">{{ $usageCard['title'] }}</h2>
+                </div>
+                <span class="es-usage-card-badge es-usage-card-badge-{{ $usageCard['metric']['level'] }}">
+                  {{ $usageCard['metric']['percentage'] }}%
+                </span>
+              </div>
+              <div class="es-usage-card-value">
+                {{ $usageCard['metric']['formatted_used'] }}
+                <span>/ {{ $usageCard['metric']['formatted_limit'] }}</span>
+              </div>
+              <p class="es-usage-card-meta">{{ $usageCard['meta'] }}</p>
+              <div class="es-usage-progress">
+                <div class="es-usage-progress-bar es-usage-progress-bar-{{ $usageCard['metric']['level'] }}" style="width: {{ $usageCard['metric']['percentage'] }}%"></div>
+              </div>
+              <div class="es-usage-card-foot">
+                <span>{{ $usageCard['metric']['formatted_remaining'] }} remaining this cycle</span>
+                <span>{{ $billingStatus['current_cycle_end_at']->format('Y-m-d') }} reset</span>
+              </div>
+            </div>
+          @endforeach
+        </div>
+      @endif
+
+      <div class="es-overview-header">
+        <div>
+          <p class="es-overview-kicker">VerifySky Operations</p>
+          <h1 class="es-overview-title">Control Plane</h1>
+          <p class="es-overview-subtitle">Unified visibility. Intelligent routing. Assured delivery.</p>
+        </div>
+
+        <div class="es-overview-live-pill">
+          <span class="es-overview-live-dot"></span>
+          <span>System Live</span>
+        </div>
+      </div>
+
+      <div class="es-topology-frame">
+        <div class="es-topology-grid"></div>
+        <svg class="es-topology-lines" viewBox="0 0 1000 520" role="img" aria-label="VerifySky control plane topology">
+          <path class="es-topology-line-primary" d="M120 120 C300 120 340 180 455 215" />
+          <path class="es-topology-line-accent" d="M120 205 C300 205 340 225 455 245" />
+          <path class="es-topology-line-secondary" d="M120 290 C300 290 340 265 455 275" />
+          <path class="es-topology-line-primary" d="M120 375 C300 375 340 310 455 305" />
+
+          <path class="es-topology-line-accent" d="M545 215 C660 180 700 120 880 120" />
+          <path class="es-topology-line-primary" d="M545 245 C660 225 700 205 880 205" />
+          <path class="es-topology-line-secondary" d="M545 275 C660 265 700 290 880 290" />
+          <path class="es-topology-line-accent" d="M545 305 C660 310 700 375 880 375" />
+
+          @foreach([[120,120],[120,205],[120,290],[120,375],[880,120],[880,205],[880,290],[880,375]] as [$cx, $cy])
+            <circle class="es-topology-node es-topology-node-live" cx="{{ $cx }}" cy="{{ $cy }}" r="5" />
+          @endforeach
+        </svg>
+
+        <div class="es-topology-layout">
+          <div class="es-topology-column es-topology-column-left">
+            @foreach($leftSignals as $signal)
+              <div class="es-topology-metric-pill">
+                <span class="es-topology-pulse"></span>
+                <span class="es-topology-metric-copy">
+                  <span class="es-topology-metric-label">{{ $signal['label'] }}</span>
+                  <span class="es-topology-metric-value">{{ $signal['value'] }}</span>
+                </span>
+              </div>
+            @endforeach
+          </div>
+
+          <div class="es-topology-center">
+            <div class="es-topology-ring es-topology-ring-lg"></div>
+            <div class="es-topology-ring es-topology-ring-sm"></div>
+            <div class="es-topology-core-shell">
+              <div class="es-topology-core">
+                <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="h-14 w-14 object-contain">
+              </div>
+            </div>
+          </div>
+
+          <div class="es-topology-column es-topology-column-right">
+            @foreach($services as $service)
+              <div class="es-topology-service-pill">
+                <span class="es-topology-pulse"></span>
+                <img src="{{ asset('duotone/'.$service['icon']) }}" alt="{{ $service['label'] }}" class="es-duotone-icon es-overview-icon h-5 w-5">
+                <span class="min-w-0">
+                  <span class="block truncate">{{ $service['label'] }}</span>
+                  <span class="mt-1 block truncate text-[10px] uppercase tracking-[0.14em] text-[#AEB9CC]">{{ $service['meta'] }}</span>
+                </span>
+              </div>
+            @endforeach
+          </div>
+        </div>
+      </div>
+
+      <div class="es-overview-kpi-grid">
+        @foreach($kpis as $metric)
+          <div class="es-overview-kpi-card">
+            <div class="es-overview-kpi-head">
+              <span>{{ $metric['label'] }}</span>
+              <img src="{{ asset('duotone/'.$metric['icon']) }}" alt="{{ $metric['label'] }}" class="es-duotone-icon es-overview-icon h-4 w-4">
+            </div>
+            <div class="es-overview-kpi-value">{{ $metric['value'] }}</div>
+            <div class="es-overview-kpi-meta {{ !empty($metric['danger']) ? 'es-overview-kpi-meta-danger' : '' }}">{{ $metric['meta'] }}</div>
+            <svg class="es-overview-sparkline" viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">
+              <polyline points="{{ $metric['points'] }}" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </div>
+        @endforeach
+      </div>
+    </div>
+  </section>
+
+  <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 es-animate es-animate-delay">
+    <div class="es-card p-5">
+      <h3 class="mb-4 flex items-center gap-2 text-sm font-bold text-[#FFFFFF]">
+        <img src="{{ asset('duotone/globe.svg') }}" alt="countries" class="es-duotone-icon es-overview-icon h-4 w-4">
+        Top Attacking Countries
       </h3>
       <div class="flex flex-col gap-3">
         @forelse($stats['top_countries'] ?? [] as $tc)
           <div class="flex items-center justify-between text-sm">
             <div class="flex items-center gap-2">
-              <img src="https://flagcdn.com/w20/{{ strtolower($tc['country'] ?? '') }}.png" srcset="https://flagcdn.com/w40/{{ strtolower($tc['country'] ?? '') }}.png 2x" alt="{{ $tc['country'] ?? '' }}" class="w-5 h-auto rounded-sm border border-gray-700/50 object-cover opacity-90 hover:opacity-100 transition-opacity">
-              <span class="text-slate-200 font-medium">{{ strtoupper($tc['country'] ?? '') }}</span>
+              <img src="https://flagcdn.com/w20/{{ strtolower($tc['country'] ?? '') }}.png" srcset="https://flagcdn.com/w40/{{ strtolower($tc['country'] ?? '') }}.png 2x" alt="{{ $tc['country'] ?? '' }}" class="h-auto w-5 rounded-sm border border-white/10 object-cover">
+              <span class="font-medium text-[#D7E1F5]">{{ strtoupper($tc['country'] ?? '') }}</span>
             </div>
-            <span class="text-xs font-bold text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded-md border border-rose-500/30">{{ number_format($tc['attack_count'] ?? 0) }}</span>
+            <span class="rounded-md border border-[#D47B78]/30 bg-[#D47B78]/12 px-2 py-1 text-xs font-bold text-[#FFE6E3]">{{ number_format($tc['attack_count'] ?? 0) }}</span>
           </div>
         @empty
-          <div class="text-xs text-sky-300/50">No attacks recorded today.</div>
+          <div class="text-xs text-[#959BA7]">No attacks recorded today.</div>
         @endforelse
       </div>
     </div>
 
-    <div class="es-card p-5 border border-sky-500/20 bg-sky-900/10 rounded-xl">
-      <h3 class="text-sm font-medium text-sky-100 flex items-center gap-2 mb-4">
-        <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-        Top Targeted Domains (Today)
+    <div class="es-card p-5">
+      <h3 class="mb-4 flex items-center gap-2 text-sm font-bold text-[#FFFFFF]">
+        <img src="{{ asset('duotone/network-wired.svg') }}" alt="domains" class="es-duotone-icon es-overview-icon h-4 w-4">
+        Top Targeted Domains
       </h3>
       <div class="flex flex-col gap-3">
         @forelse($stats['top_domains'] ?? [] as $td)
           <div class="flex items-center justify-between text-sm">
-            <span class="text-slate-200 font-medium">{{ preg_replace('/^www\./i', '', $td['domain_name'] ?? '-') }}</span>
-            <span class="text-xs font-bold text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded-md border border-rose-500/30">{{ number_format($td['attack_count'] ?? 0) }}</span>
+            <span class="font-medium text-[#D7E1F5]">{{ preg_replace('/^www\./i', '', $td['domain_name'] ?? '-') }}</span>
+            <span class="rounded-md border border-[#D47B78]/30 bg-[#D47B78]/12 px-2 py-1 text-xs font-bold text-[#FFE6E3]">{{ number_format($td['attack_count'] ?? 0) }}</span>
           </div>
         @empty
-          <div class="text-xs text-sky-300/50">No attacks recorded today.</div>
+          <div class="text-xs text-[#959BA7]">No attacks recorded today.</div>
         @endforelse
       </div>
     </div>
   </div>
 
-  <div class="es-card es-animate es-animate-delay-2 p-5 md:p-6 rounded-xl border border-sky-500/20">
-    <div class="flex items-center justify-between mb-4 pb-3 border-b border-sky-500/20">
-      <h3 class="text-lg font-bold text-sky-100 flex items-center gap-2">
-        <svg class="w-5 h-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+  <div class="es-card es-animate es-animate-delay-2 mt-6 p-5 md:p-6">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h3 class="flex items-center gap-2 text-lg font-bold text-[#FFFFFF]">
+        <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="critical" class="es-duotone-icon es-icon-tone-coral h-4 w-4">
         Recent Critical Blocks
       </h3>
-      <a href="{{ route('logs.index') }}" class="text-xs font-semibold text-sky-400 hover:text-sky-300 transition-colors bg-sky-500/10 px-2 py-1 rounded-md border border-sky-500/20">View All Logs &rarr;</a>
+      <a href="{{ route('logs.index') }}" class="es-btn es-btn-secondary es-btn-compact">View All Logs</a>
     </div>
     <div class="overflow-x-auto">
       <table class="es-table min-w-full">
         <thead>
           <tr>
-            <th class="text-left text-xs uppercase tracking-wider text-sky-200/60 pb-3 font-semibold px-2">IP Address</th>
-            <th class="text-left text-xs uppercase tracking-wider text-sky-200/60 pb-3 font-semibold px-2">Country</th>
-            <th class="text-left text-xs uppercase tracking-wider text-sky-200/60 pb-3 font-semibold px-2">Target Domain</th>
-            <th class="text-left text-xs uppercase tracking-wider text-sky-200/60 pb-3 font-semibold px-2">Details</th>
-            <th class="text-left text-xs uppercase tracking-wider text-sky-200/60 pb-3 font-semibold px-2">Time</th>
+            <th>IP Address</th>
+            <th>Country</th>
+            <th>Target Domain</th>
+            <th>Details</th>
+            <th>Time</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-sky-500/10">
+        <tbody>
         @forelse($stats['recent_critical'] ?? [] as $row)
-          <tr class="hover:bg-slate-800/30 transition-colors">
-            <td class="py-3 px-2 whitespace-nowrap">
-              <span class="font-mono text-rose-300 bg-rose-500/10 px-1.5 py-0.5 rounded text-sm border border-rose-500/20">{{ $row['ip_address'] ?? '' }}</span>
-            </td>
-            <td class="py-3 px-2 whitespace-nowrap text-slate-300 text-sm">
+          <tr>
+            <td><span class="font-mono text-[#FFE6E3]">{{ $row['ip_address'] ?? '' }}</span></td>
+            <td>
               @if(!empty($row['country']) && $row['country'] !== 'T1')
                 <div class="flex items-center gap-1.5">
-                  <img src="https://flagcdn.com/w20/{{ strtolower($row['country']) }}.png" srcset="https://flagcdn.com/w40/{{ strtolower($row['country']) }}.png 2x" alt="{{ $row['country'] }}" class="w-4 h-auto rounded-[2px] opacity-90">
+                  <img src="https://flagcdn.com/w20/{{ strtolower($row['country']) }}.png" srcset="https://flagcdn.com/w40/{{ strtolower($row['country']) }}.png 2x" alt="{{ $row['country'] }}" class="h-auto w-4 rounded-[2px]">
                   <span>{{ strtoupper($row['country']) }}</span>
                 </div>
               @else
                 -
               @endif
             </td>
-            <td class="py-3 px-2 whitespace-nowrap text-sky-200 text-sm font-medium">{{ preg_replace('/^www\./i', '', $row['domain_name'] ?? '-') }}</td>
-            <td class="py-3 px-2 text-slate-400 text-xs max-w-xs truncate" title="{{ $row['details'] ?? '' }}">{{ $row['details'] ?: 'Malicious Activity / Hard Block' }}</td>
-            <td class="py-3 px-2 whitespace-nowrap text-sky-200/60 text-xs">
-              {{ $row['created_at'] ? \Carbon\Carbon::parse($row['created_at'])->diffForHumans() : 'Unknown' }}
-            </td>
+            <td>{{ preg_replace('/^www\./i', '', $row['domain_name'] ?? '-') }}</td>
+            <td class="max-w-xs truncate" title="{{ $row['details'] ?? '' }}">{{ $row['details'] ?: 'Malicious Activity / Hard Block' }}</td>
+            <td>{{ $row['created_at'] ? \Carbon\Carbon::parse($row['created_at'])->diffForHumans() : 'Unknown' }}</td>
           </tr>
         @empty
-          <tr><td colspan="5" class="py-6 text-center text-sm text-sky-300/50">No critical events recorded. Smooth sailing!</td></tr>
+          <tr><td colspan="5" class="py-6 text-center text-sm text-[#959BA7]">No critical events recorded.</td></tr>
         @endforelse
         </tbody>
       </table>

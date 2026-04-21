@@ -49,17 +49,20 @@ export interface Env {
   ES_CRAWLER_RDNS_VERIFY?: string;
   // Optional flag to disable automatic Cloudflare WAF rule deployment by AI.
   ES_DISABLE_WAF_AUTODEPLOY?: string;
-  // Optional strict mode for Turnstile verification on slider submit.
-  // "on" => reject when Turnstile token is missing/invalid.
+  // Strict mode for Turnstile verification on slider submit.
+  // Default production posture is "on": reject when Turnstile token is missing/invalid.
   // "off" => allow soft-pass if slider+telemetry checks pass.
   ES_TURNSTILE_STRICT?: string;
   // Optional strict mode for challenge context binding (cookie/IP).
   // "on" => reject on cookie/IP mismatch.
-  // "off" => log mismatch but continue verification.
+  // "off" => log mismatch but continue verification; default remains off to avoid mobile/NAT false positives.
   ES_STRICT_CONTEXT_BINDING?: string;
   // Optional URL used to redirect requests that hit final hard-block policy.
   // Example: "https://example.com/blocked"
   ES_BLOCK_REDIRECT_URL?: string;
+  // Optional HMAC signing key for the billing-only metering cookie.
+  // This is intentionally separate from JWT_SECRET.
+  METER_SECRET?: string;
 
   // ---- Domain-Specific Config ----
   // Turnstile keys, Zone IDs are resolved per-request from D1 `domain_configs`.
@@ -197,6 +200,8 @@ export interface IpAccessRuleRecord {
 export interface CustomFirewallRuleRecord {
   id: number;
   domain_name: string;
+  tenant_id?: string | null;
+  scope?: "domain" | "tenant" | "platform" | null;
   description: string | null;
   action: "block" | "challenge" | "js_challenge" | "managed_challenge" | "log" | "allow" | "bypass";
   expression_json: string;

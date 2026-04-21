@@ -1,0 +1,27 @@
+<?php
+
+namespace App\Actions\Firewall;
+
+use App\Services\EdgeShieldService;
+
+class ToggleFirewallRuleAction
+{
+    public function __construct(private readonly EdgeShieldService $edgeShield) {}
+
+    public function execute(string $domain, int $ruleId, bool $isPausing): array
+    {
+        if ($isPausing) {
+            $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
+            if ($ruleRes['ok'] && ! empty($ruleRes['rule'])) {
+                $rule = $ruleRes['rule'];
+                $this->edgeShield->syncKvForFirewallRuleAction(
+                    $domain,
+                    (string) ($rule['expression_json'] ?? ''),
+                    (string) ($rule['action'] ?? '')
+                );
+            }
+        }
+
+        return $this->edgeShield->toggleCustomFirewallRule($domain, $ruleId, $isPausing);
+    }
+}

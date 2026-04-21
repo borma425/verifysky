@@ -43,6 +43,7 @@ id = "c8105e6570f24c58bbe137b10b1c0b82"
 #
 # Required global secrets (shared across all tenants):
 #   JWT_SECRET          — HMAC-SHA256 signing key for Human Session Tokens
+#   METER_SECRET        — HMAC-SHA256 signing key for es_meter billing cookies
 #   CF_API_TOKEN        — Cloudflare API token (WAF write + Turnstile manage)
 #   OPENROUTER_API_KEY  — OpenRouter API key for AI-driven threat analysis
 #
@@ -72,5 +73,5 @@ OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"
 OPENROUTER_FALLBACK_MODELS = "openai/gpt-4o-mini"
 ES_TEST_MODE = "off"
 ES_DISABLE_WAF_AUTODEPLOY = "on"
-ES_TURNSTILE_STRICT = "off"
+ES_TURNSTILE_STRICT = "on"
 ES_STRICT_CONTEXT_BINDING = "off"

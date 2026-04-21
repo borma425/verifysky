@@ -6,10 +6,10 @@
 // Usage: node scripts/init-globals.mjs
 //
 // This script will:
-//   1. Generate a cryptographically secure 32-byte JWT_SECRET
+//   1. Generate cryptographically secure JWT_SECRET and METER_SECRET values
 //   2. Prompt for CLOUDFLARE_API_TOKEN (Cloudflare API Token)
 //   3. Prompt for OPENROUTER_API_KEY (OpenRouter API Key)
-//   4. Push all three as Wrangler secrets
+//   4. Push all four as Wrangler secrets
 //
 // Prerequisites:
 //   - Wrangler CLI installed and authenticated
@@ -75,14 +75,16 @@ async function main() {
   console.log("\n" + "═".repeat(60));
   console.log("  Ultimate Edge Shield — Global Secrets Bootstrap");
   console.log("═".repeat(60));
-  console.log("  This script will configure the three global secrets");
+  console.log("  This script will configure the global secrets");
   console.log("  required by the Edge Shield Worker.");
   console.log("═".repeat(60) + "\n");
 
-  // Step 1: Generate JWT_SECRET
-  console.log("[1/3] Generating JWT_SECRET (32-byte HMAC-SHA256 key)");
+  // Step 1: Generate JWT_SECRET + METER_SECRET
+  console.log("[1/3] Generating JWT_SECRET and METER_SECRET (32-byte HMAC-SHA256 keys)");
   const jwtSecret = generateSecureKey(32);
-  console.log(`  → Generated: ${jwtSecret.substring(0, 8)}${"*".repeat(48)} (masked)`);
+  const meterSecret = process.env.METER_SECRET || generateSecureKey(32);
+  console.log(`  → JWT_SECRET:   ${jwtSecret.substring(0, 8)}${"*".repeat(48)} (masked)`);
+  console.log(`  → METER_SECRET: ${meterSecret.substring(0, 8)}${"*".repeat(48)} (masked)`);
   console.log(`  → Entropy: 256 bits\n`);
 
   // Step 2: Prompt for CLOUDFLARE_API_TOKEN
@@ -121,6 +123,7 @@ async function main() {
 
   const results = [
     pushSecret("JWT_SECRET", jwtSecret),
+    pushSecret("METER_SECRET", meterSecret),
     pushSecret("CF_API_TOKEN", cfApiToken),
     pushSecret("OPENROUTER_API_KEY", openRouterKey),
   ];

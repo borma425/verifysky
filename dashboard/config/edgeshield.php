@@ -1,0 +1,33 @@
+<?php
+
+return [
+    'root' => env('EDGE_SHIELD_ROOT', ''),
+    'wrangler_bin' => env('WRANGLER_BIN', ''),
+    'node_bin_dir' => env('NODE_BIN_DIR', ''),
+    'cloudflare_api_token' => env('CLOUDFLARE_API_TOKEN', env('CF_API_TOKEN', '')),
+    'cloudflare_account_id' => env('CLOUDFLARE_ACCOUNT_ID', env('CF_ACCOUNT_ID', '')),
+    'runtime_kv_namespace_id' => env('CLOUDFLARE_KV_NAMESPACE_ID', env('SESSION_KV_NAMESPACE_ID', '')),
+    'worker_name' => env('EDGE_SHIELD_WORKER_NAME', 'verifysky-edge-staging'),
+    'saas_zone_id' => env('CLOUDFLARE_ZONE_ID', ''),
+    'saas_cname_target' => env('SAAS_CNAME_TARGET', 'customers.verifysky.com'),
+    'd1_mode' => env('EDGE_SHIELD_D1_MODE', 'remote'),
+    'd1_database_name' => env('D1_DATABASE_NAME', 'EDGE_SHIELD_DB'),
+    'd1_database_id' => env('D1_DATABASE_ID', ''),
+    'd1_read_cache_ttl' => (int) env('EDGE_SHIELD_D1_READ_CACHE_TTL', 60),
+    'd1_allow_wrangler_remote' => filter_var(env('EDGE_SHIELD_D1_ALLOW_WRANGLER_REMOTE', false), FILTER_VALIDATE_BOOL),
+    'runtime' => [
+        'openrouter_model' => env('OPENROUTER_MODEL', ''),
+        'openrouter_fallback_models' => env('OPENROUTER_FALLBACK_MODELS', ''),
+        'openrouter_api_key' => env('OPENROUTER_API_KEY', ''),
+        'jwt_secret' => env('JWT_SECRET', ''),
+        'meter_secret' => env('METER_SECRET', ''),
+        'es_admin_token' => env('ES_ADMIN_TOKEN', ''),
+        'es_disable_waf_autodeploy' => env('ES_DISABLE_WAF_AUTODEPLOY', ''),
+        'es_allow_ua_crawler_allowlist' => env('ES_ALLOW_UA_CRAWLER_ALLOWLIST', ''),
+        'es_turnstile_strict' => env('ES_TURNSTILE_STRICT', 'on'),
+        'es_strict_context_binding' => env('ES_STRICT_CONTEXT_BINDING', 'off'),
+        'es_admin_allowed_ips' => env('ES_ADMIN_ALLOWED_IPS', ''),
+        'es_admin_rate_limit_per_min' => env('ES_ADMIN_RATE_LIMIT_PER_MIN', ''),
+        'es_block_redirect_url' => env('ES_BLOCK_REDIRECT_URL', ''),
+    ],
+];

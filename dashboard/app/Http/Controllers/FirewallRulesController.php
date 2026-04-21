@@ -2,186 +2,109 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Firewall\CreateFirewallRuleAction;
+use App\Actions\Firewall\DeleteBulkFirewallRulesAction;
+use App\Actions\Firewall\DeleteFirewallRuleAction;
+use App\Actions\Firewall\ToggleFirewallRuleAction;
+use App\Actions\Firewall\UpdateFirewallRuleAction;
+use App\Http\Requests\Firewall\BulkDestroyFirewallRulesRequest;
+use App\Http\Requests\Firewall\StoreFirewallRuleRequest;
+use App\Http\Requests\Firewall\ToggleFirewallRuleRequest;
+use App\Http\Requests\Firewall\UpdateFirewallRuleRequest;
+use App\Jobs\PurgeRuntimeBundleCache;
+use App\Models\Tenant;
 use App\Services\EdgeShieldService;
+use App\Services\Plans\PlanLimitsService;
+use App\ViewData\FirewallIndexViewData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class FirewallRulesController extends Controller
 {
-    public function __construct(private readonly EdgeShieldService $edgeShield)
-    {
-    }
+    public function __construct(
+        private readonly EdgeShieldService $edgeShield,
+        private readonly CreateFirewallRuleAction $createFirewallRule,
+        private readonly UpdateFirewallRuleAction $updateFirewallRule,
+        private readonly ToggleFirewallRuleAction $toggleFirewallRule,
+        private readonly DeleteFirewallRuleAction $deleteFirewallRule,
+        private readonly DeleteBulkFirewallRulesAction $deleteBulkFirewallRules,
+        private readonly PlanLimitsService $planLimits
+    ) {}
 
     public function index(Request $request): View
     {
-        // Ensure table exists
-        $this->edgeShield->ensureCustomFirewallRulesTable();
-
-        // Fetch all domains for the dropdown
-        $domainsRes = $this->edgeShield->listDomains();
+        $tenantId = (string) session('current_tenant_id', '');
+        $isAdmin = (bool) session('is_admin');
+        $domainsRes = $this->edgeShield->listDomains($tenantId, $isAdmin);
         $domains = $domainsRes['ok'] ? ($domainsRes['domains'] ?? []) : [];
 
-        // Pagination calculations
         $page = max(1, (int) $request->get('page', 1));
         $perPage = 20;
         $offset = ($page - 1) * $perPage;
-
-        // Fetch paginated firewall rules globally
-        $rulesRes = $this->edgeShield->listPaginatedCustomFirewallRules($perPage, $offset);
-        $rules = $rulesRes['ok'] ? ($rulesRes['rules'] ?? []) : [];
-        $totalRules = $rulesRes['ok'] ? ($rulesRes['total'] ?? 0) : 0;
-        $totalPages = ceil($totalRules / $perPage);
+        if ($isAdmin) {
+            $rulesRes = $this->edgeShield->listPaginatedCustomFirewallRules($perPage, $offset);
+            $rules = $rulesRes['ok'] ? ($rulesRes['rules'] ?? []) : [];
+            $totalRules = $rulesRes['ok'] ? ($rulesRes['total'] ?? 0) : 0;
+        } else {
+            $allRulesRes = $this->edgeShield->listTenantCustomFirewallRules($tenantId);
+            $filteredRules = $allRulesRes['ok'] ? ($allRulesRes['rules'] ?? []) : [];
+            $rulesRes = [
+                'ok' => (bool) ($allRulesRes['ok'] ?? false),
+                'error' => $allRulesRes['error'] ?? null,
+            ];
+            $totalRules = count($filteredRules);
+            $rules = array_slice($filteredRules, $offset, $perPage);
+        }
+        $totalPages = max(1, (int) ceil(max(1, $totalRules) / $perPage));
 
         $loadErrors = [];
-        if (!$domainsRes['ok']) $loadErrors[] = 'Failed to load domains: ' . ($domainsRes['error'] ?? 'Unknown error');
-        if (!$rulesRes['ok']) $loadErrors[] = 'Failed to load firewall rules: ' . ($rulesRes['error'] ?? 'Unknown error');
+        if (! $domainsRes['ok']) {
+            $loadErrors[] = 'Failed to load domains: '.($domainsRes['error'] ?? 'Unknown error');
+        }
+        if (! $rulesRes['ok']) {
+            $loadErrors[] = 'Failed to load firewall rules: '.($rulesRes['error'] ?? 'Unknown error');
+        }
 
-        return view('firewall', [
-            'domains' => $domains,
-            'firewallRules' => $rules,
-            'loadErrors' => $loadErrors,
-            'currentPage' => $page,
-            'totalPages' => $totalPages,
-            'totalRules' => $totalRules,
-        ]);
+        $viewData = new FirewallIndexViewData(
+            $domains,
+            $rules,
+            $loadErrors,
+            $page,
+            $totalPages,
+            (int) $totalRules,
+            $this->planLimits->getFirewallRulesUsage($tenantId !== '' ? $tenantId : null, $isAdmin),
+            true,
+            $isAdmin
+        );
+
+        return view('firewall', $viewData->toArray());
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(StoreFirewallRuleRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'domain_name' => ['required', 'string'],
-            'description' => ['nullable', 'string', 'max:255'],
-            'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow,block_ip_farm'],
-            'field' => ['required', 'string', 'in:ip.src,ip.src.country,ip.src.asnum,http.request.uri.path,http.request.method,http.user_agent'],
-            'operator' => ['required', 'string', 'in:eq,ne,in,contains,not_contains,starts_with'],
-            'value' => ['required', 'string', 'max:3000'],
-            'duration' => ['nullable', 'string', 'in:forever,1h,6h,24h,7d,30d'],
-            'paused' => ['nullable', 'in:0,1'],
-        ]);
-
-        $domain = $validated['domain_name'];
-
-        $expressionJson = json_encode([
-            'field' => $validated['field'],
-            'operator' => $validated['operator'],
-            'value' => $validated['value'],
-        ]);
-
-        $expiresAt = null;
-        if (!empty($validated['duration']) && $validated['duration'] !== 'forever') {
-            $seconds = match ($validated['duration']) {
-                '1h' => 3600,
-                '6h' => 21600,
-                '24h' => 86400,
-                '7d' => 604800,
-                '30d' => 2592000,
-                default => 0,
-            };
-            if ($seconds > 0) {
-                $expiresAt = time() + $seconds;
-            }
+        $validated = $request->validated();
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        if ($tenantId !== '' && ! (bool) session('is_admin')) {
+            $validated['tenant_id'] = $tenantId;
+            $validated['scope'] = strtolower((string) ($validated['domain_name'] ?? '')) === 'global' ? 'tenant' : 'domain';
         }
-
-        // --- IP Farm Sync: Allow rule → auto-remove IPs from farm ---
-        if ($validated['action'] === 'allow' && $validated['field'] === 'ip.src') {
-            $ipRaw = trim(strtolower($validated['value']));
-            
-            // If it's a single exact IP, purge its security logs and any manual blocks instantly
-            if (!str_contains($ipRaw, ',') && !str_contains($ipRaw, '/')) {
-                $this->edgeShield->queryD1("DELETE FROM security_logs WHERE ip_address = '" . str_replace("'", "''", $ipRaw) . "'");
-                $this->edgeShield->queryD1("DELETE FROM ip_access_rules WHERE ip_or_cidr = '" . str_replace("'", "''", $ipRaw) . "'");
-            }
-
-            $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
-            if (!empty($farmIps)) {
-                $removal = $this->edgeShield->removeIpsFromFarm($farmIps);
-                $removedCount = $removal['removed'] ?? 0;
-                // Continue creating the allow rule, but add context to success message
-                $farmMessage = $removedCount > 0
-                    ? " Also removed {$removedCount} IP(s) from the IP Farm graveyard."
-                    : '';
-
-                $create = $this->edgeShield->createCustomFirewallRule(
-                    $domain,
-                    $validated['description'] ?? '',
-                    $validated['action'],
-                    $expressionJson,
-                    ((int) ($validated['paused'] ?? 0)) === 1,
-                    $expiresAt
-                );
-
-                return back()->with(
-                    $create['ok'] ? 'status' : 'error',
-                    $create['ok'] ? 'Firewall rule created successfully.' . $farmMessage : ($create['error'] ?? 'Failed to create firewall rule.')
-                );
-            }
-        }
-
-        // --- IP Farm Sync: Block rule → reject if IP already in farm ---
-        if ($validated['action'] === 'block' && $validated['field'] === 'ip.src') {
-            $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
-            if (!empty($farmIps)) {
-                $ipList = implode(', ', array_slice($farmIps, 0, 5));
-                $extra = count($farmIps) > 5 ? ' (+' . (count($farmIps) - 5) . ' more)' : '';
-                return back()->with(
-                    'error',
-                    "These IPs are already permanently banned in the IP Farm: {$ipList}{$extra}. No need to create a duplicate block rule."
-                );
-            }
-        }
-
-        $finalAction = $validated['action'];
-        $finalDescription = $validated['description'] ?? '';
-
-        if ($finalAction === 'block_ip_farm') {
-            if ($validated['field'] !== 'ip.src') {
-                return back()->with('error', 'The "block to ip farm" action can only be used when Field is set to "IP Address / CIDR".');
-            }
-            $finalAction = 'block';
-            $expiresAt = null; // IP Farm rules are always forever
-            if (!str_starts_with($finalDescription, '[IP-FARM]')) {
-                $finalDescription = trim('[IP-FARM] ' . $finalDescription);
-            }
-        }
-
-        $create = $this->edgeShield->createCustomFirewallRule(
-            $domain,
-            $finalDescription,
-            $finalAction,
-            $expressionJson,
-            ((int) ($validated['paused'] ?? 0)) === 1,
-            $expiresAt
-        );
+        $create = $this->createFirewallRule->execute($validated);
+        $this->purgeTenantGlobalScope((string) ($validated['domain_name'] ?? ''));
 
         return back()->with(
             $create['ok'] ? 'status' : 'error',
-            $create['ok'] ? 'Firewall rule created successfully.' : ($create['error'] ?? 'Failed to create firewall rule.')
+            $create['ok']
+                ? 'Firewall rule created successfully.'.($create['message'] ?? '')
+                : ($create['error'] ?? 'Failed to create firewall rule.')
         );
     }
 
-    public function toggle(string $domain, int $ruleId, Request $request): RedirectResponse
+    public function toggle(string $domain, int $ruleId, ToggleFirewallRuleRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'paused' => ['required', 'in:0,1'],
-        ]);
-
-        $isPausing = ((int) $validated['paused']) === 1;
-
-        // When pausing a rule, revoke the corresponding KV admin entry
-        if ($isPausing) {
-            $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
-            if ($ruleRes['ok'] && !empty($ruleRes['rule'])) {
-                $rule = $ruleRes['rule'];
-                $this->edgeShield->syncKvForFirewallRuleAction(
-                    $domain,
-                    (string) ($rule['expression_json'] ?? ''),
-                    (string) ($rule['action'] ?? '')
-                );
-            }
-        }
-
-        $toggle = $this->edgeShield->toggleCustomFirewallRule($domain, $ruleId, $isPausing);
+        $isPausing = ((int) $request->validated()['paused']) === 1;
+        $toggle = $this->toggleFirewallRule->execute($domain, $ruleId, $isPausing);
+        $this->purgeTenantGlobalScope($domain);
 
         return back()->with(
             $toggle['ok'] ? 'status' : 'error',
@@ -191,18 +114,14 @@ class FirewallRulesController extends Controller
 
     public function destroy(string $domain, string $ruleId): RedirectResponse
     {
-        // Revoke KV entry before deleting the D1 rule
-        $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, (int) $ruleId);
-        if ($ruleRes['ok'] && !empty($ruleRes['rule'])) {
-            $rule = $ruleRes['rule'];
-            $this->edgeShield->syncKvForFirewallRuleAction(
-                $domain,
-                (string) ($rule['expression_json'] ?? ''),
-                (string) ($rule['action'] ?? '')
-            );
+        $tenantId = (string) session('current_tenant_id', '');
+        $isAdmin = (bool) session('is_admin');
+        if (! $this->planLimits->domainBelongsToTenant($domain, $tenantId !== '' ? $tenantId : null, $isAdmin)) {
+            abort(403, 'You do not have access to delete firewall rules for this domain.');
         }
 
-        $delete = $this->edgeShield->deleteCustomFirewallRule($domain, (int) $ruleId);
+        $delete = $this->deleteFirewallRule->execute($domain, (int) $ruleId);
+        $this->purgeTenantGlobalScope($domain);
 
         return back()->with(
             $delete['ok'] ? 'status' : 'error',
@@ -210,27 +129,9 @@ class FirewallRulesController extends Controller
         );
     }
 
-    public function bulkDestroy(Request $request): RedirectResponse
+    public function bulkDestroy(BulkDestroyFirewallRulesRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'rule_ids' => ['required', 'array'],
-            'rule_ids.*' => ['integer'],
-        ]);
-
-        // Revoke KV entries for all rules before bulk-deleting from D1
-        foreach ($validated['rule_ids'] as $id) {
-            $ruleRes = $this->edgeShield->getCustomFirewallRuleByIdGlobal((int) $id);
-            if ($ruleRes['ok'] && !empty($ruleRes['rule'])) {
-                $rule = $ruleRes['rule'];
-                $this->edgeShield->syncKvForFirewallRuleAction(
-                    (string) ($rule['domain_name'] ?? ''),
-                    (string) ($rule['expression_json'] ?? ''),
-                    (string) ($rule['action'] ?? '')
-                );
-            }
-        }
-
-        $delete = $this->edgeShield->deleteBulkCustomFirewallRules($validated['rule_ids']);
+        $delete = $this->deleteBulkFirewallRules->execute($request->validated()['rule_ids']);
 
         return back()->with(
             $delete['ok'] ? 'status' : 'error',
@@ -240,125 +141,51 @@ class FirewallRulesController extends Controller
 
     public function edit(string $domain, int $ruleId): View|RedirectResponse
     {
-        $domainsRes = $this->edgeShield->listDomains();
-        $domains = $domainsRes['ok'] ? ($domainsRes['domains'] ?? []) : [];
+        $tenantId = (string) session('current_tenant_id', '');
+        $isAdmin = (bool) session('is_admin');
+        if (! $this->planLimits->domainBelongsToTenant($domain, $tenantId !== '' ? $tenantId : null, $isAdmin)) {
+            abort(403, 'You do not have access to edit firewall rules for this domain.');
+        }
 
+        $domainsRes = $this->edgeShield->listDomains($tenantId, $isAdmin);
+        $domains = $domainsRes['ok'] ? ($domainsRes['domains'] ?? []) : [];
         $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
-        if (!$ruleRes['ok'] || !$ruleRes['rule']) {
+        if (! $ruleRes['ok'] || ! $ruleRes['rule']) {
             return redirect()->route('firewall.index')->with('error', $ruleRes['error'] ?? 'Rule not found.');
         }
 
-        return view('firewall_edit', [
-            'domains' => $domains,
-            'rule' => $ruleRes['rule'],
-        ]);
+        return view('firewall_edit', ['domains' => $domains, 'rule' => $ruleRes['rule']]);
     }
 
-    public function update(string $domain, int $ruleId, Request $request): RedirectResponse
+    public function update(string $domain, int $ruleId, UpdateFirewallRuleRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'description' => ['nullable', 'string', 'max:255'],
-            'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow,block_ip_farm'],
-            'field' => ['required', 'string', 'in:ip.src,ip.src.country,ip.src.asnum,http.request.uri.path,http.request.method,http.user_agent'],
-            'operator' => ['required', 'string', 'in:eq,ne,in,contains,not_contains,starts_with'],
-            'value' => ['required', 'string', 'max:3000'],
-            'duration' => ['nullable', 'string', 'in:forever,1h,6h,24h,7d,30d'],
-            'paused' => ['nullable', 'in:0,1'],
-            'preserve_expiry' => ['nullable', 'in:1'],
-        ]);
-
-        $expressionJson = json_encode([
-            'field' => $validated['field'],
-            'operator' => $validated['operator'],
-            'value' => $validated['value'],
-        ]);
-
-        $isPaused = ((int) ($validated['paused'] ?? 0)) === 1;
-
-        // Sync KV: revoke old action before applying updates
-        $oldRuleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
-        if ($oldRuleRes['ok'] && !empty($oldRuleRes['rule'])) {
-            $oldRule = $oldRuleRes['rule'];
-            $oldAction = (string) ($oldRule['action'] ?? '');
-            $newAction = $validated['action'];
-
-            // Revoke old KV if: action changed, or rule is being paused
-            if ($isPaused || $oldAction !== $newAction) {
-                $this->edgeShield->syncKvForFirewallRuleAction(
-                    $domain,
-                    (string) ($oldRule['expression_json'] ?? ''),
-                    $oldAction
-                );
-            }
-        }
-
-        $expiresAt = null;
-        if (!empty($validated['duration']) && $validated['duration'] !== 'forever') {
-            $seconds = match ($validated['duration']) {
-                '1m' => 60,
-                '1h' => 3600,
-                '6h' => 21600,
-                '24h' => 86400,
-                '7d' => 604800,
-                '30d' => 2592000,
-                default => 0,
-            };
-            if ($seconds > 0) {
-                $expiresAt = time() + $seconds;
-            }
-        } elseif (!empty($validated['preserve_expiry'])) {
-            if (isset($oldRuleRes) && ($oldRuleRes['ok'] ?? false) && !empty($oldRuleRes['rule']['expires_at'])) {
-                $expiresAt = $oldRuleRes['rule']['expires_at'];
-            } else {
-                $ruleRes = $this->edgeShield->getCustomFirewallRuleById($domain, $ruleId);
-                if ($ruleRes['ok'] && !empty($ruleRes['rule']['expires_at'])) {
-                    $expiresAt = $ruleRes['rule']['expires_at'];
-                }
-            }
-        }
-
-        $finalAction = $validated['action'];
-        $finalDescription = $validated['description'] ?? '';
-
-        if ($finalAction === 'allow' && $validated['field'] === 'ip.src') {
-            $ipRaw = trim(strtolower($validated['value']));
-            
-            // If it's a single exact IP, purge its security logs and any manual blocks instantly
-            if (!str_contains($ipRaw, ',') && !str_contains($ipRaw, '/')) {
-                $this->edgeShield->queryD1("DELETE FROM security_logs WHERE ip_address = '" . str_replace("'", "''", $ipRaw) . "'");
-                $this->edgeShield->queryD1("DELETE FROM ip_access_rules WHERE ip_or_cidr = '" . str_replace("'", "''", $ipRaw) . "'");
-            }
-
-            $farmIps = $this->edgeShield->findIpsInFarm($validated['value']);
-            if (!empty($farmIps)) {
-                $this->edgeShield->removeIpsFromFarm($farmIps);
-            }
-        }
-
-        if ($finalAction === 'block_ip_farm') {
-            if ($validated['field'] !== 'ip.src') {
-                return back()->with('error', 'The "block to ip farm" action can only be used when Field is set to "IP Address / CIDR".');
-            }
-            $finalAction = 'block';
-            $expiresAt = null; // IP Farm rules are always forever
-            if (!str_starts_with($finalDescription, '[IP-FARM]')) {
-                $finalDescription = trim('[IP-FARM] ' . $finalDescription);
-            }
-        }
-
-        $update = $this->edgeShield->updateCustomFirewallRule(
-            $domain,
-            $ruleId,
-            $finalDescription,
-            $finalAction,
-            $expressionJson,
-            $isPaused,
-            $expiresAt
-        );
+        $update = $this->updateFirewallRule->execute($domain, $ruleId, $request->validated());
+        $this->purgeTenantGlobalScope($domain);
 
         return redirect()->route('firewall.index')->with(
             $update['ok'] ? 'status' : 'error',
             $update['ok'] ? 'Firewall rule updated successfully.' : ($update['error'] ?? 'Failed to update firewall rule.')
         );
+    }
+
+    private function purgeTenantGlobalScope(string $domain): void
+    {
+        if ((bool) session('is_admin') || strtolower(trim($domain)) !== 'global') {
+            return;
+        }
+
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        if ($tenantId === '') {
+            return;
+        }
+
+        $tenant = Tenant::query()->find($tenantId);
+        if (! $tenant instanceof Tenant) {
+            return;
+        }
+
+        foreach ($tenant->domains()->pluck('hostname') as $hostname) {
+            PurgeRuntimeBundleCache::dispatch((string) $hostname);
+        }
     }
 }

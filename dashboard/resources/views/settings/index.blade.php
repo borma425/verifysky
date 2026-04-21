@@ -1,17 +1,17 @@
-@extends('layouts.app')
+@extends($layout ?? 'layouts.app')
 
 @section('content')
   <div class="es-card es-animate p-5 md:p-6">
     <h2 class="es-title mb-2">Settings & Secrets</h2>
     <p class="es-subtitle mb-4">Use this page to keep operational values for your team. For production-grade secret hygiene, move secrets to vault/KMS.</p>
-    <form method="POST" action="{{ route('settings.update') }}">
+    <form method="POST" action="{{ route($settingsUpdateRoute ?? 'settings.update') }}">
       @csrf
       <div class="grid gap-3 md:grid-cols-2">
         <div><label class="mb-1 block text-sm text-sky-100">OpenRouter Model</label><input class="es-input" name="openrouter_model" value="{{ $settings['openrouter_model'] ?? '' }}" placeholder="qwen/qwen3-next-80b-a3b-instruct:free"></div>
         <div><label class="mb-1 block text-sm text-sky-100">OpenRouter Fallback Models</label><input class="es-input" name="openrouter_fallback_models" value="{{ $settings['openrouter_fallback_models'] ?? '' }}" placeholder="openai/gpt-oss-120b:free,nvidia/nemotron-3-super:free"></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div><label class="mb-1 block text-sm text-sky-100">Worker Script Name</label><input class="es-input" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'edge-shield' }}" placeholder="edge-shield"></div>
+        <div><label class="mb-1 block text-sm text-sky-100">Worker Script Name</label><input class="es-input" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'verifysky-edge-staging' }}" placeholder="verifysky-edge-staging"></div>
         <div>
           <label class="mb-1 block text-sm text-sky-100">ES Admin Token</label>
           <input class="es-input" type="password" autocomplete="new-password" name="es_admin_token" value="" placeholder="{{ ($sensitiveConfigured['es_admin_token'] ?? false) ? 'Configured (leave blank to keep)' : 'token used for /es-admin/* endpoints' }}">
@@ -44,6 +44,26 @@
         </div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
+        <div class="es-card-soft px-3 py-2">
+          <label class="mb-1 block text-sm text-sky-100">Turnstile Strict Verification</label>
+          <select class="es-input" name="es_turnstile_strict">
+            @php($turnstileStrict = $settings['es_turnstile_strict'] ?? 'on')
+            <option value="on" {{ $turnstileStrict === 'on' ? 'selected' : '' }}>on (production default)</option>
+            <option value="off" {{ $turnstileStrict === 'off' ? 'selected' : '' }}>off</option>
+          </select>
+          <p class="mt-1 text-xs es-muted">Requires real Turnstile validation before issuing trusted sessions.</p>
+        </div>
+        <div class="es-card-soft px-3 py-2">
+          <label class="mb-1 block text-sm text-sky-100">Strict Context Binding</label>
+          <select class="es-input" name="es_strict_context_binding">
+            @php($contextBinding = $settings['es_strict_context_binding'] ?? 'off')
+            <option value="off" {{ $contextBinding === 'off' ? 'selected' : '' }}>off (mobile/NAT safe)</option>
+            <option value="on" {{ $contextBinding === 'on' ? 'selected' : '' }}>on</option>
+          </select>
+          <p class="mt-1 text-xs es-muted">Keep soft unless you intentionally accept more false positives.</p>
+        </div>
+      </div>
+      <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div></div>
         <div>
           <label class="mb-1 block text-sm text-sky-100">ES Admin Rate Limit / min</label>
@@ -71,6 +91,11 @@
       <div class="mt-3">
         <label class="mb-1 block text-sm text-sky-100">JWT Secret</label>
         <input class="es-input" type="password" autocomplete="new-password" name="jwt_secret" value="" placeholder="{{ ($sensitiveConfigured['jwt_secret'] ?? false) ? 'Configured (leave blank to keep)' : '' }}">
+      </div>
+      <div class="mt-3">
+        <label class="mb-1 block text-sm text-sky-100">Meter Secret</label>
+        <input class="es-input" type="password" autocomplete="new-password" name="meter_secret" value="" placeholder="{{ ($sensitiveConfigured['meter_secret'] ?? false) ? 'Configured (leave blank to keep)' : 'separate HMAC secret for es_meter cookies' }}">
+        <p class="mt-1 text-xs es-muted">Use a separate 32+ character secret so billing cookies can rotate independently from security sessions.</p>
       </div>
       <button class="es-btn mt-4" type="submit">Save Settings</button>
     </form>

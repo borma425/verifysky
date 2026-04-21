@@ -65,7 +65,7 @@
       <div class="mt-4 grid gap-3 md:grid-cols-3">
         <div>
           <label class="mb-1 block text-sm text-sky-100">Field</label>
-          <select name="field" class="es-input text-sm" required>
+          <select name="field" class="es-input text-sm js-firewall-field" required>
             <option value="ip.src" {{ $field === 'ip.src' ? 'selected' : '' }}>IP Address / CIDR</option>
             <option value="ip.src.country" {{ $field === 'ip.src.country' ? 'selected' : '' }}>Country (e.g., EG, US)</option>
             <option value="ip.src.asnum" {{ $field === 'ip.src.asnum' ? 'selected' : '' }}>ASN (e.g., 12345)</option>
@@ -76,13 +76,14 @@
         </div>
         <div>
           <label class="mb-1 block text-sm text-sky-100">Operator</label>
-          <select name="operator" class="es-input text-sm" required>
+          <select name="operator" class="es-input text-sm js-firewall-operator" required>
             <option value="eq" {{ $op === 'eq' ? 'selected' : '' }}>Equals</option>
             <option value="ne" {{ $op === 'ne' ? 'selected' : '' }}>does not equal</option>
             <option value="contains" {{ $op === 'contains' ? 'selected' : '' }}>contains</option>
             <option value="starts_with" {{ $op === 'starts_with' ? 'selected' : '' }}>starts with</option>
             <option value="not_contains" {{ $op === 'not_contains' ? 'selected' : '' }}>does not contain</option>
             <option value="in" {{ $op === 'in' ? 'selected' : '' }}>is in (comma-separated or CIDR)</option>
+            <option value="not_in" {{ $op === 'not_in' ? 'selected' : '' }}>is not in (comma-separated or CIDR)</option>
           </select>
         </div>
         <div>
@@ -99,26 +100,4 @@
       </form>
     </div>
   </div>
-
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      // Dynamic Operator Text based on Field
-      const fieldSelect = document.querySelector('select[name="field"]');
-      const operatorSelect = document.querySelector('select[name="operator"]');
-      
-      if (fieldSelect && operatorSelect) {
-        const inOption = operatorSelect.querySelector('option[value="in"]');
-        function updateOperatorText() {
-          if (!inOption) return;
-          if (fieldSelect.value === 'ip.src') {
-            inOption.textContent = 'is in (comma-separated or CIDR)';
-          } else {
-            inOption.textContent = 'is in (comma-separated list)';
-          }
-        }
-        fieldSelect.addEventListener('change', updateOperatorText);
-        updateOperatorText(); // Initial run
-      }
-    });
-  </script>
 @endsection

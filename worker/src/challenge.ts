@@ -130,6 +130,9 @@ export async function handleChallengeGeneration(
   // Sign the challenge payload for integrity verification
   const signaturePayload = `${nonce}:${submitPath}`;
   const signature = await generateSignature(signaturePayload, env.JWT_SECRET);
+  // targetHint only obfuscates the visual target for UX. It is not a security
+  // secret; final trust comes from nonce/signature validation, telemetry,
+  // Turnstile strict verification, replay checks, and session binding.
   const targetHint = encodeTargetHint(targetX, nonce, signature);
 
   // Store challenge in D1
@@ -413,7 +416,7 @@ export async function handleChallengeSubmission(
 
   // --- 8. Verify Turnstile token (invisible background check) ---
   const turnstileToken = (submission.turnstileToken || "").trim();
-  const strictTurnstile = String(env.ES_TURNSTILE_STRICT ?? "off").toLowerCase() === "on";
+  const strictTurnstile = String(env.ES_TURNSTILE_STRICT ?? "on").toLowerCase() === "on";
   if (turnstileToken) {
     const turnstileValid = await verifyTurnstile(
       turnstileToken,
@@ -1349,6 +1352,7 @@ async function addToIpFarm(env: Env, ip: string, reason: string): Promise<void> 
  *   - Dynamic submission endpoint
  *   - Challenge metadata (nonce, signature, expiry)
  *   - Visual target slot for accurate user alignment
+ * targetHint is a UX obfuscation hint only, not a standalone security boundary.
  */
 function buildChallengeHtml(
   nonce: string,
