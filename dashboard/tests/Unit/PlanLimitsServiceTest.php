@@ -95,6 +95,36 @@ class PlanLimitsServiceTest extends TestCase
         $this->assertTrue($service->getDomainsUsage($tenant)['can_add']);
     }
 
+    public function test_domain_usage_includes_extra_and_bonus_allowance_from_tenant_settings(): void
+    {
+        $tenant = Tenant::query()->create([
+            'name' => 'Bonus Tenant',
+            'slug' => 'bonus-tenant',
+            'plan' => 'starter',
+            'status' => 'active',
+            'settings' => [
+                'extra_domains' => 1,
+                'bonus_domains' => 2,
+            ],
+        ]);
+
+        foreach (['one.example.com', 'two.example.com', 'three.example.com'] as $hostname) {
+            TenantDomain::query()->create([
+                'tenant_id' => $tenant->id,
+                'hostname' => $hostname,
+            ]);
+        }
+
+        $service = new PlanLimitsService(Mockery::mock(D1DatabaseClient::class));
+        $usage = $service->getDomainsUsage($tenant);
+
+        $this->assertSame(3, $usage['used']);
+        $this->assertSame(1, $usage['included_limit']);
+        $this->assertSame(3, $usage['extra_allowance']);
+        $this->assertSame(4, $usage['limit']);
+        $this->assertTrue($usage['can_add']);
+    }
+
     public function test_unlimited_plan_returns_null_domain_limit(): void
     {
         config()->set('plans.plans.scale.limits.domains', null);

@@ -37,7 +37,7 @@ class BillingPortalTest extends TestCase
             ->assertSee('Checkout');
 
         $memberResponse->assertOk()
-            ->assertSee('only the tenant owner can start checkout or cancel the subscription')
+            ->assertSee('only the account owner can start checkout or cancel the subscription')
             ->assertDontSee('Cancel At Period End');
     }
 

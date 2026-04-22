@@ -9,6 +9,15 @@ use App\Services\EdgeShield\D1DatabaseClient;
 
 class PlanLimitsService
 {
+    private const EXTRA_DOMAIN_ALLOWANCE_SETTING_KEYS = [
+        'extra_domains',
+        'bonus_domains',
+        'extra_domain_slots',
+        'bonus_domain_slots',
+        'extra_domain_limit',
+        'bonus_domain_limit',
+    ];
+
     public function __construct(
         private readonly D1DatabaseClient $d1,
         private readonly ?EffectiveTenantPlanService $effectivePlans = null
@@ -48,7 +57,9 @@ class PlanLimitsService
     {
         $plan = $this->planDefinitionForTenant($tenant);
         $rawLimit = $plan['limits']['domains'] ?? null;
-        $limit = is_numeric($rawLimit) ? max(0, (int) $rawLimit) : null;
+        $includedLimit = is_numeric($rawLimit) ? max(0, (int) $rawLimit) : null;
+        $extraAllowance = $this->extraDomainAllowance($tenant);
+        $limit = $includedLimit === null ? null : $includedLimit + $extraAllowance;
         $used = $this->tenantDomainsQuery((string) $tenant->getKey())->count();
         $remaining = $limit === null ? null : max(0, $limit - $used);
         $canAdd = $limit === null || $used < $limit;
@@ -56,6 +67,8 @@ class PlanLimitsService
         return [
             'used' => $used,
             'limit' => $limit,
+            'included_limit' => $includedLimit,
+            'extra_allowance' => $extraAllowance,
             'remaining' => $remaining,
             'can_add' => $canAdd,
             'plan_key' => $plan['key'],
@@ -265,6 +278,24 @@ class PlanLimitsService
     private function tenantDomainsQuery(?string $tenantId)
     {
         return TenantDomain::query()->where('tenant_id', trim((string) $tenantId));
+    }
+
+    private function extraDomainAllowance(Tenant $tenant): int
+    {
+        $settings = $tenant->settings;
+        if (! is_array($settings)) {
+            return 0;
+        }
+
+        $allowance = 0;
+        foreach (self::EXTRA_DOMAIN_ALLOWANCE_SETTING_KEYS as $key) {
+            $value = $settings[$key] ?? null;
+            if (is_numeric($value)) {
+                $allowance += max(0, (int) $value);
+            }
+        }
+
+        return $allowance;
     }
 
     private function normalizeDomain(string $domain): string

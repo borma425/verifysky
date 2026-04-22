@@ -5,7 +5,7 @@
     <div>
       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
       <h1 class="es-title mt-2">Sensitive Paths</h1>
-      <p class="es-subtitle mt-2">Protect sensitive routes for every tenant domain or one specific hostname.</p>
+      <p class="es-subtitle mt-2">Protect sensitive routes for every client domain or one specific hostname.</p>
     </div>
     <div class="flex gap-2">
       <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Firewall</a>
@@ -28,7 +28,7 @@
         @csrf
         <label class="block text-sm text-sky-100">Scope
           <select class="es-input mt-1" name="scope">
-            <option value="tenant">All tenant domains</option>
+            <option value="tenant">All client domains</option>
             <option value="domain">Specific domain</option>
           </select>
         </label>
@@ -77,7 +77,7 @@
             @php $scope = ($path['scope'] ?? '') === 'tenant' || ($path['domain_name'] ?? '') === 'global' ? 'tenant' : 'domain'; @endphp
             <tr>
               <td>#{{ $path['id'] ?? '' }}</td>
-              <td>{{ $scope === 'tenant' ? 'All tenant domains' : 'Specific domain' }}</td>
+              <td>{{ $scope === 'tenant' ? 'All client domains' : 'Specific domain' }}</td>
               <td>{{ $scope === 'tenant' ? 'All domains' : ($path['domain_name'] ?? '') }}</td>
               <td class="font-mono text-sky-100">{{ $path['path_pattern'] ?? '' }}</td>
               <td>{{ $path['match_type'] ?? '' }}</td>
@@ -91,7 +91,7 @@
               </td>
             </tr>
           @empty
-            <tr><td colspan="7" class="py-8 text-center text-sky-100/70">No sensitive paths for this tenant.</td></tr>
+            <tr><td colspan="7" class="py-8 text-center text-sky-100/70">No sensitive paths for this client.</td></tr>
           @endforelse
           </tbody>
         </table>

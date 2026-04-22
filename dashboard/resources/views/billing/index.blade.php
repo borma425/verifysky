@@ -37,7 +37,7 @@
       @if($activeGrant)
         <div class="es-card mt-6 border border-[#FCB900]/20 bg-[#FCB900]/10 p-5 text-sm text-[#FFE6B5]">
           <div class="font-bold text-[#FFFFFF]">Manual {{ strtoupper((string) $activeGrant->granted_plan_key) }} Grant Active</div>
-          <div class="mt-2">This tenant is temporarily running on an admin-issued grant until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.</div>
+          <div class="mt-2">This account is temporarily running on an admin-issued grant until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.</div>
           @if($activeGrant->reason)
             <div class="mt-2 text-[#F9D58A]">Reason: {{ $activeGrant->reason }}</div>
           @endif
@@ -49,7 +49,7 @@
           <div class="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 class="text-lg font-bold text-[#FFFFFF]">Current Subscription</h2>
-              <p class="mt-1 text-sm text-[#AEB9CC]">This panel reflects the last known PayPal subscription state for your tenant.</p>
+              <p class="mt-1 text-sm text-[#AEB9CC]">This panel reflects the last known PayPal subscription state for your account.</p>
             </div>
             <span class="rounded-full border border-[#FCB900]/30 bg-[#FCB900]/12 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[#FFE6B5]">
               {{ $grantEndsAt ? 'Manual Grant Active' : $subscriptionStatus }}
@@ -102,7 +102,7 @@
 
           @if(! $canManageBilling)
             <div class="mt-5 rounded-xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
-              You can view billing status, but only the tenant owner can start checkout or cancel the subscription.
+              You can view billing status, but only the account owner can start checkout or cancel the subscription.
             </div>
           @endif
         </div>

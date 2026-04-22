@@ -1,7 +1,7 @@
 @php
   $navItems = [
       ['route' => 'admin.overview', 'label' => 'Overview', 'icon' => 'grid-horizontal.svg'],
-      ['route' => 'admin.tenants.index', 'label' => 'Tenants', 'icon' => 'clipboard.svg'],
+      ['route' => 'admin.tenants.index', 'label' => 'Clients', 'icon' => 'clipboard.svg'],
       ['route' => 'admin.settings.index', 'label' => 'Settings', 'icon' => 'sliders.svg'],
       ['route' => 'admin.logs.security', 'label' => 'System Logs', 'icon' => 'shield-keyhole.svg'],
   ];

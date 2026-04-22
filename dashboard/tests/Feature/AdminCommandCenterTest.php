@@ -80,7 +80,7 @@ class AdminCommandCenterTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Tenant Billing Operations')
+            ->assertSee('Client Billing Operations')
             ->assertSee('Acme Ops')
             ->assertSee('Manage Account')
             ->assertSee('pass through')

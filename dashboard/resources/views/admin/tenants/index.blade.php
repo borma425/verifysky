@@ -3,8 +3,8 @@
 @section('content')
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div>
-      <h1 class="es-title">Tenant Billing Operations</h1>
-      <p class="es-subtitle mt-2">Fast tenant index with preloaded domains, memberships, grants, subscriptions, and usage.</p>
+      <h1 class="es-title">Client Billing Operations</h1>
+      <p class="es-subtitle mt-2">Fast client index with preloaded domains, users, grants, subscriptions, and usage.</p>
     </div>
     <a href="{{ route('admin.overview') }}" class="es-btn es-btn-secondary">Overview</a>
   </div>
@@ -20,7 +20,7 @@
       <table class="es-table min-w-[1180px]">
         <thead>
         <tr>
-          <th>Tenant</th>
+          <th>Client</th>
           <th>Plan Limit</th>
           <th>Final Limit</th>
           <th>Billing Cycle</th>
@@ -99,7 +99,7 @@
           </tr>
         @empty
           <tr>
-            <td colspan="7" class="py-10 text-center text-sky-100/70">No tenants found.</td>
+            <td colspan="7" class="py-10 text-center text-sky-100/70">No clients found.</td>
           </tr>
         @endforelse
         </tbody>

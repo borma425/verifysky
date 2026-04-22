@@ -14,6 +14,6 @@
   </div>
 
   <p style="margin:0;font-size:14px;line-height:1.7;color:#cbd5e1;">
-    VerifySky will keep plan and billing-cycle changes visible to tenant owners through queued billing notifications.
+    VerifySky will keep plan and billing-cycle changes visible to account owners through queued billing notifications.
   </p>
 @endsection

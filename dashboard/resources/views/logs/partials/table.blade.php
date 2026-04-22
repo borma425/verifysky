@@ -2,7 +2,7 @@
   <div class="mb-4 flex flex-col gap-1 border-b border-sky-500/15 pb-4">
     <h3 class="text-base font-semibold text-white">{{ $isTenantScoped ? 'Recent Security Events' : 'Recent Security Log Events' }}</h3>
     <p class="text-sm text-sky-100/65">
-      {{ $isTenantScoped ? 'Only events for the domains assigned to your tenant are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
+      {{ $isTenantScoped ? 'Only events for the domains assigned to your account are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
     </p>
   </div>
   <div class="overflow-x-auto">

@@ -11,7 +11,7 @@
       <div>
         <p class="text-[10px] font-bold uppercase tracking-[0.24em] text-[#FCB900]">Customer Domains</p>
         <h1 class="es-page-title mt-1 font-black tracking-[-0.03em] text-[#FFFFFF]">Domain Management</h1>
-        <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Rendered from explicit tenant context without session impersonation.</p>
+        <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Rendered from the selected client account without session impersonation.</p>
       </div>
       <div class="es-header-pill min-w-[7rem] text-center">
         <div class="text-[10px] uppercase tracking-[0.2em] text-[#959BA7]">Plan</div>
@@ -42,7 +42,7 @@
         </div>
       </div>
     @empty
-      <div class="es-card p-5 text-sm text-sky-100/70">No protected domains are assigned to this tenant yet.</div>
+      <div class="es-card p-5 text-sm text-sky-100/70">No protected domains are assigned to this client yet.</div>
     @endforelse
   </div>
 @endsection

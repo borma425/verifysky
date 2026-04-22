@@ -59,7 +59,7 @@
           </div>
         @else
           <div class="mt-4 rounded-xl border border-white/10 bg-[#202632] p-4 text-sm text-[#D7E1F5]">
-            No active manual grant for this tenant.
+            No active manual grant for this client.
           </div>
         @endif
       </div>

@@ -80,7 +80,7 @@
       <div class="es-card p-5 text-sm text-sky-100/70">
         <div class="font-semibold text-white">{{ $firewallUsage['plan_name'] ?? 'Plan' }}</div>
         <div class="mt-1">{{ $firewallUsage['used'] ?? 0 }} / {{ $firewallUsage['limit'] ?? 0 }} customer rules used.</div>
-        <div class="mt-2 text-xs text-emerald-200">Admin can exceed plan limits when managing this tenant.</div>
+        <div class="mt-2 text-xs text-emerald-200">Admin can exceed firewall rule limits when managing this client.</div>
       </div>
     </div>
 
@@ -178,7 +178,7 @@
               </td>
             </tr>
           @empty
-            <tr><td colspan="9" class="py-8 text-center text-sky-100/70">No firewall rules for this tenant.</td></tr>
+            <tr><td colspan="9" class="py-8 text-center text-sky-100/70">No firewall rules for this client.</td></tr>
           @endforelse
           </tbody>
         </table>

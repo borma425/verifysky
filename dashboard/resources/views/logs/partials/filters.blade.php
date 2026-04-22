@@ -9,7 +9,7 @@
     <div>
       <h2 class="es-title m-0">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
       <p class="mt-2 max-w-3xl text-sm text-sky-100/70">
-        {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your tenant so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
+        {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your account so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
       </p>
     </div>
     @if($canManageLogActions)

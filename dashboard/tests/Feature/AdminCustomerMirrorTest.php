@@ -31,7 +31,7 @@ class AdminCustomerMirrorTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Overview')
-            ->assertSee('Tenants')
+            ->assertSee('Clients')
             ->assertSee('Settings')
             ->assertSee('System Logs')
             ->assertDontSee('Global Firewall')

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Actions\Domains\ProvisionTenantDomainAction;
+use App\Http\Requests\Domains\AdminStoreTenantDomainRequest;
 use App\Jobs\PurgeRuntimeBundleCache;
 use App\Jobs\SendManualGrantActivatedMailJob;
 use App\Models\Tenant;
@@ -10,10 +12,13 @@ use App\Models\TenantMembership;
 use App\Models\TenantPlanGrant;
 use App\Models\TenantUsage;
 use App\Models\User;
+use App\Services\EdgeShield\D1DatabaseClient;
+use App\Services\Plans\PlanLimitsService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\TestCase;
 
 class AdminTenantBillingOperationsTest extends TestCase
@@ -23,6 +28,7 @@ class AdminTenantBillingOperationsTest extends TestCase
     protected function tearDown(): void
     {
         CarbonImmutable::setTestNow();
+        Mockery::close();
         parent::tearDown();
     }
 
@@ -50,7 +56,7 @@ class AdminTenantBillingOperationsTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Tenant Billing Operations')
+            ->assertSee('Client Billing Operations')
             ->assertSee('Acme Tenant')
             ->assertSee('pass through')
             ->assertSee('12,000 / 10,000', false);
@@ -94,6 +100,80 @@ class AdminTenantBillingOperationsTest extends TestCase
             ->assertSee('Pro')
             ->assertSee('Beta cohort')
             ->assertSee('Revoke Grant');
+    }
+
+    public function test_admin_cannot_manually_add_domain_when_client_reached_plan_limit(): void
+    {
+        $tenant = Tenant::query()->create([
+            'name' => 'Full Client',
+            'slug' => 'full-client',
+            'plan' => 'starter',
+            'status' => 'active',
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'example.com',
+        ]);
+
+        $action = Mockery::mock(ProvisionTenantDomainAction::class);
+        $action->shouldReceive('execute')->never();
+        $this->app->instance(ProvisionTenantDomainAction::class, $action);
+        $this->app->instance(PlanLimitsService::class, new PlanLimitsService(Mockery::mock(D1DatabaseClient::class)));
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => true,
+        ])->post(route('admin.tenants.domains.store', $tenant), [
+            'domain_name' => 'second-example.com',
+            'origin_server' => '192.0.2.10',
+            'security_mode' => 'balanced',
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasErrors([
+            'domain_name' => AdminStoreTenantDomainRequest::DOMAIN_LIMIT_MESSAGE,
+        ]);
+        $this->assertDatabaseCount('tenant_domains', 1);
+    }
+
+    public function test_admin_can_manually_add_domain_and_start_edge_setup_when_space_remains(): void
+    {
+        $tenant = Tenant::query()->create([
+            'name' => 'Growth Client',
+            'slug' => 'growth-client',
+            'plan' => 'growth',
+            'status' => 'active',
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'example.com',
+        ]);
+
+        $action = Mockery::mock(ProvisionTenantDomainAction::class);
+        $action->shouldReceive('execute')->once()->with([
+            'domain_name' => 'second-example.com',
+            'origin_server' => '192.0.2.10',
+            'security_mode' => 'balanced',
+        ], (string) $tenant->id)->andReturn([
+            'ok' => true,
+            'created' => ['second-example.com'],
+            'origin_mode' => 'manual',
+        ]);
+        $this->app->instance(ProvisionTenantDomainAction::class, $action);
+        $this->app->instance(PlanLimitsService::class, new PlanLimitsService(Mockery::mock(D1DatabaseClient::class)));
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => true,
+        ])->post(route('admin.tenants.domains.store', $tenant), [
+            'domain_name' => 'second-example.com',
+            'origin_server' => '192.0.2.10',
+            'security_mode' => 'balanced',
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Domain setup started for second-example.com.')
+            && str_contains($message, 'activating protection'));
     }
 
     public function test_non_admin_cannot_open_tenant_billing_operations_page(): void

@@ -5,13 +5,18 @@
     $billing = $row['billing'];
     $grant = $row['active_grant'];
     $subscription = $row['active_subscription'];
+    $domainLimit = $domainsUsage['limit'] ?? null;
+    $domainUsed = (int) ($domainsUsage['used'] ?? $tenant->domains->count());
+    $domainRemaining = $domainsUsage['remaining'] ?? null;
+    $canAddDomain = (bool) ($domainsUsage['can_add'] ?? true);
+    $domainUsageLabel = $domainLimit === null ? $domainUsed.' / Unlimited' : $domainUsed.' / '.$domainLimit;
   @endphp
 
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div>
-      <a href="{{ route('admin.tenants.index') }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to tenants</a>
+      <a href="{{ route('admin.tenants.index') }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to clients</a>
       <h1 class="es-title mt-2">{{ $tenant->name }}</h1>
-      <p class="es-subtitle mt-2">Tenant #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
+      <p class="es-subtitle mt-2">Client #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
     </div>
     <div class="flex flex-wrap items-center gap-3">
       <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Global Firewall</a>
@@ -36,6 +41,10 @@
       <div class="mt-3 text-xl font-bold text-white">{{ $row['effective_plan']['name'] ?? 'Starter' }}</div>
       <div class="mt-1 text-sm text-sky-100/70">Source: {{ str_replace('_', ' ', $row['effective_plan']['source'] ?? 'baseline') }}</div>
       <div class="mt-1 text-sm text-sky-100/70">Baseline: {{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</div>
+      <div class="mt-3 text-sm text-sky-100/80">Domains: {{ $domainUsageLabel }}</div>
+      @if(($domainsUsage['extra_allowance'] ?? 0) > 0)
+        <div class="mt-1 text-xs text-emerald-200">Includes {{ (int) $domainsUsage['extra_allowance'] }} extra domain slot(s).</div>
+      @endif
     </div>
     <div class="es-card p-5">
       <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Billing Cycle</div>
@@ -115,7 +124,7 @@
     <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
       <div>
         <h2 class="text-lg font-bold text-white">Account Controls</h2>
-        <p class="mt-1 text-sm text-sky-100/65">Suspend access, resume access, or permanently delete this tenant.</p>
+        <p class="mt-1 text-sm text-sky-100/65">Suspend access, resume access, or permanently delete this client.</p>
       </div>
       <div class="text-sm text-sky-100/70">Current status: {{ $tenant->status }}</div>
     </div>
@@ -135,7 +144,7 @@
         @csrf
         @method('DELETE')
         <div class="flex flex-col gap-2 md:flex-row">
-          <input class="es-input" name="confirm_tenant" placeholder="Type tenant slug to delete: {{ $tenant->slug }}">
+          <input class="es-input" name="confirm_tenant" placeholder="Type client slug to delete: {{ $tenant->slug }}">
           <button class="es-btn es-btn-danger whitespace-nowrap" type="submit">Delete Account</button>
         </div>
       </form>
@@ -144,8 +153,46 @@
 
   <div class="es-card mt-5 p-0">
     <div class="border-b border-white/10 p-5">
-      <h2 class="text-lg font-bold text-white">Domains</h2>
-      <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules through admin-scoped actions.</p>
+      <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-white">Domains</h2>
+          <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules for this client.</p>
+        </div>
+        <div class="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-sky-100/80">
+          {{ $domainUsageLabel }} domains used
+          @if($domainRemaining !== null)
+            <span class="text-sky-100/55">/ {{ $domainRemaining }} remaining</span>
+          @endif
+        </div>
+      </div>
+      <form method="POST" action="{{ route('admin.tenants.domains.store', $tenant) }}" class="mt-5 grid gap-3 xl:grid-cols-5">
+        @csrf
+        <label class="xl:col-span-2">
+          <span class="mb-1 block text-sm text-sky-100">Domain</span>
+          <input name="domain_name" class="es-input" value="{{ old('domain_name') }}" placeholder="example.com" @disabled(! $canAddDomain)>
+        </label>
+        <label class="xl:col-span-2">
+          <span class="mb-1 block text-sm text-sky-100">Server IP or hostname</span>
+          <input name="origin_server" class="es-input" value="{{ old('origin_server') }}" placeholder="192.0.2.10" @disabled(! $canAddDomain)>
+        </label>
+        <label>
+          <span class="mb-1 block text-sm text-sky-100">Protection level</span>
+          <select name="security_mode" class="es-input" @disabled(! $canAddDomain)>
+            <option value="balanced" @selected(old('security_mode', 'balanced') === 'balanced')>Balanced</option>
+            <option value="monitor" @selected(old('security_mode') === 'monitor')>Monitor only</option>
+            <option value="aggressive" @selected(old('security_mode') === 'aggressive')>Aggressive</option>
+          </select>
+        </label>
+        <div class="xl:col-span-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          @if($canAddDomain)
+            <div class="text-sm text-sky-100/65">Adding a domain starts VerifySky protection setup for this client.</div>
+            <button class="es-btn" type="submit">Add Domain</button>
+          @else
+            <div class="text-sm text-amber-100">عفواً، لقد وصل هذا المستخدم للحد الأقصى لخطته. يرجى ترقية الخطة أو إضافة مساحة إضافية أولاً</div>
+            <button class="es-btn opacity-60" type="button" disabled>Add Domain</button>
+          @endif
+        </div>
+      </form>
     </div>
     <div class="overflow-x-auto">
       <table class="es-table min-w-[900px]">

@@ -48,7 +48,7 @@
           </tr>
         @empty
           <tr>
-            <td colspan="6" class="py-8 text-center text-sky-100/70">No firewall rules exist for this tenant.</td>
+            <td colspan="6" class="py-8 text-center text-sky-100/70">No firewall rules exist for this client.</td>
           </tr>
         @endforelse
         </tbody>

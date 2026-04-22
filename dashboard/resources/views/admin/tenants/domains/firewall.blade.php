@@ -5,7 +5,7 @@
     <div>
       <a href="{{ route('admin.tenants.domains.show', [$tenant, $domainRecord->hostname]) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to domain</a>
       <h1 class="es-title mt-2">Firewall: {{ $domainRecord->hostname }}</h1>
-      <p class="es-subtitle mt-2">Rules are scoped to tenant #{{ $tenant->id }} and purge runtime cache through existing actions.</p>
+      <p class="es-subtitle mt-2">Rules are scoped to client #{{ $tenant->id }} and purge runtime cache through existing actions.</p>
     </div>
     <div class="text-sm text-sky-100/70">
       {{ number_format($usage['used'] ?? count($rules)) }} / {{ number_format($usage['limit'] ?? 0) }} rules

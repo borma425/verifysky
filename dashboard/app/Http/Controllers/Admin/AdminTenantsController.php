@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Admin;
 use App\Actions\Billing\ForceResetTenantBillingCycleAction;
 use App\Actions\Billing\GrantTenantPlanAction;
 use App\Actions\Billing\RevokeTenantPlanGrantAction;
+use App\Actions\Domains\ProvisionTenantDomainAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Domains\AdminStoreTenantDomainRequest;
 use App\Models\Tenant;
 use App\Models\TenantPlanGrant;
 use App\Models\User;
 use App\Services\Billing\BillingPlanCatalogService;
 use App\Services\Billing\TenantBillingStatusService;
+use App\Services\Plans\PlanLimitsService;
 use App\ViewData\Admin\AdminTenantRowViewData;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -25,7 +28,9 @@ class AdminTenantsController extends Controller
         private readonly ForceResetTenantBillingCycleAction $forceResetTenantBillingCycle,
         private readonly GrantTenantPlanAction $grantTenantPlan,
         private readonly RevokeTenantPlanGrantAction $revokeTenantPlanGrant,
+        private readonly ProvisionTenantDomainAction $provisionTenantDomain,
         private readonly BillingPlanCatalogService $planCatalog,
+        private readonly PlanLimitsService $planLimits,
         private readonly AdminTenantRowViewData $rowViewData
     ) {}
 
@@ -83,9 +88,30 @@ class AdminTenantsController extends Controller
         return view('admin.tenants.show', [
             'tenant' => $tenant,
             'row' => $this->rowViewData->fromTenant($tenant, $billingAvailable),
+            'domainsUsage' => $this->planLimits->getDomainsUsage($tenant),
             'billingAvailable' => $billingAvailable,
             'grantablePlans' => $this->planCatalog->paidPlans(),
         ]);
+    }
+
+    public function storeDomain(AdminStoreTenantDomainRequest $request, Tenant $tenant): RedirectResponse
+    {
+        $result = $this->provisionTenantDomain->execute($request->validated(), (string) $tenant->getKey());
+        if (! $result['ok']) {
+            $response = back()->withInput()->with('error', $result['error']);
+            if (($result['origin_detection_failed'] ?? false) === true) {
+                $response->with('domain_origin_detection_failed', true);
+            }
+
+            return $response;
+        }
+
+        $message = 'Domain setup started for '.implode(', ', $result['created']).'. VerifySky is now activating protection for this client.';
+        if (($result['origin_mode'] ?? 'manual') === 'auto') {
+            $message .= ' The server IP was detected automatically.';
+        }
+
+        return back()->with('status', $message);
     }
 
     public function forceCycleReset(Tenant $tenant): RedirectResponse
