@@ -53,6 +53,12 @@ final class UserFacingErrorSanitizer
             '/\bLogs were written to\b/i',
             '/wrangler-runtime/i',
             '/wrangler-\d{4}-\d{2}-\d{2}_[\d\-_]+\.log/i',
+            '/\bCloudflare\b/i',
+            '/\bCLOUDFLARE_[A-Z0-9_]+\b/i',
+            '/\bCF_[A-Z0-9_]+\b/i',
+            '/\bTurnstile\b/i',
+            '/\bGraphQL\b/i',
+            '/\bD1 API\b/i',
             '#/opt/lampp/[^\\s"]+#i',
             '/\[(?:ERROR|FATAL)\]/i',
         ];

@@ -10,7 +10,7 @@ class TurnstileService
     {
         $domain = $this->normalizeDomain($domainName);
         if ($accountId === '' || $domain === '') {
-            return ['ok' => false, 'error' => 'Cloudflare account ID and domain are required.'];
+            return ['ok' => false, 'error' => 'Edge Account ID and domain are required.'];
         }
 
         $widgetCreate = $this->cloudflare->request(
@@ -46,7 +46,7 @@ class TurnstileService
         }
 
         if ($siteKey === '' || $secret === '') {
-            return ['ok' => false, 'error' => 'Turnstile widget was created but keys were not returned by Cloudflare.'];
+            return ['ok' => false, 'error' => 'Browser challenge was created but keys were not returned.'];
         }
 
         return [
@@ -62,7 +62,7 @@ class TurnstileService
         $zone = trim($zoneId);
         $key = trim($siteKey);
         if ($zone === '' || $key === '') {
-            return ['ok' => false, 'error' => 'Zone ID and Turnstile site key are required.'];
+            return ['ok' => false, 'error' => 'Edge Zone ID and browser challenge site key are required.'];
         }
 
         $account = $this->resolveZoneAccountId($zone);
@@ -121,7 +121,7 @@ class TurnstileService
         $zoneRow = is_array($zoneResp['result']) ? $zoneResp['result'] : [];
         $accountId = is_string($zoneRow['account']['id'] ?? null) ? trim($zoneRow['account']['id']) : '';
         if ($accountId === '') {
-            return ['ok' => false, 'error' => 'Unable to resolve Cloudflare account for the zone.', 'account_id' => null];
+            return ['ok' => false, 'error' => 'Unable to resolve edge account for the zone.', 'account_id' => null];
         }
 
         return ['ok' => true, 'error' => null, 'account_id' => $accountId];

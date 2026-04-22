@@ -48,7 +48,7 @@ trait SaasHostnameOriginValidationConcern
 
             $server = strtolower(trim((string) $response->header('server')));
             if ($response->header('cf-ray') || $response->header('cf-cache-status') || str_contains($server, 'cloudflare')) {
-                return ['ok' => false, 'error' => 'The backend target still appears to sit behind Cloudflare or another edge proxy. Enter the real hosting IP or backend hostname instead.'];
+                return ['ok' => false, 'error' => 'The backend target still appears to sit behind an edge or DNS proxy. Enter the real hosting IP or backend hostname instead.'];
             }
 
             $status = $response->status();
@@ -90,13 +90,13 @@ trait SaasHostnameOriginValidationConcern
 
         $likelyProxy = count(array_filter(
             $attempts,
-            static fn (string $attempt): bool => str_contains($attempt, 'behind Cloudflare or another edge proxy')
+            static fn (string $attempt): bool => str_contains($attempt, 'behind an edge or DNS proxy')
         )) > 0;
 
         return [
             'ok' => false,
             'error' => $likelyProxy
-                ? 'Automatic backend detection could not find the real origin because this domain appears to sit behind Cloudflare or another proxy already. Open Manual Origin and enter the backend IP or hostname.'
+                ? 'Automatic backend detection could not find the real origin because this domain appears to sit behind an edge or DNS proxy already. Open Manual Origin and enter the backend IP or hostname.'
                 : 'We could not automatically detect the backend origin for this domain. Open Manual Origin and enter the backend IP or hostname.',
             'origin_server' => null,
             'attempts' => $attempts,
@@ -151,7 +151,7 @@ trait SaasHostnameOriginValidationConcern
             }
 
             if ($this->responseLooksProxiedByCloudflare($hostname)) {
-                return ['ok' => false, 'error' => null, 'origin_server' => null, 'reason' => 'hostname appears to be behind Cloudflare or another edge proxy'];
+                return ['ok' => false, 'error' => null, 'origin_server' => null, 'reason' => 'hostname appears to be behind an edge or DNS proxy'];
             }
 
             return ['ok' => true, 'error' => null, 'origin_server' => $ip, 'detected_from' => $hostname, 'strategy' => str_contains($ip, ':') ? 'dns_aaaa' : 'dns_a'];

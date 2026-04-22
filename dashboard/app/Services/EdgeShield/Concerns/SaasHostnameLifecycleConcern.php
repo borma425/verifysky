@@ -25,7 +25,7 @@ trait SaasHostnameLifecycleConcern
         $domain = $this->normalizeDomain($domainName);
         $zoneId = $this->config->saasZoneId();
         if ($zoneId === null) {
-            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.'];
+            return ['ok' => false, 'error' => 'Edge Zone ID is missing. Add it in Settings.'];
         }
 
         $existing = $this->findCustomHostname($zoneId, $domain);
@@ -35,7 +35,7 @@ trait SaasHostnameLifecycleConcern
 
         $customHostname = is_array($existing['result']) ? $existing['result'] : null;
         if (! $customHostname) {
-            return ['ok' => false, 'error' => 'Custom hostname was not found in Cloudflare.'];
+            return ['ok' => false, 'error' => 'Protected hostname was not found in edge services.'];
         }
 
         $sql = sprintf(
@@ -95,10 +95,10 @@ trait SaasHostnameLifecycleConcern
         if ($siteKey !== '') {
             $widgetRemoval = $this->turnstile->deleteWidgetForZone($zone, $siteKey);
             $details[] = $widgetRemoval['ok']
-                ? 'Turnstile widget removed.'
-                : 'Turnstile widget cleanup failed: '.($widgetRemoval['error'] ?? 'unknown error');
+                ? 'Browser challenge removed.'
+                : 'Browser challenge cleanup failed: '.($widgetRemoval['error'] ?? 'unknown error');
         } else {
-            $details[] = 'Turnstile widget key missing; widget cleanup skipped.';
+            $details[] = 'Browser challenge key missing; cleanup skipped.';
         }
 
         $ok = $routeRemoval['ok'] && ($siteKey === '' || ($widgetRemoval['ok'] ?? false));

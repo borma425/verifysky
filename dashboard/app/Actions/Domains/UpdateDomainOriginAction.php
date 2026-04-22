@@ -34,7 +34,7 @@ class UpdateDomainOriginAction
         if ($customHostnameId !== '') {
             $update = $this->edgeShield->updateSaasCustomOrigin($customHostnameId, $originServer);
             if (! $update['ok']) {
-                return ['ok' => false, 'error' => 'Failed to route traffic via Cloudflare: '.$update['error']];
+                return ['ok' => false, 'error' => 'Failed to route traffic through VerifySky edge: '.$update['error']];
             }
         }
 
@@ -46,7 +46,7 @@ class UpdateDomainOriginAction
         );
         $result = $this->edgeShield->queryD1($sql);
         if (! ($result['ok'] ?? false)) {
-            return ['ok' => false, 'error' => 'Cloudflare origin updated, but VerifySky failed to save the new origin.'];
+            return ['ok' => false, 'error' => 'Edge origin updated, but VerifySky failed to save the new origin.'];
         }
 
         if ($tenantDomain) {

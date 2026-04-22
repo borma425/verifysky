@@ -103,8 +103,11 @@ class EdgeShieldConfig
     public function saasZoneId(): ?string
     {
         $value = trim((string) config('edgeshield.saas_zone_id', ''));
+        if ($value !== '') {
+            return $value;
+        }
 
-        return $value !== '' ? $value : null;
+        return $this->dashboardSettingValue('cf_zone_id');
     }
 
     public function saasCnameTarget(): string

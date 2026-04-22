@@ -38,7 +38,7 @@ class CloudflareAnalyticsService
         if ($zoneId === null) {
             return [
                 'ok' => false,
-                'error' => 'Cloudflare Zone ID is missing. Add CLOUDFLARE_ZONE_ID in Settings.',
+                'error' => 'Edge Zone ID is missing. Add it in Settings.',
                 'total' => 0,
                 'by_hostname' => [],
             ];
@@ -78,7 +78,7 @@ GRAPHQL;
         if (! ($response['ok'] ?? false)) {
             return [
                 'ok' => false,
-                'error' => $response['error'] ?? 'Cloudflare Analytics request failed.',
+                'error' => $response['error'] ?? 'Edge analytics request failed.',
                 'total' => 0,
                 'by_hostname' => [],
             ];
@@ -88,7 +88,7 @@ GRAPHQL;
         if (! is_array($rows)) {
             return [
                 'ok' => false,
-                'error' => 'Unexpected Cloudflare Analytics payload.',
+                'error' => 'Unexpected edge analytics payload.',
                 'total' => 0,
                 'by_hostname' => [],
             ];

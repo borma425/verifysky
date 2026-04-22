@@ -54,6 +54,7 @@ class SettingsController extends Controller
             'notes' => ['nullable', 'string', 'max:5000'],
             'cf_api_token' => ['nullable', 'string', 'max:500'],
             'cf_account_id' => ['nullable', 'string', 'max:128'],
+            'cf_zone_id' => ['nullable', 'string', 'max:128'],
             'openrouter_api_key' => ['nullable', 'string', 'max:500'],
             'jwt_secret' => ['nullable', 'string', 'max:500'],
             'meter_secret' => ['nullable', 'string', 'max:500'],
@@ -100,13 +101,16 @@ class SettingsController extends Controller
         $sync = $this->edgeShield->syncCloudflareFromDashboardSettings();
         if (! $sync['ok']) {
             $errorCount = count($sync['errors'] ?? []);
-            $firstError = $this->stripAnsi((string) ($sync['errors'][0] ?? 'Cloudflare sync failed.'));
-            $message = "Settings saved, but Cloudflare sync failed ({$errorCount} issue(s)). First issue: {$firstError}";
+            $firstError = \App\Support\UserFacingErrorSanitizer::sanitize(
+                $this->stripAnsi((string) ($sync['errors'][0] ?? 'Edge sync failed.')),
+                'Edge service sync failed. Please review platform settings and try again.'
+            );
+            $message = "Settings saved, but edge service sync failed ({$errorCount} issue(s)). First issue: {$firstError}";
 
             return back()->with('error', $message);
         }
 
-        $message = 'Settings saved and synced to Cloudflare successfully.';
+        $message = 'Settings saved and synced to edge services successfully.';
         if ($this->hasAlreadySyncedRoutes($sync)) {
             $message .= ' Routes are already up to date.';
         }

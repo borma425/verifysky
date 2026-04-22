@@ -45,13 +45,13 @@
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div class="es-card-soft px-3 py-2">
-          <label class="mb-1 block text-sm text-sky-100">Turnstile Strict Verification</label>
+          <label class="mb-1 block text-sm text-sky-100">Browser Challenge Strict Verification</label>
           <select class="es-input" name="es_turnstile_strict">
             @php($turnstileStrict = $settings['es_turnstile_strict'] ?? 'on')
             <option value="on" {{ $turnstileStrict === 'on' ? 'selected' : '' }}>on (production default)</option>
             <option value="off" {{ $turnstileStrict === 'off' ? 'selected' : '' }}>off</option>
           </select>
-          <p class="mt-1 text-xs es-muted">Requires real Turnstile validation before issuing trusted sessions.</p>
+          <p class="mt-1 text-xs es-muted">Requires real browser challenge validation before issuing trusted sessions.</p>
         </div>
         <div class="es-card-soft px-3 py-2">
           <label class="mb-1 block text-sm text-sky-100">Strict Context Binding</label>
@@ -76,10 +76,14 @@
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div>
-          <label class="mb-1 block text-sm text-sky-100">CF API Token</label>
+          <label class="mb-1 block text-sm text-sky-100">Edge API Token</label>
           <input class="es-input" type="password" autocomplete="new-password" name="cf_api_token" value="" placeholder="{{ ($sensitiveConfigured['cf_api_token'] ?? false) ? 'Configured (leave blank to keep)' : '' }}">
         </div>
-        <div><label class="mb-1 block text-sm text-sky-100">CF Account ID</label><input class="es-input" name="cf_account_id" value="{{ $settings['cf_account_id'] ?? '' }}" placeholder="8c610bded8021e624eb8abc24833d79a"></div>
+        <div><label class="mb-1 block text-sm text-sky-100">Edge Account ID</label><input class="es-input" name="cf_account_id" value="{{ $settings['cf_account_id'] ?? '' }}" placeholder="Account identifier"></div>
+      </div>
+      <div class="mt-3 grid gap-3 md:grid-cols-2">
+        <div><label class="mb-1 block text-sm text-sky-100">Edge Zone ID</label><input class="es-input" name="cf_zone_id" value="{{ $settings['cf_zone_id'] ?? '' }}" placeholder="Zone identifier"></div>
+        <div></div>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <div>

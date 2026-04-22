@@ -8,7 +8,7 @@ return [
     'cloudflare_account_id' => env('CLOUDFLARE_ACCOUNT_ID', env('CF_ACCOUNT_ID', '')),
     'runtime_kv_namespace_id' => env('CLOUDFLARE_KV_NAMESPACE_ID', env('SESSION_KV_NAMESPACE_ID', '')),
     'worker_name' => env('EDGE_SHIELD_WORKER_NAME', 'verifysky-edge'),
-    'saas_zone_id' => env('CLOUDFLARE_ZONE_ID', ''),
+    'saas_zone_id' => env('CLOUDFLARE_ZONE_ID', env('CF_ZONE_ID', '')),
     'saas_cname_target' => env('SAAS_CNAME_TARGET', 'customers.verifysky.com'),
     'd1_mode' => env('EDGE_SHIELD_D1_MODE', 'remote'),
     'd1_database_name' => env('D1_DATABASE_NAME', 'EDGE_SHIELD_DB'),

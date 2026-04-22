@@ -34,4 +34,15 @@ class EdgeShieldConfigTest extends TestCase
         $this->assertSame('token-from-settings', $config->cloudflareApiToken());
         $this->assertSame('account-from-settings', $config->cloudflareAccountId());
     }
+
+    public function test_saas_zone_id_falls_back_to_dashboard_settings(): void
+    {
+        Config::set('edgeshield.saas_zone_id', '');
+
+        DashboardSetting::query()->create(['key' => 'cf_zone_id', 'value' => 'zone-from-settings']);
+
+        $config = new EdgeShieldConfig;
+
+        $this->assertSame('zone-from-settings', $config->saasZoneId());
+    }
 }

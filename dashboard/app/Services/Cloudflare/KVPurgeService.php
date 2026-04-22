@@ -23,7 +23,7 @@ class KVPurgeService
             return [
                 'ok' => false,
                 'deleted' => [],
-                'errors' => ['Cloudflare account ID, KV namespace ID, or API token is missing.'],
+                'errors' => ['Edge cache account, namespace, or API token is missing.'],
             ];
         }
 

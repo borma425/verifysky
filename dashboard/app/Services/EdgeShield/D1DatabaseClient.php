@@ -76,16 +76,14 @@ class D1DatabaseClient
                     'sql' => $sql,
                 ]);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'Cloudflare D1 API request failed: '.$e->getMessage(), 'output' => ''];
+            return ['ok' => false, 'error' => 'Edge database request failed.', 'output' => ''];
         }
 
         $payload = $response->json();
         if (! $response->successful() || ! is_array($payload) || ($payload['success'] ?? false) !== true) {
-            $message = is_array($payload) ? ($payload['errors'][0]['message'] ?? null) : null;
-
             return [
                 'ok' => false,
-                'error' => $message ? 'Cloudflare D1 API error: '.$message : 'Cloudflare D1 API HTTP error: '.$response->status(),
+                'error' => 'Edge database API HTTP error: '.$response->status(),
                 'output' => is_array($payload) ? json_encode($payload) : (string) $response->body(),
             ];
         }
@@ -103,7 +101,7 @@ class D1DatabaseClient
         if (($remoteConfig['ok'] ?? false) !== true) {
             return [
                 'ok' => false,
-                'error' => (string) ($remoteConfig['error'] ?? 'Cloudflare D1 API configuration is incomplete.'),
+                'error' => (string) ($remoteConfig['error'] ?? 'Edge database API configuration is incomplete.'),
                 'output' => '',
             ];
         }
@@ -125,10 +123,10 @@ class D1DatabaseClient
 
         $missing = [];
         if ($accountId === null) {
-            $missing[] = 'CLOUDFLARE_ACCOUNT_ID';
+            $missing[] = 'Edge Account ID';
         }
         if ($token === null) {
-            $missing[] = 'CLOUDFLARE_API_TOKEN';
+            $missing[] = 'Edge API Token';
         }
         if ($databaseId === null) {
             $missing[] = 'D1_DATABASE_ID';
@@ -137,7 +135,7 @@ class D1DatabaseClient
         if ($missing !== []) {
             return [
                 'ok' => false,
-                'error' => 'Cloudflare D1 API configuration is incomplete. Set '.implode(', ', $missing).'. Wrangler remote fallback is disabled.',
+                'error' => 'Edge database API configuration is incomplete. Set '.implode(', ', $missing).'. Remote database fallback is disabled.',
             ];
         }
 

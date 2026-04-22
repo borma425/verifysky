@@ -69,7 +69,7 @@
         @csrf
         <button class="es-btn" type="submit">Queue PurgeRuntimeBundleCache</button>
       </form>
-      <div class="mt-4 text-xs text-sky-100/55">Custom hostname ID: {{ $config['custom_hostname_id'] ?? $domainRecord->cloudflare_custom_hostname_id ?? 'not available' }}</div>
+      <div class="mt-4 text-xs text-sky-100/55">Protected hostname ID: {{ $config['custom_hostname_id'] ?? $domainRecord->cloudflare_custom_hostname_id ?? 'not available' }}</div>
     </div>
   </div>
 

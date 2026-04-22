@@ -181,7 +181,7 @@ class D1DatabaseClientTest extends TestCase
         $this->assertSame(3, $runner->calls);
     }
 
-    public function test_non_local_mode_requires_explicit_cloudflare_api_configuration(): void
+    public function test_non_local_mode_requires_explicit_edge_api_configuration(): void
     {
         $config = new class extends EdgeShieldConfig
         {
@@ -221,11 +221,11 @@ class D1DatabaseClientTest extends TestCase
         $result = (new D1DatabaseClient($config, $runner))->query('SELECT 1');
 
         $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('Cloudflare D1 API configuration is incomplete.', (string) $result['error']);
-        $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID', (string) $result['error']);
-        $this->assertStringContainsString('CLOUDFLARE_API_TOKEN', (string) $result['error']);
+        $this->assertStringContainsString('Edge database API configuration is incomplete.', (string) $result['error']);
+        $this->assertStringContainsString('Edge Account ID', (string) $result['error']);
+        $this->assertStringContainsString('Edge API Token', (string) $result['error']);
         $this->assertStringContainsString('D1_DATABASE_ID', (string) $result['error']);
-        $this->assertStringContainsString('Wrangler remote fallback is disabled.', (string) $result['error']);
+        $this->assertStringContainsString('Remote database fallback is disabled.', (string) $result['error']);
         $this->assertSame(0, $runner->calls);
     }
 }

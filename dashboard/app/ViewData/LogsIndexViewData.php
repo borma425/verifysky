@@ -281,7 +281,7 @@ class LogsIndexViewData
             'challenge_solved' => 'Challenge Solved',
             'challenge_failed' => 'Challenge Failed',
             'challenge_warning' => 'Challenge Warning (Soft-Pass)',
-            'turnstile_failed' => 'Turnstile Failed',
+            'turnstile_failed' => 'Browser Challenge Failed',
             'session_created' => 'Session Created (Passed)',
             'session_rejected' => 'Session Rejected',
         ];

@@ -137,7 +137,7 @@ class SaasSecurityService
         $rules = [
             [
                 'ref' => 'verifysky_saas_skip_legacy_security_products',
-                'description' => 'VerifySky SaaS fallback: skip legacy Cloudflare security products',
+                'description' => 'VerifySky SaaS fallback: skip legacy edge security products',
                 'expression' => '(http.host eq "'.$host.'")',
                 'action' => 'skip',
                 'action_parameters' => [
@@ -146,7 +146,7 @@ class SaasSecurityService
             ],
             [
                 'ref' => 'verifysky_saas_skip_later_security_phases',
-                'description' => 'VerifySky SaaS fallback: skip later Cloudflare security phases',
+                'description' => 'VerifySky SaaS fallback: skip later edge security phases',
                 'expression' => '(http.host eq "'.$host.'")',
                 'action' => 'skip',
                 'action_parameters' => [
@@ -161,7 +161,7 @@ class SaasSecurityService
         if (! $entrypoint['ok'] && str_contains((string) $entrypoint['error'], '10003')) {
             $create = $this->cloudflare->request('POST', '/zones/'.$zone.'/rulesets', [], [
                 'name' => 'default',
-                'description' => 'VerifySky SaaS Cloudflare security bypass for fallback hostname',
+                'description' => 'VerifySky SaaS edge security bypass for fallback hostname',
                 'kind' => 'zone',
                 'phase' => 'http_request_firewall_custom',
                 'rules' => $rules,
@@ -197,7 +197,7 @@ class SaasSecurityService
 
         $update = $this->cloudflare->request('PUT', $entrypointPath, [], [
             'name' => (string) ($current['name'] ?? 'default'),
-            'description' => (string) ($current['description'] ?? 'VerifySky SaaS Cloudflare security bypass for fallback hostname'),
+            'description' => (string) ($current['description'] ?? 'VerifySky SaaS edge security bypass for fallback hostname'),
             'kind' => 'zone',
             'phase' => 'http_request_firewall_custom',
             'rules' => $currentRules,

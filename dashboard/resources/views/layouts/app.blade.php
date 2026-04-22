@@ -34,7 +34,7 @@
           'type' => session('domain_origin_detection_failed') ? 'warning' : 'error',
           'title' => session('domain_origin_detection_failed') ? 'Enter The Server IP' : 'Action Could Not Complete',
           'message' => session('domain_origin_detection_failed')
-              ? 'We could not detect the real server automatically because this domain already sits behind Cloudflare or another proxy. Enter the real server IP to continue setup.'
+              ? 'We could not detect the real server automatically because this domain already sits behind an edge or DNS proxy. Enter the real server IP to continue setup.'
               : $safeSessionError,
           'icon' => session('domain_origin_detection_failed') ? 'shield-keyhole.svg' : 'triangle-exclamation.svg',
           'action_label' => session('domain_origin_detection_failed') ? 'Add Server IP' : 'Understood',

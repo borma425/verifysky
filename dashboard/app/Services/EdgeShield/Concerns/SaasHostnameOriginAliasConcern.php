@@ -39,7 +39,7 @@ trait SaasHostnameOriginAliasConcern
     {
         $zoneId = $this->config->saasZoneId();
         if ($zoneId === null) {
-            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.'];
+            return ['ok' => false, 'error' => 'Edge Zone ID is missing. Add it in Settings.'];
         }
 
         $zoneBaseDomain = $this->originAliasBaseDomain();
@@ -66,14 +66,14 @@ trait SaasHostnameOriginAliasConcern
             'name' => $fqdn,
             'content' => $ipAddress,
             'ttl' => 1,
-            'proxied' => true,
+            'proxied' => false,
         ];
 
         if ($existing && is_string($existing['id'] ?? null)) {
             $existingType = strtoupper((string) ($existing['type'] ?? ''));
             $existingContent = trim((string) ($existing['content'] ?? ''));
             $existingProxied = (bool) ($existing['proxied'] ?? false);
-            if ($existingType !== $recordType || $existingContent !== $ipAddress || $existingProxied !== true) {
+            if ($existingType !== $recordType || $existingContent !== $ipAddress || $existingProxied !== false) {
                 $update = $this->cloudflare->request(
                     'PUT',
                     '/zones/'.$zoneId.'/dns_records/'.$existing['id'],

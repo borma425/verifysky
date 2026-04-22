@@ -14,7 +14,7 @@ class CloudflareApiClient
     {
         $token = $this->config->cloudflareApiToken();
         if ($token === null) {
-            return ['ok' => false, 'error' => 'Cloudflare API token is missing. Add CF API Token in Settings.', 'data' => null];
+            return ['ok' => false, 'error' => 'Edge API token is missing. Add it in Settings.', 'data' => null];
         }
 
         try {
@@ -26,34 +26,27 @@ class CloudflareApiClient
                     'variables' => $variables,
                 ]);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'Cloudflare GraphQL request failed: '.$e->getMessage(), 'data' => null];
+            return ['ok' => false, 'error' => 'Edge service analytics request failed.', 'data' => null];
         }
 
         if (! $response->successful()) {
-            $payload = $response->json();
-            $message = is_array($payload) ? ($payload['errors'][0]['message'] ?? null) : null;
-
             return [
                 'ok' => false,
-                'error' => $message
-                    ? 'Cloudflare GraphQL HTTP error: '.$response->status().' ('.$message.')'
-                    : 'Cloudflare GraphQL HTTP error: '.$response->status(),
+                'error' => 'Edge service analytics HTTP error: '.$response->status(),
                 'data' => null,
             ];
         }
 
         $payload = $response->json();
         if (! is_array($payload)) {
-            return ['ok' => false, 'error' => 'Unexpected Cloudflare GraphQL response.', 'data' => null];
+            return ['ok' => false, 'error' => 'Unexpected edge service analytics response.', 'data' => null];
         }
 
         $errors = $payload['errors'] ?? null;
         if (is_array($errors) && count($errors) > 0) {
-            $message = $errors[0]['message'] ?? null;
-
             return [
                 'ok' => false,
-                'error' => $message ? 'Cloudflare GraphQL error: '.$message : 'Cloudflare GraphQL reported failure.',
+                'error' => 'Edge service analytics reported failure.',
                 'data' => $payload['data'] ?? null,
             ];
         }
@@ -65,7 +58,7 @@ class CloudflareApiClient
     {
         $token = $this->config->cloudflareApiToken();
         if ($token === null) {
-            return ['ok' => false, 'error' => 'Cloudflare API token is missing. Add CF API Token in Settings.', 'result' => null];
+            return ['ok' => false, 'error' => 'Edge API token is missing. Add it in Settings.', 'result' => null];
         }
 
         try {
@@ -77,33 +70,26 @@ class CloudflareApiClient
                     'json' => $json,
                 ]);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'Cloudflare API request failed: '.$e->getMessage(), 'result' => null];
+            return ['ok' => false, 'error' => 'Edge service request failed.', 'result' => null];
         }
 
         if (! $response->successful()) {
-            $payload = $response->json();
-            $message = is_array($payload) ? ($payload['errors'][0]['message'] ?? null) : null;
-
             return [
                 'ok' => false,
-                'error' => $message
-                    ? 'Cloudflare API HTTP error: '.$response->status().' ('.$message.')'
-                    : 'Cloudflare API HTTP error: '.$response->status(),
+                'error' => 'Edge service HTTP error: '.$response->status(),
                 'result' => null,
             ];
         }
 
         $data = $response->json();
         if (! is_array($data)) {
-            return ['ok' => false, 'error' => 'Unexpected Cloudflare API response.', 'result' => null];
+            return ['ok' => false, 'error' => 'Unexpected edge service response.', 'result' => null];
         }
 
         if (($data['success'] ?? false) !== true) {
-            $message = $data['errors'][0]['message'] ?? null;
-
             return [
                 'ok' => false,
-                'error' => $message ? 'Cloudflare API error: '.$message : 'Cloudflare API reported failure.',
+                'error' => 'Edge service reported failure.',
                 'result' => null,
             ];
         }

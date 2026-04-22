@@ -36,7 +36,7 @@
     </a>
     <a href="{{ route('admin.settings.index') }}" class="es-card block p-5 hover:border-cyan-300/35">
       <div class="text-lg font-bold text-white">Platform Settings</div>
-      <p class="mt-2 text-sm text-sky-100/70">Manage runtime values and Cloudflare synchronization settings.</p>
+      <p class="mt-2 text-sm text-sky-100/70">Manage runtime values and edge synchronization settings.</p>
     </a>
   </div>
 @endsection

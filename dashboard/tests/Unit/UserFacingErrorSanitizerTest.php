@@ -24,4 +24,13 @@ class UserFacingErrorSanitizerTest extends TestCase
 
         $this->assertSame($message, $sanitized);
     }
+
+    public function test_it_hides_edge_provider_details(): void
+    {
+        $message = 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.';
+
+        $sanitized = UserFacingErrorSanitizer::sanitize($message);
+
+        $this->assertSame(UserFacingErrorSanitizer::defaultMessage(), $sanitized);
+    }
 }

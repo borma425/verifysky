@@ -30,7 +30,7 @@ trait SaasHostnameProvisioningConcern
 
             $zone = is_array($zoneLookup['result'][0] ?? null) ? $zoneLookup['result'][0] : null;
             if (! $zone || ! is_string($zone['id'] ?? null)) {
-                return ['ok' => false, 'error' => 'Zone not found in Cloudflare for this domain. Make sure the domain is added and active in the same account.'];
+                return ['ok' => false, 'error' => 'Zone not found for this domain. Make sure the domain is added and active in the same edge account.'];
             }
 
             $resolvedZoneId = $zone['id'];
@@ -40,10 +40,10 @@ trait SaasHostnameProvisioningConcern
         if ($resolvedSiteKey === '' || $resolvedSecret === '') {
             $accountId = $this->config->cloudflareAccountId() ?: $zoneAccountId;
             if (! $accountId) {
-                return ['ok' => false, 'error' => 'Cloudflare Account ID is required to auto-create Turnstile widget. Add it in Settings as CF Account ID.'];
+                return ['ok' => false, 'error' => 'Edge Account ID is required to auto-create the browser challenge. Add it in Settings.'];
             }
 
-            $widget = $this->turnstile->ensureWidgetForDomain($accountId, $domain, 'Edge Shield - '.$domain);
+            $widget = $this->turnstile->ensureWidgetForDomain($accountId, $domain, 'VerifySky Challenge - '.$domain);
             if (! $widget['ok']) {
                 return ['ok' => false, 'error' => $widget['error']];
             }
@@ -56,14 +56,14 @@ trait SaasHostnameProvisioningConcern
         }
 
         if ($resolvedZoneId === '' || $resolvedSiteKey === '' || $resolvedSecret === '') {
-            return ['ok' => false, 'error' => 'Automatic provisioning completed partially. Missing Zone ID or Turnstile keys.'];
+            return ['ok' => false, 'error' => 'Automatic provisioning completed partially. Missing Edge Zone ID or browser challenge keys.'];
         }
 
         $cacheRuleResult = $this->saasSecurity->ensureCacheRuleForEdgeShield($resolvedZoneId, $domain);
 
         return [
             'ok' => true,
-            'error' => $cacheRuleResult['ok'] ? null : 'Turnstile created, but Cache Rule failed: '.($cacheRuleResult['error'] ?? 'Unknown error'),
+            'error' => $cacheRuleResult['ok'] ? null : 'Browser challenge was created, but cache rule sync failed: '.($cacheRuleResult['error'] ?? 'Unknown error'),
             'domain_name' => $domain,
             'zone_id' => $resolvedZoneId,
             'turnstile_sitekey' => $resolvedSiteKey,
@@ -76,7 +76,7 @@ trait SaasHostnameProvisioningConcern
     {
         $zoneId = $this->config->saasZoneId();
         if ($zoneId === null) {
-            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing.'];
+            return ['ok' => false, 'error' => 'Edge Zone ID is missing. Add it in Settings.'];
         }
 
         $resolvedOrigin = $this->resolveCustomOriginTarget('', $originServer);
@@ -105,7 +105,7 @@ trait SaasHostnameProvisioningConcern
             return ['ok' => false, 'error' => 'Domain name is empty.'];
         }
         if ($zoneId === null) {
-            return ['ok' => false, 'error' => 'CLOUDFLARE_ZONE_ID is missing in dashboard .env.'];
+            return ['ok' => false, 'error' => 'Edge Zone ID is missing. Add it in Settings.'];
         }
 
         $resolvedOrigin = $this->resolveCustomOriginTarget($domain, $originServer);
@@ -150,7 +150,7 @@ trait SaasHostnameProvisioningConcern
 
         $accountId = $this->config->cloudflareAccountId();
         if (! $accountId) {
-            return ['ok' => false, 'error' => 'Cloudflare Account ID is missing.'];
+            return ['ok' => false, 'error' => 'Edge Account ID is missing. Add it in Settings.'];
         }
         $widget = $this->turnstile->ensureWidgetForDomain($accountId, $domain);
         if (! $widget['ok']) {
@@ -175,9 +175,9 @@ trait SaasHostnameProvisioningConcern
             'turnstile_sitekey' => (string) ($widget['sitekey'] ?? ''),
             'turnstile_secret' => (string) ($widget['secret'] ?? ''),
             'bot_management_action' => $botManagement['action'] ?? null,
-            'bot_management_warning' => $botManagement['ok'] ? null : ($botManagement['error'] ?? 'Cloudflare Bot Management settings were not synced.'),
+            'bot_management_warning' => $botManagement['ok'] ? null : ($botManagement['error'] ?? 'Bot protection settings were not synced.'),
             'edge_rules_action' => $edgeRules['action'] ?? null,
-            'edge_rules_warning' => $edgeRules['ok'] ? null : ($edgeRules['error'] ?? 'Cloudflare edge bypass rules were not synced.'),
+            'edge_rules_warning' => $edgeRules['ok'] ? null : ($edgeRules['error'] ?? 'Edge bypass rules were not synced.'),
         ];
     }
 }
