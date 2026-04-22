@@ -21,10 +21,10 @@
         <thead>
         <tr>
           <th>Tenant</th>
-          <th>Baseline</th>
-          <th>Effective</th>
+          <th>Plan Limit</th>
+          <th>Final Limit</th>
           <th>Billing Cycle</th>
-          <th>Grant</th>
+          <th>Extra/Bonus</th>
           <th>Domains</th>
           <th>Actions</th>
         </tr>
