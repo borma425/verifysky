@@ -15,6 +15,14 @@ class D1DatabaseClient
     public function query(string $sql, int $timeout = 90): array
     {
         $normalizedTimeout = max(10, min(300, $timeout));
+        if (! $this->config->canRunD1Query($sql)) {
+            return [
+                'ok' => false,
+                'error' => $this->config->mutationBlockedError(),
+                'output' => '',
+            ];
+        }
+
         if ($this->shouldUseReadCache($sql)) {
             $cached = $this->getCachedReadResult($sql);
             if ($cached !== null) {
@@ -55,10 +63,23 @@ class D1DatabaseClient
 
     private function queryViaWrangler(string $sql, int $timeout, bool $local): array
     {
+        $environmentFlag = '';
+        $environmentName = $this->config->wranglerEnvironmentName();
+        if ($environmentName !== null) {
+            $environmentFlag = ' --env '.escapeshellarg($environmentName);
+        }
+
+        $persistFlag = '';
+        if ($local) {
+            $persistFlag = ' --persist-to '.escapeshellarg($this->config->localD1PersistPath());
+        }
+
         $cmd = sprintf(
-            '%s d1 execute %s %s --command %s',
+            '%s d1 execute %s%s%s %s --command %s',
             $this->config->wranglerBin(),
             escapeshellarg($this->config->d1DatabaseName()),
+            $environmentFlag,
+            $persistFlag,
             $local ? '--local' : '--remote',
             escapeshellarg($sql)
         );
@@ -119,7 +140,7 @@ class D1DatabaseClient
     {
         $accountId = $this->config->cloudflareAccountId();
         $token = $this->config->cloudflareApiToken();
-        $databaseId = $this->config->configuredD1DatabaseId();
+        $databaseId = $this->config->targetD1DatabaseId();
 
         $missing = [];
         if ($accountId === null) {

@@ -10,6 +10,10 @@ class WorkerAdminClient
 
     public function allowIp(string $domain, string $ip, int $ttlHours = 24, string $reason = 'dashboard manual allow from logs'): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         $host = $this->normalizeDomain($domain);
         if ($host === '') {
             return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];
@@ -138,6 +142,10 @@ class WorkerAdminClient
 
     public function blockIp(string $domain, string $ip, int $ttlHours = 24, string $reason = 'dashboard manual block from logs'): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         $host = $this->normalizeDomain($domain);
         if ($host === '') {
             return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];
@@ -211,6 +219,10 @@ class WorkerAdminClient
 
     private function post(string $domain, string $path, array $payload): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         $host = $this->normalizeDomain($domain);
         if ($host === '') {
             return ['ok' => false, 'error' => 'Domain is required to call worker admin endpoint.'];

@@ -11,6 +11,10 @@ class WorkerRouteService
 
     public function ensureWorkerRoute(string $zoneId, string $domainName, ?array $cacheRuleResult = null): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         $zone = trim($zoneId);
         $domain = $this->normalizeDomain($domainName);
         if ($zone === '' || $domain === '') {
@@ -85,6 +89,10 @@ class WorkerRouteService
 
     public function removeWorkerRoutes(string $zoneId, string $domainName): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         $zone = trim($zoneId);
         $domain = $this->normalizeDomain($domainName);
         if ($zone === '' || $domain === '') {

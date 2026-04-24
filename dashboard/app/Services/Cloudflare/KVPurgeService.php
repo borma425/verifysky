@@ -2,6 +2,7 @@
 
 namespace App\Services\Cloudflare;
 
+use App\Services\EdgeShield\EdgeShieldConfig;
 use Illuminate\Support\Facades\Http;
 
 class KVPurgeService
@@ -10,6 +11,15 @@ class KVPurgeService
 
     public function purgeDomain(string $domain): array
     {
+        $config = app(EdgeShieldConfig::class);
+        if (! $config->allowsCloudflareMutations()) {
+            return [
+                'ok' => false,
+                'deleted' => [],
+                'errors' => [$config->mutationBlockedError()],
+            ];
+        }
+
         $keys = $this->keysForDomain($domain);
         if ($keys === []) {
             return ['ok' => true, 'deleted' => [], 'errors' => []];

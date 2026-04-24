@@ -10,9 +10,11 @@ return [
     'worker_name' => env('EDGE_SHIELD_WORKER_NAME', 'verifysky-edge'),
     'saas_zone_id' => env('CLOUDFLARE_ZONE_ID', env('CF_ZONE_ID', '')),
     'saas_cname_target' => env('SAAS_CNAME_TARGET', 'customers.verifysky.com'),
+    'target_env' => env('EDGE_SHIELD_TARGET_ENV', env('APP_ENV') === 'local' ? 'staging' : 'production'),
     'd1_mode' => env('EDGE_SHIELD_D1_MODE', 'remote'),
     'd1_database_name' => env('D1_DATABASE_NAME', 'EDGE_SHIELD_DB'),
     'd1_database_id' => env('D1_DATABASE_ID', ''),
+    'd1_local_persist_path' => env('EDGE_SHIELD_D1_LOCAL_PERSIST_PATH', ''),
     'd1_read_cache_ttl' => (int) env('EDGE_SHIELD_D1_READ_CACHE_TTL', 60),
     'd1_allow_wrangler_remote' => filter_var(env('EDGE_SHIELD_D1_ALLOW_WRANGLER_REMOTE', false), FILTER_VALIDATE_BOOL),
     'runtime' => [

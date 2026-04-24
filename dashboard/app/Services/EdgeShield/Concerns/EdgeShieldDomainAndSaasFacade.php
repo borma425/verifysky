@@ -80,9 +80,18 @@ trait EdgeShieldDomainAndSaasFacade
 
     public function ensureWorkerRoute(string $zoneId, string $domainName): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         $cacheRuleResult = $this->ensureCacheRuleForEdgeShield($zoneId, $domainName);
 
         return $this->workerRoutes->ensureWorkerRoute($zoneId, $domainName, $cacheRuleResult);
+    }
+
+    public function ensureWorkerRouteOnly(string $zoneId, string $domainName): array
+    {
+        return $this->workerRoutes->ensureWorkerRoute($zoneId, $domainName);
     }
 
     public function removeWorkerRoutes(string $zoneId, string $domainName): array
@@ -162,21 +171,37 @@ trait EdgeShieldDomainAndSaasFacade
 
     public function ensureCacheRuleForEdgeShield(string $zoneId, string $triggeringDomain): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         return $this->saasSecurity->ensureCacheRuleForEdgeShield($zoneId, $triggeringDomain);
     }
 
     public function ensureSaasFallbackBypassRules(): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         return $this->saasSecurity->ensureSaasFallbackBypassRules();
     }
 
     public function ensureSaasBotManagementSettings(): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         return $this->saasSecurity->ensureSaasBotManagementSettings();
     }
 
     public function syncCloudflareFromDashboardSettings(): array
     {
+        if (! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError()];
+        }
+
         return $this->secretSync->syncFromDashboardSettings();
     }
 }

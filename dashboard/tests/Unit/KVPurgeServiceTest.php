@@ -81,4 +81,16 @@ class KVPurgeServiceTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertSame([], $result['errors']);
     }
+
+    public function test_purge_domain_is_blocked_for_production_readonly_target(): void
+    {
+        Config::set('edgeshield.target_env', 'production_readonly');
+        Http::fake();
+
+        $result = (new KVPurgeService)->purgeDomain('cashup.cash');
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(['Production is read-only from local dashboard.'], $result['errors']);
+        Http::assertNothingSent();
+    }
 }

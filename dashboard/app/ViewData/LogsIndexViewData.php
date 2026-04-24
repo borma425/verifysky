@@ -2,6 +2,7 @@
 
 namespace App\ViewData;
 
+use App\Services\EdgeShield\EdgeShieldConfig;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class LogsIndexViewData
@@ -15,6 +16,7 @@ class LogsIndexViewData
 
     public function toArray(): array
     {
+        $edgeTarget = app(EdgeShieldConfig::class);
         $rows = $this->formatRows(
             $this->payload['rows'] ?? [],
             $this->payload['all_farm_ips'] ?? [],
@@ -38,7 +40,11 @@ class LogsIndexViewData
             'eventTypeOptions' => $this->payload['filter_options']['events'] ?? [],
             'eventLabels' => $this->eventLabels(),
             'isAdmin' => $this->isAdmin,
-            'canManageLogActions' => $this->isAdmin,
+            'canManageLogActions' => $this->isAdmin && $edgeTarget->allowsCloudflareMutations(),
+            'edgeShieldTargetLabel' => $edgeTarget->targetEnvironmentLabel(),
+            'edgeShieldTargetEnv' => $edgeTarget->targetEnvironment(),
+            'edgeShieldMutationsAllowed' => $edgeTarget->allowsCloudflareMutations(),
+            'edgeShieldMutationBlockedMessage' => $edgeTarget->mutationBlockedError(),
             'isTenantScoped' => (bool) ($this->payload['tenant_scoped'] ?? false),
             'accessibleDomainsCount' => count($this->payload['accessible_domains'] ?? []),
             'scopeLabel' => $this->scopeLabel(),

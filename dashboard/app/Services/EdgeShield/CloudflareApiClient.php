@@ -56,6 +56,10 @@ class CloudflareApiClient
 
     public function request(string $method, string $path, array $query = [], ?array $json = null): array
     {
+        if (strtoupper($method) !== 'GET' && ! $this->config->allowsCloudflareMutations()) {
+            return ['ok' => false, 'error' => $this->config->mutationBlockedError(), 'result' => null];
+        }
+
         $token = $this->config->cloudflareApiToken();
         if ($token === null) {
             return ['ok' => false, 'error' => 'Edge API token is missing. Add it in Settings.', 'result' => null];
