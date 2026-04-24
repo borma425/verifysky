@@ -7,10 +7,20 @@
 <div class="es-card es-animate mb-4 p-5 md:p-6">
   <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 border-b border-sky-500/20 pb-4">
     <div>
-      <h2 class="es-title m-0">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
+      <div class="flex flex-wrap items-center gap-2">
+        <h2 class="es-title m-0">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
+        @if(!empty($edgeShieldTargetLabel))
+          <span class="rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-wide {{ ($edgeShieldMutationsAllowed ?? false) ? 'border-emerald-400/35 bg-emerald-500/15 text-emerald-100' : 'border-amber-400/35 bg-amber-500/15 text-amber-100' }}">
+            {{ $edgeShieldTargetLabel }}
+          </span>
+        @endif
+      </div>
       <p class="mt-2 max-w-3xl text-sm text-sky-100/70">
         {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your account so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
       </p>
+      @if(!($edgeShieldMutationsAllowed ?? true))
+        <p class="mt-2 max-w-3xl text-xs font-medium text-amber-200/90">{{ $edgeShieldMutationBlockedMessage ?? 'Mutating actions are disabled for this edge target.' }}</p>
+      @endif
     </div>
     @if($canManageLogActions)
       <form method="POST" action="{{ $logsClearRoute }}" class="mt-3 md:mt-0 flex items-center justify-end gap-2" onsubmit="return confirm('Are you sure you want to clear these logs? This cannot be undone.');">

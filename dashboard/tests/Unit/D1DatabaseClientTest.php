@@ -74,7 +74,53 @@ class D1DatabaseClientTest extends TestCase
         $this->assertStringContainsString('--local', $runner->command);
         $this->assertStringNotContainsString('--remote', $runner->command);
         $this->assertStringContainsString('VERIFY_SKY_TEST_DB', $runner->command);
+        $this->assertStringContainsString('--persist-to', $runner->command);
         $this->assertFalse($config->remoteCredentialsWereRead);
+    }
+
+    public function test_local_mode_passes_the_matching_wrangler_environment_when_available(): void
+    {
+        $config = new class extends EdgeShieldConfig
+        {
+            public function useLocalD1(): bool
+            {
+                return true;
+            }
+
+            public function wranglerBin(): string
+            {
+                return 'npx wrangler';
+            }
+
+            public function d1DatabaseName(): string
+            {
+                return 'VERIFY_SKY_TEST_DB';
+            }
+
+            public function wranglerEnvironmentName(): ?string
+            {
+                return 'staging';
+            }
+        };
+
+        $runner = new class($config) extends WranglerProcessRunner
+        {
+            public string $command = '';
+
+            public function runInProject(string $command, int $timeout = 60): array
+            {
+                $this->command = $command;
+
+                return ['ok' => true, 'output' => '[]', 'error' => null];
+            }
+        };
+
+        $result = (new D1DatabaseClient($config, $runner))->query('SELECT 1', 10);
+
+        $this->assertTrue($result['ok']);
+        $this->assertStringContainsString("--env 'staging'", $runner->command);
+        $this->assertStringContainsString('--persist-to', $runner->command);
+        $this->assertStringContainsString('--local', $runner->command);
     }
 
     public function test_local_select_queries_are_cached_for_the_ttl_window(): void
@@ -195,6 +241,11 @@ class D1DatabaseClientTest extends TestCase
                 return null;
             }
 
+            public function targetD1DatabaseId(): ?string
+            {
+                return null;
+            }
+
             public function cloudflareAccountId(): ?string
             {
                 return null;
@@ -226,6 +277,40 @@ class D1DatabaseClientTest extends TestCase
         $this->assertStringContainsString('Edge API Token', (string) $result['error']);
         $this->assertStringContainsString('D1_DATABASE_ID', (string) $result['error']);
         $this->assertStringContainsString('Remote database fallback is disabled.', (string) $result['error']);
+        $this->assertSame(0, $runner->calls);
+    }
+
+    public function test_production_readonly_blocks_write_queries_before_transport(): void
+    {
+        $config = new class extends EdgeShieldConfig
+        {
+            public function useLocalD1(): bool
+            {
+                return false;
+            }
+
+            public function targetEnvironment(): string
+            {
+                return 'production_readonly';
+            }
+        };
+
+        $runner = new class($config) extends WranglerProcessRunner
+        {
+            public int $calls = 0;
+
+            public function runInProject(string $command, int $timeout = 60): array
+            {
+                $this->calls++;
+
+                return ['ok' => true, 'output' => '[]', 'error' => null];
+            }
+        };
+
+        $result = (new D1DatabaseClient($config, $runner))->query("DELETE FROM security_logs WHERE domain_name = 'example.com'");
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('Production is read-only from local dashboard.', $result['error']);
         $this->assertSame(0, $runner->calls);
     }
 }
