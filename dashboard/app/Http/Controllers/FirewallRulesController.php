@@ -114,9 +114,14 @@ class FirewallRulesController extends Controller
 
     public function destroy(string $domain, string $ruleId): RedirectResponse
     {
-        $tenantId = (string) session('current_tenant_id', '');
+        $tenantId = trim((string) session('current_tenant_id', ''));
         $isAdmin = (bool) session('is_admin');
-        if (! $this->planLimits->domainBelongsToTenant($domain, $tenantId !== '' ? $tenantId : null, $isAdmin)) {
+        $isGlobal = strtolower(trim($domain)) === 'global';
+        $allowedDomain = $isGlobal && ! $isAdmin
+            ? $tenantId !== ''
+            : $this->planLimits->domainBelongsToTenant($domain, $tenantId !== '' ? $tenantId : null, $isAdmin);
+        $allowedRule = $this->planLimits->canManageRuleIds([(int) $ruleId], $tenantId !== '' ? $tenantId : null, $isAdmin);
+        if (! $allowedDomain || ! $allowedRule) {
             abort(403, 'You do not have access to delete firewall rules for this domain.');
         }
 
@@ -141,9 +146,14 @@ class FirewallRulesController extends Controller
 
     public function edit(string $domain, int $ruleId): View|RedirectResponse
     {
-        $tenantId = (string) session('current_tenant_id', '');
+        $tenantId = trim((string) session('current_tenant_id', ''));
         $isAdmin = (bool) session('is_admin');
-        if (! $this->planLimits->domainBelongsToTenant($domain, $tenantId !== '' ? $tenantId : null, $isAdmin)) {
+        $isGlobal = strtolower(trim($domain)) === 'global';
+        $allowedDomain = $isGlobal && ! $isAdmin
+            ? $tenantId !== ''
+            : $this->planLimits->domainBelongsToTenant($domain, $tenantId !== '' ? $tenantId : null, $isAdmin);
+        $allowedRule = $this->planLimits->canManageRuleIds([$ruleId], $tenantId !== '' ? $tenantId : null, $isAdmin);
+        if (! $allowedDomain || ! $allowedRule) {
             abort(403, 'You do not have access to edit firewall rules for this domain.');
         }
 
@@ -159,7 +169,14 @@ class FirewallRulesController extends Controller
 
     public function update(string $domain, int $ruleId, UpdateFirewallRuleRequest $request): RedirectResponse
     {
-        $update = $this->updateFirewallRule->execute($domain, $ruleId, $request->validated());
+        $validated = $request->validated();
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        if ($tenantId !== '' && ! (bool) session('is_admin')) {
+            $validated['tenant_id'] = $tenantId;
+            $validated['scope'] = strtolower(trim($domain)) === 'global' ? 'tenant' : 'domain';
+        }
+
+        $update = $this->updateFirewallRule->execute($domain, $ruleId, $validated);
         $this->purgeTenantGlobalScope($domain);
 
         return redirect()->route('firewall.index')->with(

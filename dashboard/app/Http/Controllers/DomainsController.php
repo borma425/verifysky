@@ -184,7 +184,11 @@ class DomainsController extends Controller
 
     public function syncRoute(string $domain): RedirectResponse
     {
-        $sync = $this->refreshDomainVerification->execute($domain);
+        $sync = $this->refreshDomainVerification->execute(
+            $domain,
+            session('current_tenant_id'),
+            (bool) session('is_admin')
+        );
 
         return back()->with(
             $sync['ok'] ? 'status' : 'error',
@@ -196,7 +200,11 @@ class DomainsController extends Controller
 
     public function syncGroup(string $domain): RedirectResponse
     {
-        $sync = $this->refreshDomainGroupVerification->execute($domain);
+        $sync = $this->refreshDomainGroupVerification->execute(
+            $domain,
+            session('current_tenant_id'),
+            (bool) session('is_admin')
+        );
         if (! $sync['ok']) {
             return back()->with('error', $sync['error']);
         }

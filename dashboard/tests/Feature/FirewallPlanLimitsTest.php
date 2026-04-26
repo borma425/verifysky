@@ -163,6 +163,73 @@ class FirewallPlanLimitsTest extends TestCase
         Queue::assertPushed(PurgeRuntimeBundleCache::class, fn (PurgeRuntimeBundleCache $job): bool => $job->domain === 'two.example.com');
     }
 
+    public function test_non_admin_can_update_only_owned_tenant_global_firewall_rule(): void
+    {
+        Queue::fake();
+        $tenant = Tenant::query()->create([
+            'name' => 'Tenant One',
+            'slug' => 'tenant-one-update',
+            'plan' => 'starter',
+            'status' => 'active',
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'one.example.com',
+        ]);
+        $this->bindEdgeShieldMock();
+
+        $updateAction = Mockery::mock(UpdateFirewallRuleAction::class);
+        $updateAction->shouldReceive('execute')
+            ->once()
+            ->with('global', 44, Mockery::on(fn (array $payload): bool => $payload['tenant_id'] === (string) $tenant->id
+                && $payload['scope'] === 'tenant'))
+            ->andReturn(['ok' => true]);
+        $this->app->instance(UpdateFirewallRuleAction::class, $updateAction);
+
+        $limits = Mockery::mock(PlanLimitsService::class);
+        $this->app->instance(PlanLimitsService::class, $limits);
+        $limits->shouldReceive('domainBelongsToTenant')->never();
+        $limits->shouldReceive('canManageRuleIds')->once()->with([44], (string) $tenant->id, false)->andReturn(true);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->put('/firewall/global/44', $this->validRulePayload());
+
+        $response->assertRedirect(route('firewall.index'));
+        $response->assertSessionHas('status', 'Firewall rule updated successfully.');
+        Queue::assertPushed(PurgeRuntimeBundleCache::class, fn (PurgeRuntimeBundleCache $job): bool => $job->domain === 'one.example.com');
+    }
+
+    public function test_non_admin_cannot_update_another_tenant_global_firewall_rule(): void
+    {
+        $tenant = Tenant::query()->create([
+            'name' => 'Tenant One',
+            'slug' => 'tenant-one-denied',
+            'plan' => 'starter',
+            'status' => 'active',
+        ]);
+        $this->bindEdgeShieldMock();
+
+        $updateAction = Mockery::mock(UpdateFirewallRuleAction::class);
+        $updateAction->shouldReceive('execute')->never();
+        $this->app->instance(UpdateFirewallRuleAction::class, $updateAction);
+
+        $limits = Mockery::mock(PlanLimitsService::class);
+        $this->app->instance(PlanLimitsService::class, $limits);
+        $limits->shouldReceive('domainBelongsToTenant')->never();
+        $limits->shouldReceive('canManageRuleIds')->once()->with([44], (string) $tenant->id, false)->andReturn(false);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->put('/firewall/global/44', $this->validRulePayload());
+
+        $response->assertForbidden();
+    }
+
     public function test_non_admin_cannot_add_rule_after_plan_limit(): void
     {
         $this->bindEdgeShieldMock();

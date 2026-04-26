@@ -13,11 +13,16 @@ class ToggleFirewallRuleRequest extends FormRequest
     public function authorize(): bool
     {
         $limits = app(PlanLimitsService::class);
-        $allowed = $limits->domainBelongsToTenant(
-            (string) $this->route('domain'),
-            session('current_tenant_id'),
-            (bool) session('is_admin')
-        );
+        $domain = (string) $this->route('domain');
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        $isAdmin = (bool) session('is_admin');
+        $isGlobal = strtolower(trim($domain)) === 'global';
+        $allowedDomain = $isGlobal && ! $isAdmin
+            ? $tenantId !== ''
+            : $limits->domainBelongsToTenant($domain, $tenantId, $isAdmin);
+        $allowedRule = $limits->canManageRuleIds([(int) $this->route('ruleId')], $tenantId, $isAdmin);
+
+        $allowed = $allowedDomain && $allowedRule;
 
         if (! $allowed) {
             $this->authorizationMessage = 'You do not have access to change firewall rules for this domain.';

@@ -14,16 +14,17 @@ class UpdateFirewallRuleRequest extends FormRequest
     {
         $domain = (string) $this->route('domain');
         $tenantId = trim((string) session('current_tenant_id', ''));
-        if (strtolower(trim($domain)) === 'global' && $tenantId !== '') {
-            return true;
-        }
+        $ruleId = (int) $this->route('ruleId');
 
         $limits = app(PlanLimitsService::class);
-        $allowed = $limits->domainBelongsToTenant(
-            $domain,
-            $tenantId,
-            (bool) session('is_admin')
-        );
+        $isAdmin = (bool) session('is_admin');
+        $isGlobal = strtolower(trim($domain)) === 'global';
+        $allowedDomain = $isGlobal && ! $isAdmin
+            ? $tenantId !== ''
+            : $limits->domainBelongsToTenant($domain, $tenantId, $isAdmin);
+        $allowedRule = $limits->canManageRuleIds([$ruleId], $tenantId, $isAdmin);
+
+        $allowed = $allowedDomain && $allowedRule;
 
         if (! $allowed) {
             $this->authorizationMessage = 'You do not have access to update firewall rules for this domain.';
