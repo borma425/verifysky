@@ -1,5 +1,23 @@
 <div class="es-domain-card">
   @php
+    $syncGroupUrl = isset($domainTenant)
+      ? route('admin.tenants.domains.sync_group', [$domainTenant, $group['display_domain']])
+      : route('domains.sync_group', ['domain' => $group['display_domain']]);
+    $tuningUrl = isset($domainTenant)
+      ? route('admin.tenants.domains.show', [$domainTenant, $group['primary_domain']])
+      : route('domains.tuning', ['domain' => $group['primary_domain']]);
+    $destroyGroupUrl = isset($domainTenant)
+      ? route('admin.tenants.domains.destroy_group', [$domainTenant, $group['display_domain']])
+      : route('domains.destroy_group', ['domain' => $group['display_domain']]);
+    $securityModeUrl = isset($domainTenant)
+      ? route('admin.tenants.domains.security_mode.update', [$domainTenant, $group['primary_domain']])
+      : route('domains.security_mode', ['domain' => $group['primary_domain']]);
+    $forceCaptchaUrl = isset($domainTenant)
+      ? route('admin.tenants.domains.force_captcha.update', [$domainTenant, $group['primary_domain']])
+      : route('domains.force_captcha', ['domain' => $group['primary_domain']]);
+    $statusUrl = isset($domainTenant)
+      ? route('admin.tenants.domains.status.update', [$domainTenant, $group['primary_domain']])
+      : route('domains.status', ['domain' => $group['primary_domain']]);
     $isActive = strtolower((string) ($group['status'] ?? 'active')) === 'active';
     $forceCaptchaEnabled = (int) ($group['force_captcha'] ?? 0) === 1;
     $healthRows = is_array($group['health_rows'] ?? null) ? $group['health_rows'] : [];
@@ -30,47 +48,47 @@
   @endphp
 
   <div class="es-domain-detail-shell">
-    <div class="flex flex-col gap-3.5 border-b border-white/6 p-3.5 md:p-4 xl:flex-row xl:items-start xl:justify-between">
+    <div class="flex flex-col gap-4 border-b border-[#303540]/50 bg-[#1B202A] p-6 md:flex-row md:items-center md:justify-between">
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-3">
-          <img src="https://www.google.com/s2/favicons?domain={{ $group['primary_domain'] }}&sz=64" alt="favicon" class="h-6 w-6 rounded bg-[#0E131D] p-1">
-          <h3 class="es-domain-title truncate font-black leading-none tracking-[-0.05em] text-[#FFFFFF]">{{ $group['display_domain'] }}</h3>
-          <span class="rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] {{ $statusChipClass }}">
+          <h3 class="es-domain-title truncate font-bold leading-tight tracking-wide text-[#DEE2F0]">{{ $group['display_domain'] }}</h3>
+          <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider {{ $statusChipClass }}">
             {{ strtoupper($group['overall_status']) }}
           </span>
-          <span class="rounded-md border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] {{ $modeChipClass }}">
+          <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider {{ $modeChipClass }}">
             {{ strtoupper($group['mode']) }}
           </span>
         </div>
 
-        <div class="es-managed-route mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[#D4C4AB]">
-          <img src="{{ asset('duotone/globe.svg') }}" alt="managed route" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+        <div class="es-managed-route mt-2 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-sm text-[#D4C4AB]">
+          <span class="material-symbols-outlined text-[16px]">public</span>
           <span>Managed via VerifySky Edge Network</span>
         </div>
       </div>
 
       <div class="es-domain-actions flex flex-wrap items-center gap-2.5">
-        <form method="POST" action="{{ route('domains.sync_group', ['domain' => $group['display_domain']]) }}">
+        <form method="POST" action="{{ $syncGroupUrl }}">
           @csrf
-          <button class="es-icon-btn h-10 w-10" type="submit" title="Refresh">
-            <img src="{{ asset('duotone/arrows-rotate.svg') }}" alt="refresh" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+          <button class="es-icon-btn h-9 w-9" type="submit" title="Refresh">
+            <span class="material-symbols-outlined text-lg">refresh</span>
           </button>
         </form>
-        <a href="{{ route('domains.tuning', ['domain' => $group['primary_domain']]) }}" class="es-icon-btn h-10 w-10" title="Tuning">
-          <img src="{{ asset('duotone/sliders.svg') }}" alt="tuning" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+        <a href="{{ $tuningUrl }}" class="es-icon-btn h-9 w-9" title="Tuning">
+          <span class="material-symbols-outlined text-lg">tune</span>
         </a>
-        <div class="hidden h-7 w-px bg-white/8 md:block"></div>
-        <form method="POST" action="{{ route('domains.destroy_group', ['domain' => $group['display_domain']]) }}" x-on:submit="confirmRemoval($event)">
+        <div class="hidden h-6 w-px bg-[#303540] md:block"></div>
+        <form method="POST" action="{{ $destroyGroupUrl }}" x-on:submit="confirmRemoval($event)">
           @csrf
           @method('DELETE')
-          <button class="es-btn es-btn-soft-danger px-3.5 py-2 text-sm" type="submit">
+          <button class="rounded bg-[#303540] px-4 py-1.5 text-sm font-bold text-[#FFB4AB] transition hover:bg-[#93000A]/20" type="submit">
             Delete
           </button>
         </form>
       </div>
     </div>
 
-    <div class="grid gap-2.5 p-3.5 md:grid-cols-2 md:p-4 xl:grid-cols-4">
+    <div class="flex flex-col gap-8 bg-[#171C26] p-6">
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <div class="es-status-tile">
         <img src="{{ asset('duotone/globe.svg') }}" alt="coverage" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
         <div class="text-xs font-medium text-[#D4C4AB]">Health Score</div>
@@ -111,8 +129,8 @@
       </div>
     </div>
 
-    <div class="grid gap-3 p-3.5 pt-0 md:p-4 md:pt-0 xl:grid-cols-2">
-      <section class="es-domain-panel es-detail-panel p-3.5 md:p-4">
+    <div class="grid gap-6 xl:grid-cols-2">
+      <section class="es-domain-panel es-detail-panel p-5">
         <h4 class="es-detail-heading">Connection Summary</h4>
 
         <div class="mt-4 space-y-4">
@@ -167,13 +185,13 @@
         @endif
       </section>
 
-      <section class="es-domain-panel es-detail-panel p-3.5 md:p-4">
+      <section class="es-domain-panel es-detail-panel p-5">
         <div class="es-control-header flex items-center justify-between gap-3">
           <h4 class="es-detail-heading">Control Settings</h4>
           <span class="text-xs font-bold text-[#FCB900]">Apply Changes</span>
         </div>
 
-        <form method="POST" action="{{ route('domains.security_mode', ['domain' => $group['primary_domain']]) }}" class="mt-4 space-y-3.5">
+        <form method="POST" action="{{ $securityModeUrl }}" class="mt-4 space-y-3.5">
           @csrf
           <div class="space-y-2">
             <label class="block text-xs font-medium text-[#D7E1F5]">Security Mode</label>
@@ -187,7 +205,7 @@
         </form>
 
         <div class="mt-5 space-y-4">
-          <form method="POST" action="{{ route('domains.force_captcha', ['domain' => $group['primary_domain']]) }}">
+          <form method="POST" action="{{ $forceCaptchaUrl }}">
             @csrf
             <input type="hidden" name="force_captcha" value="{{ $forceCaptchaEnabled ? 0 : 1 }}">
             <button class="es-inline-switch" type="submit" aria-label="Toggle forced captcha">
@@ -199,7 +217,7 @@
             </button>
           </form>
 
-          <form method="POST" action="{{ route('domains.status', ['domain' => $group['primary_domain']]) }}">
+          <form method="POST" action="{{ $statusUrl }}">
             @csrf
             <input type="hidden" name="status" value="{{ $isActive ? 'paused' : 'active' }}">
             <button class="es-inline-switch" type="submit" aria-label="Toggle runtime status">
@@ -212,6 +230,7 @@
           </form>
         </div>
       </section>
+    </div>
     </div>
   </div>
 </div>

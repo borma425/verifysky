@@ -7,11 +7,28 @@
   </div>
 @endif
 
+@if(session('warning'))
+  <div class="es-animate rounded-xl border border-[#FCB900]/30 bg-[#FCB900]/10 p-4 text-sm font-medium text-[#FFF3D1] shadow-sm backdrop-blur-md">
+    <div class="flex items-start gap-3">
+      <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="warning" class="es-duotone-icon es-icon-tone-brass mt-0.5 h-4 w-4">
+      <div class="space-y-1">
+        @foreach(preg_split("/\\r\\n|\\r|\\n/", (string) session('warning')) as $line)
+          @if(trim($line) !== '')
+            <div>{{ $line }}</div>
+          @endif
+        @endforeach
+      </div>
+    </div>
+  </div>
+@endif
+
 @if(session('domain_setup'))
   @php
     $setup = session('domain_setup');
     $setupDomains = is_array($setup['domains'] ?? null) ? $setup['domains'] : [];
     $setupTarget = (string) ($setup['cname_target'] ?? 'customers.verifysky.com');
+    $setupOrigin = trim((string) ($setup['origin_server'] ?? ''));
+    $setupWarnings = array_values(array_filter((array) ($setup['warnings'] ?? []), fn ($warning): bool => trim((string) $warning) !== ''));
   @endphp
   @if(count($setupDomains) > 0)
     <div class="es-animate rounded-2xl border border-[#FCB900]/26 bg-[#FCB900]/10 p-5 shadow-lg backdrop-blur-md">
@@ -26,8 +43,20 @@
         <div class="rounded-lg border border-white/10 bg-[#202632] px-4 py-3 text-xs text-[#D7E1F5]">
           <div class="font-bold uppercase tracking-widest text-[#959BA7]">DNS Target</div>
           <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupTarget }}</div>
+          @if($setupOrigin !== '')
+            <div class="mt-3 font-bold uppercase tracking-widest text-[#959BA7]">Origin</div>
+            <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupOrigin }}</div>
+          @endif
         </div>
       </div>
+
+      @if($setupWarnings !== [])
+        <div class="mt-4 rounded-lg border border-[#FCB900]/24 bg-[#202632] px-4 py-3 text-sm text-[#FFF3D1]">
+          @foreach($setupWarnings as $warning)
+            <div>{{ $warning }}</div>
+          @endforeach
+        </div>
+      @endif
 
       <div class="mt-5 grid gap-3">
         @foreach($setupDomains as $domain)

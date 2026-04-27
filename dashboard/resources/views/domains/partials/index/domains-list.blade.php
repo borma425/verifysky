@@ -1,7 +1,7 @@
 @if(count($preparedDomainGroups) > 0)
-  <div class="es-domain-workspace">
+  <div class="es-domain-workspace flex-1">
     <aside class="es-domain-master-list">
-      <div class="space-y-2">
+      <div class="space-y-3 lg:max-h-[calc(100vh-13rem)] lg:overflow-y-auto lg:pb-8">
           @foreach($preparedDomainGroups as $group)
             @php
               $healthRows = is_array($group['health_rows'] ?? null) ? $group['health_rows'] : [];
@@ -30,7 +30,6 @@
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
-                    <img src="https://www.google.com/s2/favicons?domain={{ $group['primary_domain'] }}&sz=32" alt="favicon" class="h-4 w-4 rounded-sm bg-[#0E131D] p-0.5">
                     <div class="truncate text-[0.95rem] font-black tracking-[-0.02em] text-[#FFFFFF]">{{ $group['display_domain'] }}</div>
                   </div>
                   <div class="mt-1 truncate font-mono text-[0.75rem] {{ $loop->first ? 'text-[#FCB900]' : 'text-[#B4C0D5]' }}">{{ $group['primary_domain'] }}</div>
@@ -45,7 +44,7 @@
                   </div>
                   <div class="font-mono text-[11px] {{ $rowStatusClass }}">{{ max($dnsActive, $sslActive) }}/{{ $totalChecks }}</div>
                 </div>
-                <span class="rounded-md bg-[#303540] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] {{ $rowStatusClass }}">
+                <span class="rounded bg-[#303540] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider {{ $rowStatusClass }}">
                   {{ strtoupper($group['mode']) }}
                 </span>
               </div>
@@ -54,7 +53,7 @@
       </div>
     </aside>
 
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       @foreach($preparedDomainGroups as $group)
         <div x-show="selectedDomain === {{ $loop->index }}" x-cloak>
           @include('domains.partials.index.domain-card', ['group' => $group, 'groupIndex' => $loop->index])
@@ -63,8 +62,8 @@
     </div>
   </div>
 @else
-  <div class="es-domain-workspace">
-    <div class="w-full">
+  <div class="es-domain-workspace flex-1">
+    <div class="w-full flex-1">
       @include('domains.partials.index.empty-state')
     </div>
   </div>

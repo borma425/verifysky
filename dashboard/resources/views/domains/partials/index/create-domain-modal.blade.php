@@ -1,3 +1,9 @@
+@php
+  $storeDomainRoute = isset($domainTenant)
+    ? route('admin.tenants.domains.store', $domainTenant)
+    : route('domains.store');
+@endphp
+
 <div x-show="showWizard" style="display: none;"
      x-transition:enter="transition ease-out duration-250"
      x-transition:enter-start="opacity-0 translate-y-3 sm:scale-95"
@@ -23,7 +29,7 @@
             </div>
 
             <form method="POST"
-                  action="{{ route('domains.store') }}"
+                  action="{{ $storeDomainRoute }}"
                   class="px-5 py-5 sm:px-6 sm:py-6"
                   x-data="domainCreateForm({
                     domainName: @js((string) old('domain_name', '')),

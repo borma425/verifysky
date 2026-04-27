@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="h-full">
+<html lang="en" class="dark h-full">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +9,9 @@
   <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32x32.png') }}">
   <link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16x16.png') }}">
   <link rel="manifest" href="{{ asset('site.webmanifest') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
   <title>{{ $title ?? 'VerifySky Control Plane' }}</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -56,7 +59,7 @@
   }
 @endphp
 
-<body class="es-body" x-data="{ isNavigating: false, navOpen: false }" x-on:beforeunload.window="isNavigating = true" x-on:pageshow.window="if ($event.persisted) isNavigating = false">
+<body class="es-body h-screen overflow-hidden" x-data="{ isNavigating: false, navOpen: false }" x-on:beforeunload.window="isNavigating = true" x-on:pageshow.window="if ($event.persisted) isNavigating = false">
 
   <div x-show="isNavigating" x-transition.opacity.duration.250ms style="display: none;" class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#171C26]/88 backdrop-blur-md">
     <div class="flex flex-col items-center gap-4">
@@ -154,36 +157,53 @@
     ];
   @endphp
 
-  <div class="relative z-10 flex min-h-screen">
-    <div x-show="navOpen" x-on:click="navOpen = false" class="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm lg:hidden" style="display:none;"></div>
+  <div class="relative z-10 flex h-screen overflow-hidden">
+    <div x-show="navOpen" x-on:click="navOpen = false" class="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm md:hidden" style="display:none;"></div>
 
-    <aside class="es-sidebar fixed inset-y-0 left-0 z-40 w-80 -translate-x-full transition-transform duration-200 lg:translate-x-0" x-bind:class="navOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
+    <aside class="es-sidebar fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 md:translate-x-0" x-bind:class="navOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'">
       <div class="flex h-full flex-col">
         <a href="{{ route('dashboard') }}" class="es-brand-panel">
-          <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-brand-logo">
-          <div class="sr-only">
-            <div>VerifySky</div>
-            <div>VerifySky Control Plane</div>
+          <div class="es-brand-mark">
+            <span class="material-symbols-outlined text-[1.55rem]" style="font-variation-settings: 'FILL' 1;">shield</span>
+          </div>
+          <div class="min-w-0">
+            <div class="truncate text-lg font-black uppercase leading-tight tracking-tight text-[#FCB900]">VerifySky</div>
+            <div class="truncate text-xs font-medium text-[#D4C4AB]">Control Plane</div>
           </div>
         </a>
 
-        <nav class="flex-1 space-y-1 px-3 py-4">
+        <nav class="flex-1 space-y-2 px-4 py-4">
           @foreach($navItems as $item)
             @php $active = request()->routeIs(str_replace('.index', '.*', $item['route'])) || request()->routeIs($item['route']); @endphp
             <a href="{{ route($item['route']) }}" class="es-nav-link {{ $active ? 'es-nav-link-active' : '' }}">
-              <span class="es-nav-icon-wrap">
-                <img src="{{ asset('duotone/'.$item['icon']) }}" alt="{{ $item['label'] }}" class="es-duotone-icon {{ $active ? 'es-icon-tone-brass' : 'es-icon-tone-muted' }} h-4 w-4">
+              <span class="material-symbols-outlined text-xl" style="{{ $active ? "font-variation-settings: 'FILL' 1;" : '' }}">
+                @switch($item['route'])
+                  @case('dashboard') dashboard @break
+                  @case('billing.index') payments @break
+                  @case('domains.index') dns @break
+                  @case('firewall.index') verified_user @break
+                  @case('sensitive_paths.index') lock @break
+                  @case('logs.index') analytics @break
+                  @case('ip_farm.index') settings_ethernet @break
+                  @default radio_button_checked
+                @endswitch
               </span>
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold">{{ $item['label'] }}</span>
-                <span class="block truncate text-[10px] uppercase tracking-[0.18em] text-[#76859C]">{{ $item['desc'] }}</span>
               </span>
             </a>
           @endforeach
         </nav>
 
+        <div class="px-4 pb-6">
+          <a href="{{ route('domains.index') }}" class="es-sidebar-cta">
+            <span class="material-symbols-outlined text-lg">add</span>
+            Add New Domain
+          </a>
+        </div>
+
         <div class="border-t border-white/8 px-4 py-4">
-          <div class="rounded-lg border border-white/10 bg-[#313A4B] px-3 py-2.5 text-[11px]">
+          <div class="rounded-lg border border-white/10 bg-[#252A34] px-3 py-2.5 text-[11px]">
             <div class="flex items-center gap-2">
               <img src="{{ asset('duotone/shield-check.svg') }}" alt="role" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
               <span class="font-semibold text-[#FFFFFF]">{{ session('user_name', session('admin_user', 'User')) }}</span>
@@ -198,27 +218,43 @@
       </div>
     </aside>
 
-    <div class="min-w-0 flex-1 lg:pl-80">
-      <header class="es-topbar sticky top-0 z-20">
-        <div class="flex items-center justify-between px-4 py-3 sm:px-6">
+    <div class="flex min-w-0 flex-1 flex-col md:pl-64">
+      <header class="es-topbar z-20 h-16 shrink-0">
+        <div class="flex h-full items-center justify-between px-4 py-3 sm:px-6">
           <div class="flex items-center gap-3">
-            <button class="es-icon-btn es-btn-secondary lg:hidden" x-on:click="navOpen = true" type="button" aria-label="Open navigation">
+            <button class="es-icon-btn es-btn-secondary md:hidden" x-on:click="navOpen = true" type="button" aria-label="Open navigation">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
             </button>
             <div class="hidden sm:block">
-              <div class="text-[10px] uppercase tracking-[0.24em] text-[#76859C]">Command Layer</div>
-              <div class="text-sm font-semibold text-[#FFFFFF]">Traffic Intelligence, Policy and Edge Enforcement</div>
+              <div class="text-xl font-bold tracking-widest text-[#FCB900]">VerifySky Ledger</div>
+              <nav class="mt-1 hidden items-center gap-6 md:flex">
+                <a href="{{ route('dashboard') }}" class="es-top-link {{ request()->routeIs('dashboard') ? 'es-top-link-active' : '' }}">Overview</a>
+                <a href="{{ route('domains.index') }}" class="es-top-link {{ request()->routeIs('domains.*') ? 'es-top-link-active' : '' }}">Domains</a>
+                <a href="{{ route('logs.index') }}" class="es-top-link {{ request()->routeIs('logs.*') ? 'es-top-link-active' : '' }}">Analytics</a>
+                <a href="{{ route('firewall.index') }}" class="es-top-link {{ request()->routeIs('firewall.*') ? 'es-top-link-active' : '' }}">Security</a>
+              </nav>
             </div>
           </div>
-          <div class="rounded-full border border-white/10 bg-[#313A4B] px-3 py-1.5 text-[11px] text-[#D7E1F5]">
-            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#FCB900]"></span>
-            <span class="ml-1.5 uppercase tracking-[0.15em]">Edge Mesh Healthy</span>
+          <div class="flex items-center gap-4">
+            <div class="relative hidden items-center rounded-full border border-[#504532]/20 bg-[#303540] px-4 py-1.5 transition-colors focus-within:border-[#FCB900]/50 md:flex">
+              <input class="h-6 w-48 border-none bg-transparent p-0 font-mono text-sm text-[#DEE2F0] placeholder:text-[#D4C4AB] focus:ring-0" placeholder="Search control plane..." type="text">
+              <span class="material-symbols-outlined text-sm text-[#D4C4AB]">search</span>
+            </div>
+            <button class="es-top-icon" type="button" aria-label="Notifications"><span class="material-symbols-outlined">notifications</span></button>
+            <a class="es-top-icon" href="{{ route('settings.index') }}" aria-label="Settings"><span class="material-symbols-outlined">settings</span></a>
+            <div class="hidden rounded-full border border-white/10 bg-[#303540] px-3 py-1.5 text-[11px] text-[#D7E1F5] sm:block">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#FCB900]"></span>
+              <span class="ml-1.5 uppercase tracking-[0.15em]">Edge Mesh Healthy</span>
+            </div>
+            <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-[#504532]/20 bg-[#343944] text-xs font-bold text-[#FCB900]">
+              {{ strtoupper(substr((string) session('user_name', session('admin_user', 'U')), 0, 1)) }}
+            </div>
           </div>
         </div>
       </header>
 
-      <main class="px-4 py-6 sm:px-6 lg:py-8">
-        <div class="mx-auto w-full max-w-[1280px]">
+      <main class="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 md:py-8">
+        <div class="mx-auto w-full max-w-none">
           @if(!empty($layoutBillingStatus['is_pass_through']))
             <div class="es-billing-banner">
               <div class="es-billing-banner-shell">
