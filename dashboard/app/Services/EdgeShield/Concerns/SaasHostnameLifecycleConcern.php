@@ -38,6 +38,12 @@ trait SaasHostnameLifecycleConcern
             return ['ok' => false, 'error' => 'Protected hostname was not found in edge services.'];
         }
 
+        $dnsRoute = $this->verifySaasDnsRoute($domain);
+        $hostnameStatus = (string) ($customHostname['status'] ?? 'pending');
+        if (! ($dnsRoute['ok'] ?? false)) {
+            $hostnameStatus = 'pending';
+        }
+
         $sql = sprintf(
             "UPDATE domain_configs
              SET custom_hostname_id = '%s',
@@ -47,7 +53,7 @@ trait SaasHostnameLifecycleConcern
                  updated_at = CURRENT_TIMESTAMP
              WHERE domain_name = '%s'",
             str_replace("'", "''", (string) ($customHostname['id'] ?? '')),
-            str_replace("'", "''", (string) ($customHostname['status'] ?? 'pending')),
+            str_replace("'", "''", $hostnameStatus),
             str_replace("'", "''", (string) ($customHostname['ssl']['status'] ?? 'pending_validation')),
             str_replace("'", "''", (string) json_encode($customHostname['ownership_verification'] ?? null)),
             str_replace("'", "''", $domain)
@@ -58,6 +64,69 @@ trait SaasHostnameLifecycleConcern
             'ok' => $result['ok'],
             'error' => $result['ok'] ? null : ($result['error'] ?: 'Failed to update D1 hostname status.'),
             'custom_hostname' => $customHostname,
+            'dns_route' => $dnsRoute,
+        ];
+    }
+
+    public function verifySaasDnsRoute(string $domainName, ?string $expectedTarget = null): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $target = $this->normalizeDomain((string) ($expectedTarget ?: $this->config->saasCnameTarget()));
+        if ($domain === '' || $target === '') {
+            return ['ok' => false, 'reason' => 'Domain or expected CNAME target is empty.', 'resolved' => []];
+        }
+
+        $resolved = [];
+        $visited = [];
+        $current = $domain;
+        for ($depth = 0; $depth < 6; $depth++) {
+            if (isset($visited[$current])) {
+                return ['ok' => false, 'reason' => 'DNS CNAME chain loops before reaching VerifySky.', 'resolved' => $resolved];
+            }
+            $visited[$current] = true;
+
+            $cnameRecords = @dns_get_record($current, DNS_CNAME);
+            if (! is_array($cnameRecords) || $cnameRecords === []) {
+                break;
+            }
+
+            $next = '';
+            foreach ($cnameRecords as $record) {
+                $candidate = $this->normalizeDomain((string) ($record['target'] ?? ''));
+                if ($candidate !== '') {
+                    $next = $candidate;
+                    break;
+                }
+            }
+
+            if ($next === '') {
+                break;
+            }
+
+            $resolved[] = ['type' => 'CNAME', 'name' => $current, 'target' => $next];
+            if ($next === $target) {
+                return ['ok' => true, 'reason' => null, 'resolved' => $resolved];
+            }
+
+            $current = $next;
+        }
+
+        $aRecords = @dns_get_record($domain, DNS_A);
+        $aaaaRecords = @dns_get_record($domain, DNS_AAAA);
+        $ipRecords = array_merge(is_array($aRecords) ? $aRecords : [], is_array($aaaaRecords) ? $aaaaRecords : []);
+        foreach ($ipRecords as $record) {
+            $ip = trim((string) ($record['ip'] ?? $record['ipv6'] ?? ''));
+            if ($ip !== '') {
+                $resolved[] = ['type' => isset($record['ipv6']) ? 'AAAA' : 'A', 'name' => $domain, 'target' => $ip];
+            }
+        }
+
+        return [
+            'ok' => false,
+            'reason' => $resolved === []
+                ? 'DNS does not currently resolve for this hostname.'
+                : 'DNS is not pointing at the VerifySky CNAME target.',
+            'resolved' => $resolved,
         ];
     }
 
@@ -125,7 +194,7 @@ trait SaasHostnameLifecycleConcern
         $domain = preg_replace('#^https?://#', '', $domain) ?? $domain;
         $domain = explode('/', $domain, 2)[0];
 
-        return trim($domain);
+        return rtrim(trim($domain), '.');
     }
 
     private function looksLikeApexDomain(string $domain): bool
