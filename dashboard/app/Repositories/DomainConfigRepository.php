@@ -35,7 +35,7 @@ class DomainConfigRepository
             return $domain;
         }
 
-        $dnsRoute = $this->edgeShield->verifySaasDnsRoute(
+        $dnsRoute = $this->edgeShield->verifySaasDnsRouteSet(
             $hostname,
             (string) ($domain['cname_target'] ?? '')
         );

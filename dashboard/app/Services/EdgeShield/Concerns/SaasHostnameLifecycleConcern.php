@@ -38,7 +38,7 @@ trait SaasHostnameLifecycleConcern
             return ['ok' => false, 'error' => 'Protected hostname was not found in edge services.'];
         }
 
-        $dnsRoute = $this->verifySaasDnsRoute($domain);
+        $dnsRoute = $this->verifySaasDnsRouteSet($domain);
         $hostnameStatus = (string) ($customHostname['status'] ?? 'pending');
         if (! ($dnsRoute['ok'] ?? false)) {
             $hostnameStatus = 'pending';
@@ -127,6 +127,37 @@ trait SaasHostnameLifecycleConcern
                 ? 'DNS does not currently resolve for this hostname.'
                 : 'DNS is not pointing at the VerifySky CNAME target.',
             'resolved' => $resolved,
+        ];
+    }
+
+    public function verifySaasDnsRouteSet(string $domainName, ?string $expectedTarget = null): array
+    {
+        $domain = $this->normalizeDomain($domainName);
+        $checks = [];
+
+        if ($domain !== '') {
+            $checks[$domain] = $this->verifySaasDnsRoute($domain, $expectedTarget);
+        }
+
+        if (str_starts_with($domain, 'www.')) {
+            $apex = substr($domain, 4);
+            if ($this->looksLikeApexDomain($apex)) {
+                $checks[$apex] = $this->verifySaasDnsRoute($apex, $expectedTarget);
+            }
+        }
+
+        $failed = array_filter($checks, static fn (array $check): bool => ! ($check['ok'] ?? false));
+
+        return [
+            'ok' => $failed === [],
+            'reason' => $failed === []
+                ? null
+                : implode(' | ', array_map(
+                    static fn (string $host, array $check): string => $host.': '.(string) ($check['reason'] ?? 'DNS mismatch'),
+                    array_keys($failed),
+                    array_values($failed)
+                )),
+            'checks' => $checks,
         ];
     }
 

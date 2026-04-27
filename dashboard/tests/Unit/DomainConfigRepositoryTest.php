@@ -29,7 +29,7 @@ class DomainConfigRepositoryTest extends TestCase
                 'ssl_status' => 'active',
             ]],
         ]);
-        $edgeShield->shouldReceive('verifySaasDnsRoute')
+        $edgeShield->shouldReceive('verifySaasDnsRouteSet')
             ->once()
             ->with('www.example.com', 'customers.verifysky.com')
             ->andReturn([
@@ -61,7 +61,7 @@ class DomainConfigRepositoryTest extends TestCase
                 'ssl_status' => 'active',
             ]],
         ]);
-        $edgeShield->shouldReceive('verifySaasDnsRoute')
+        $edgeShield->shouldReceive('verifySaasDnsRouteSet')
             ->once()
             ->with('www.example.com', 'customers.verifysky.com')
             ->andReturn(['ok' => true, 'reason' => null, 'resolved' => []]);

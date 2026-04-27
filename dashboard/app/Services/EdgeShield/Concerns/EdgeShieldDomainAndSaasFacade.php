@@ -73,6 +73,11 @@ trait EdgeShieldDomainAndSaasFacade
         return $this->saasHostnames->verifySaasDnsRoute($domainName, $expectedTarget);
     }
 
+    public function verifySaasDnsRouteSet(string $domainName, ?string $expectedTarget = null): array
+    {
+        return $this->saasHostnames->verifySaasDnsRouteSet($domainName, $expectedTarget);
+    }
+
     public function deleteSaasCustomHostname(string $customHostnameId): array
     {
         return $this->saasHostnames->deleteSaasCustomHostname($customHostnameId);
