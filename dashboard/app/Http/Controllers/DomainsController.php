@@ -19,6 +19,8 @@ use App\Http\Requests\Domains\UpdateDomainSecurityModeRequest;
 use App\Http\Requests\Domains\UpdateDomainStatusRequest;
 use App\Http\Requests\Domains\UpdateDomainTuningRequest;
 use App\Models\Tenant;
+use App\Models\TenantDomain;
+use App\Services\Domains\DnsVerificationService;
 use App\Repositories\DomainConfigRepository;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
@@ -26,6 +28,7 @@ use App\ViewData\DomainIndexViewData;
 use App\ViewData\DomainTuningViewData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class DomainsController extends Controller
@@ -106,6 +109,8 @@ class DomainsController extends Controller
 
     public function updateStatus(string $domain, UpdateDomainStatusRequest $request): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->updateDomainStatus->execute(
             $domain,
             $request->validated()['status'],
@@ -121,6 +126,8 @@ class DomainsController extends Controller
 
     public function updateOrigin(string $domain, UpdateDomainOriginRequest $request): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->updateDomainOrigin->execute(
             $domain,
             $request->validated()['origin_server'],
@@ -137,6 +144,8 @@ class DomainsController extends Controller
 
     public function destroy(string $domain): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->deleteDomain->execute(
             $domain,
             (bool) session('is_admin'),
@@ -171,6 +180,8 @@ class DomainsController extends Controller
 
     public function toggleForceCaptcha(string $domain, ToggleDomainForceCaptchaRequest $request): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->toggleDomainForceCaptcha->execute(
             $domain,
             (int) $request->validated()['force_captcha'],
@@ -186,6 +197,8 @@ class DomainsController extends Controller
 
     public function updateSecurityMode(string $domain, UpdateDomainSecurityModeRequest $request): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->updateDomainSecurityMode->execute(
             $domain,
             $request->validated()['security_mode'],
@@ -201,6 +214,8 @@ class DomainsController extends Controller
 
     public function syncRoute(string $domain): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $sync = $this->refreshDomainVerification->execute(
             $domain,
             session('current_tenant_id'),
@@ -231,6 +246,8 @@ class DomainsController extends Controller
 
     public function tuning(string $domain): View|RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->edgeShield->getDomainConfig($domain, session('current_tenant_id'), (bool) session('is_admin'));
         if (! $result['ok']) {
             return redirect()->route('domains.index')->with('error', $result['error']);
@@ -243,6 +260,8 @@ class DomainsController extends Controller
 
     public function updateTuning(string $domain, UpdateDomainTuningRequest $request): RedirectResponse
     {
+        $domain = $this->managedHostnameForRequest($domain, session('current_tenant_id'), (bool) session('is_admin'));
+
         $result = $this->updateDomainThresholds->execute(
             $domain,
             $request->validated(),
@@ -255,6 +274,50 @@ class DomainsController extends Controller
             $result['ok'] ? 'status' : 'error',
             $result['ok'] ? 'Domain thresholds updated successfully (caches cleared).' : ($result['error'] ?: 'Failed to update thresholds.')
         );
+    }
+
+    private function managedHostnameForRequest(string $domain, ?string $tenantId, bool $isAdmin): string
+    {
+        $hostname = app(DnsVerificationService::class)->normalizeDomain($domain);
+        if ($hostname === '' || ! Schema::hasTable('tenant_domains')) {
+            return $hostname !== '' ? $hostname : $domain;
+        }
+
+        $tenant = trim((string) $tenantId);
+        if (! $isAdmin && $tenant === '') {
+            return $hostname;
+        }
+
+        $query = TenantDomain::query();
+        if (! $isAdmin) {
+            $query->where('tenant_id', $tenant);
+        }
+
+        $exact = (clone $query)->where('hostname', $hostname)->first();
+        if ($exact instanceof TenantDomain) {
+            return (string) $exact->hostname;
+        }
+
+        $bySetupIntent = (clone $query)
+            ->where(function ($builder) use ($hostname): void {
+                $builder
+                    ->where('requested_domain', $hostname)
+                    ->orWhere('canonical_hostname', $hostname);
+            })
+            ->first();
+        if ($bySetupIntent instanceof TenantDomain) {
+            return (string) $bySetupIntent->hostname;
+        }
+
+        if (app(DnsVerificationService::class)->looksLikeApexDomain($hostname)) {
+            $www = 'www.'.$hostname;
+            $wwwRecord = (clone $query)->where('hostname', $www)->first();
+            if ($wwwRecord instanceof TenantDomain) {
+                return (string) $wwwRecord->hostname;
+            }
+        }
+
+        return $hostname;
     }
 
     private function domainUsageForView(?Tenant $tenant, bool $isAdmin): array

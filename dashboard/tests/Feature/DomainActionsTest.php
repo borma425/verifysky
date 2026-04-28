@@ -388,6 +388,80 @@ class DomainActionsTest extends TestCase
         $response->assertRedirect()->assertSessionHas('status');
     }
 
+    public function test_www_redirect_apex_tuning_route_uses_protected_hostname(): void
+    {
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getBillingUsageLimits')->andReturn([
+            'plan_key' => 'starter',
+            'plan_name' => 'Starter',
+            'protected_sessions' => 10000,
+            'bot_fair_use' => 25000,
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.cashup.cash',
+            'apex_mode' => 'www_redirect',
+            'hostname_status' => 'active',
+            'ssl_status' => 'active',
+            'provisioning_status' => TenantDomain::PROVISIONING_ACTIVE,
+        ]);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('getDomainConfig')
+            ->once()
+            ->with('www.cashup.cash', (string) $tenant->id, false)
+            ->andReturn([
+                'ok' => true,
+                'error' => null,
+                'config' => [
+                    'domain_name' => 'www.cashup.cash',
+                    'origin_server' => '152.53.247.192',
+                    'security_mode' => 'balanced',
+                    'thresholds_json' => null,
+                ],
+            ]);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->get('/domains/cashup.cash/tuning');
+
+        $response->assertOk()
+            ->assertSee('Protection Tuning for www.cashup.cash');
+    }
+
+    public function test_www_redirect_apex_runtime_action_uses_protected_hostname(): void
+    {
+        $tenant = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.cashup.cash',
+            'apex_mode' => 'www_redirect',
+        ]);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('queryD1')
+            ->once()
+            ->with(Mockery::on(fn (string $sql): bool => str_contains($sql, "domain_name = 'www.cashup.cash'")))
+            ->andReturn([
+                'ok' => true,
+                'output' => '',
+                'error' => null,
+            ]);
+        $mock->shouldReceive('purgeDomainConfigCache')->once()->with('www.cashup.cash')->andReturn(['ok' => true]);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->post('/domains/cashup.cash/status', [
+            'status' => 'paused',
+        ]);
+
+        $response->assertRedirect()->assertSessionHas('status');
+    }
+
     public function test_regular_user_can_change_security_mode_after_domain_is_active(): void
     {
         $mock = $this->bindServiceMock();

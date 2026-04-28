@@ -20,6 +20,7 @@ use App\Jobs\PurgeRuntimeBundleCache;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Repositories\DomainConfigRepository;
+use App\Services\Domains\DnsVerificationService;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use App\ViewData\DomainIndexViewData;
@@ -190,10 +191,33 @@ class AdminTenantDomainsController extends Controller
 
     private function domainForTenant(Tenant $tenant, string $domain): TenantDomain
     {
-        return TenantDomain::query()
-            ->where('tenant_id', $tenant->getKey())
-            ->where('hostname', strtolower(trim($domain)))
-            ->firstOrFail();
+        $hostname = app(DnsVerificationService::class)->normalizeDomain($domain);
+        $baseQuery = TenantDomain::query()->where('tenant_id', $tenant->getKey());
+
+        $exact = (clone $baseQuery)->where('hostname', $hostname)->first();
+        if ($exact instanceof TenantDomain) {
+            return $exact;
+        }
+
+        $bySetupIntent = (clone $baseQuery)
+            ->where(function ($query) use ($hostname): void {
+                $query
+                    ->where('requested_domain', $hostname)
+                    ->orWhere('canonical_hostname', $hostname);
+            })
+            ->first();
+        if ($bySetupIntent instanceof TenantDomain) {
+            return $bySetupIntent;
+        }
+
+        if (app(DnsVerificationService::class)->looksLikeApexDomain($hostname)) {
+            $wwwRecord = (clone $baseQuery)->where('hostname', 'www.'.$hostname)->first();
+            if ($wwwRecord instanceof TenantDomain) {
+                return $wwwRecord;
+            }
+        }
+
+        abort(404);
     }
 
     private function domainConfig(Tenant $tenant, string $domain): array
