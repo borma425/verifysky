@@ -4,8 +4,6 @@ namespace App\Services\EdgeShield;
 
 use App\Jobs\PurgeRuntimeBundleCache;
 use App\Models\TenantDomain;
-use Illuminate\Support\Facades\Schema;
-use RuntimeException;
 
 class DomainConfigService
 {
@@ -13,17 +11,17 @@ class DomainConfigService
 
     public function ensureSecurityModeColumn(): void
     {
-        throw $this->schemaSyncRequiredException();
+        //
     }
 
     public function ensureThresholdsColumn(): void
     {
-        throw $this->schemaSyncRequiredException();
+        //
     }
 
     public function ensureSecurityLogsDomainColumn(): void
     {
-        throw $this->schemaSyncRequiredException();
+        //
     }
 
     public function getDomainConfig(string $domainName, ?string $tenantId = null, bool $isAdmin = true): array
@@ -66,7 +64,7 @@ class DomainConfigService
         $where = $tenantScope !== '' ? 'WHERE '.ltrim($tenantScope, ' AND') : '';
         $result = $this->d1->query(
             "SELECT domain_name, zone_id, status, force_captcha, security_mode,
-                    custom_hostname_id, cname_target, origin_server, hostname_status, ssl_status,
+                    custom_hostname_id, cname_target, hostname_status, ssl_status,
                     thresholds_json, created_at, updated_at
              FROM domain_configs
              $where
@@ -78,7 +76,11 @@ class DomainConfigService
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
 
-        return ['ok' => true, 'error' => null, 'domains' => $this->mergeTenantDomainMetadata(is_array($rows) ? $rows : [], $tenantId, $isAdmin)];
+        if (! $isAdmin && trim((string) $tenantId) !== '') {
+            $rows = $this->mergeTenantVisibilityRows($rows, trim((string) $tenantId));
+        }
+
+        return ['ok' => true, 'error' => null, 'domains' => $rows];
     }
 
     public function listActiveDomainsForRouteSync(): array
@@ -162,54 +164,107 @@ class DomainConfigService
     }
 
     /**
-     * @param  array<int, mixed>  $rows
-     * @return array<int, mixed>
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
      */
-    private function mergeTenantDomainMetadata(array $rows, ?string $tenantId, bool $isAdmin): array
+    private function mergeTenantVisibilityRows(array $rows, string $tenantId): array
     {
-        if (! Schema::hasTable('tenant_domains') || $rows === []) {
-            return $rows;
+        $merged = [];
+
+        foreach ($this->localFallbackDomains($tenantId) as $row) {
+            $domain = strtolower(trim((string) ($row['domain_name'] ?? '')));
+            if ($domain !== '') {
+                $merged[$domain] = $row;
+            }
         }
 
-        $hostnames = array_values(array_filter(array_map(
-            static fn ($row): string => is_array($row) ? strtolower(trim((string) ($row['domain_name'] ?? ''))) : '',
-            $rows
-        )));
-        if ($hostnames === []) {
-            return $rows;
-        }
-
-        $query = TenantDomain::query()->whereIn('hostname', $hostnames);
-        if (! $isAdmin && trim((string) $tenantId) !== '') {
-            $query->where('tenant_id', trim((string) $tenantId));
-        }
-
-        $metadata = $query->get()->keyBy(fn (TenantDomain $domain): string => strtolower((string) $domain->hostname));
-
-        return array_map(function ($row) use ($metadata) {
+        foreach ($rows as $row) {
             if (! is_array($row)) {
-                return $row;
+                continue;
             }
 
-            $domain = $metadata->get(strtolower(trim((string) ($row['domain_name'] ?? ''))));
-            if (! $domain instanceof TenantDomain) {
-                return $row;
+            $domain = strtolower(trim((string) ($row['domain_name'] ?? '')));
+            if ($domain === '') {
+                continue;
             }
 
-            return array_merge($row, [
-                'requested_domain' => $domain->requested_domain,
-                'canonical_hostname' => $domain->canonical_hostname,
-                'apex_mode' => $domain->apex_mode,
-                'dns_provider' => $domain->dns_provider,
-                'apex_redirect_status' => $domain->apex_redirect_status,
-                'apex_redirect_checked_at' => optional($domain->apex_redirect_checked_at)->toDateTimeString(),
-                'origin_server' => $row['origin_server'] ?? $domain->origin_server,
-            ]);
-        }, $rows);
+            $merged[$domain] = $this->preferPrimaryRow($row, $merged[$domain] ?? []);
+        }
+
+        $values = array_values($merged);
+        usort($values, function (array $a, array $b): int {
+            return strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? ''));
+        });
+
+        return $values;
     }
 
-    private function schemaSyncRequiredException(): RuntimeException
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function localFallbackDomains(string $tenantId): array
     {
-        return new RuntimeException('D1 schema auto-repair was removed from request handling. Run `php artisan edgeshield:d1:schema-sync` before retrying.');
+        return TenantDomain::query()
+            ->where('tenant_id', $tenantId)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function (TenantDomain $domain): array {
+                $hostnameStatus = strtolower(trim((string) ($domain->hostname_status ?? 'pending')));
+                $sslStatus = strtolower(trim((string) ($domain->ssl_status ?? 'pending_validation')));
+
+                return [
+                    'domain_name' => (string) $domain->hostname,
+                    'zone_id' => '',
+                    'status' => $hostnameStatus === 'active' && $sslStatus === 'active' ? 'active' : 'pending',
+                    'provisioning_status' => (string) ($domain->provisioning_status ?? TenantDomain::PROVISIONING_ACTIVE),
+                    'provisioning_error' => (string) ($domain->provisioning_error ?? ''),
+                    'provisioning_started_at' => optional($domain->provisioning_started_at)?->toDateTimeString() ?? '',
+                    'provisioning_finished_at' => optional($domain->provisioning_finished_at)?->toDateTimeString() ?? '',
+                    'force_captcha' => $domain->force_captcha ? 1 : 0,
+                    'security_mode' => (string) ($domain->security_mode ?? 'balanced'),
+                    'custom_hostname_id' => (string) ($domain->cloudflare_custom_hostname_id ?? ''),
+                    'cname_target' => (string) ($domain->cname_target ?? config('edgeshield.saas_cname_target', 'customers.verifysky.com')),
+                    'origin_server' => (string) ($domain->origin_server ?? ''),
+                    'hostname_status' => $hostnameStatus,
+                    'ssl_status' => $sslStatus,
+                    'ownership_verification_json' => json_encode($domain->ownership_verification),
+                    'thresholds_json' => json_encode($domain->thresholds),
+                    'created_at' => optional($domain->created_at)?->toDateTimeString() ?? '',
+                    'updated_at' => optional($domain->updated_at)?->toDateTimeString() ?? '',
+                ];
+            })
+            ->all();
     }
+
+    /**
+     * @param  array<string, mixed>  $primary
+     * @param  array<string, mixed>  $fallback
+     * @return array<string, mixed>
+     */
+    private function preferPrimaryRow(array $primary, array $fallback): array
+    {
+        $merged = $fallback;
+
+        foreach ($primary as $key => $value) {
+            if (! array_key_exists($key, $merged) || $this->hasMeaningfulValue($value)) {
+                $merged[$key] = $value;
+            }
+        }
+
+        return $merged;
+    }
+
+    private function hasMeaningfulValue(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        if (is_string($value)) {
+            return trim($value) !== '';
+        }
+
+        return true;
+    }
+
 }

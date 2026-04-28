@@ -77,6 +77,7 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
         Route::post('/billing/subscription/cancel', [BillingController::class, 'cancelSubscription'])->name('billing.subscription.cancel');
 
         Route::get('/domains', [DomainsController::class, 'index'])->name('domains.index');
+        Route::get('/domains/statuses', [DomainsController::class, 'statuses'])->name('domains.statuses');
         Route::post('/domains', [DomainsController::class, 'store'])->name('domains.store');
         Route::post('/domains/{domain}/sync-group', [DomainsController::class, 'syncGroup'])->name('domains.sync_group');
         Route::delete('/domains/{domain}/group', [DomainsController::class, 'destroyGroup'])->name('domains.destroy_group');
@@ -117,10 +118,17 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
         Route::delete('/ip-farm/{ruleId}', [IpFarmController::class, 'destroy'])->name('ip_farm.destroy');
     });
 
+    Route::middleware('redirect.admin.from.customer')->group(function () {
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+        Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    });
+
     Route::middleware('admin.only')->group(function () {
         Route::get('/admin', [AdminOverviewController::class, 'index'])->name('admin.overview');
         Route::get('/admin/tenants', [AdminTenantsController::class, 'index'])->name('admin.tenants.index');
         Route::get('/admin/tenants/{tenant}', [AdminTenantsController::class, 'show'])->name('admin.tenants.show');
+        Route::get('/admin/tenants/{tenant}/domains', [AdminTenantDomainsController::class, 'index'])->name('admin.tenants.domains.index');
+        Route::get('/admin/tenants/{tenant}/domains/statuses', [AdminTenantDomainsController::class, 'statuses'])->name('admin.tenants.domains.statuses');
         Route::post('/admin/tenants/{tenant}/domains', [AdminTenantsController::class, 'storeDomain'])->name('admin.tenants.domains.store');
         Route::post('/admin/tenants/{tenant}/force-cycle-reset', [AdminTenantsController::class, 'forceCycleReset'])->name('admin.tenants.force_cycle_reset');
         Route::post('/admin/tenants/{tenant}/manual-grants', [AdminTenantsController::class, 'grantPlan'])->name('admin.tenants.manual_grants.store');
@@ -157,8 +165,11 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
                 ->name('read_only_block');
         });
         Route::get('/admin/tenants/{tenant}/domains/{domain}', [AdminTenantDomainsController::class, 'show'])->name('admin.tenants.domains.show');
+        Route::delete('/admin/tenants/{tenant}/domains/{domain}/group', [AdminTenantDomainsController::class, 'destroyGroup'])->name('admin.tenants.domains.destroy_group');
+        Route::post('/admin/tenants/{tenant}/domains/{domain}/sync-group', [AdminTenantDomainsController::class, 'syncGroup'])->name('admin.tenants.domains.sync_group');
         Route::post('/admin/tenants/{tenant}/domains/{domain}/origin', [AdminTenantDomainsController::class, 'updateOrigin'])->name('admin.tenants.domains.origin.update');
         Route::post('/admin/tenants/{tenant}/domains/{domain}/security-mode', [AdminTenantDomainsController::class, 'updateSecurityMode'])->name('admin.tenants.domains.security_mode.update');
+        Route::post('/admin/tenants/{tenant}/domains/{domain}/status', [AdminTenantDomainsController::class, 'updateStatus'])->name('admin.tenants.domains.status.update');
         Route::post('/admin/tenants/{tenant}/domains/{domain}/force-captcha', [AdminTenantDomainsController::class, 'toggleForceCaptcha'])->name('admin.tenants.domains.force_captcha.update');
         Route::post('/admin/tenants/{tenant}/domains/{domain}/tuning', [AdminTenantDomainsController::class, 'updateTuning'])->name('admin.tenants.domains.tuning.update');
         Route::post('/admin/tenants/{tenant}/domains/{domain}/sync-route', [AdminTenantDomainsController::class, 'syncRoute'])->name('admin.tenants.domains.sync_route');
@@ -172,9 +183,5 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
         Route::post('/admin/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
         Route::get('/admin/logs/security', [AdminSystemLogsController::class, 'security'])->name('admin.logs.security');
         Route::get('/admin/logs/platform', [AdminSystemLogsController::class, 'platform'])->name('admin.logs.platform');
-        Route::middleware('redirect.admin.from.customer')->group(function () {
-            Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
-            Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
-        });
     });
 });

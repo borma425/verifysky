@@ -10,7 +10,7 @@
 
   <div
     class="flex min-h-[calc(100vh-8rem)] flex-col gap-6"
-    x-data="domainIndex({ openWizard: @js($can_add_domain && old('domain_name') !== null), selectedDomain: 0 })"
+    x-data="domainIndex({ openWizard: @js($can_add_domain && old('domain_name') !== null), selectedDomain: 0, statusUrl: @js(route('domains.statuses')), polling: @js($domains_needs_polling) })"
     x-on:verifysky-open-server-ip.window="openWizard(); $nextTick(() => window.dispatchEvent(new CustomEvent('verifysky-focus-server-ip')))"
   >
     <section class="es-page-header">

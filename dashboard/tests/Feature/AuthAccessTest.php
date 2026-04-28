@@ -30,7 +30,7 @@ class AuthAccessTest extends TestCase
         $this->assertFalse((bool) session('is_admin'));
         $this->assertSame('user', session('user_role'));
 
-        $this->get('/settings')->assertNotFound();
+        $this->get('/admin/settings')->assertNotFound();
     }
 
     public function test_regular_user_without_membership_gets_tenant_context_on_login(): void

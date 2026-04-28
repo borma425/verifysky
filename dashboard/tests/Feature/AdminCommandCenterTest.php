@@ -9,6 +9,7 @@ use App\Models\TenantDomain;
 use App\Models\TenantMembership;
 use App\Models\TenantUsage;
 use App\Models\User;
+use App\Repositories\DomainConfigRepository;
 use App\Repositories\SecurityLogRepository;
 use App\Services\Plans\PlanLimitsService;
 use Illuminate\Database\Eloquent\Model;
@@ -154,6 +155,39 @@ class AdminCommandCenterTest extends TestCase
 
         $response->assertRedirect();
         Queue::assertPushed(PurgeRuntimeBundleCache::class, fn (PurgeRuntimeBundleCache $job): bool => $job->domain === 'purge.example.com');
+    }
+
+    public function test_admin_domain_status_polling_is_scoped_to_tenant(): void
+    {
+        $tenant = Tenant::query()->create(['name' => 'Status Tenant', 'slug' => 'status-tenant', 'plan' => 'starter', 'status' => 'active']);
+
+        $repository = Mockery::mock(DomainConfigRepository::class);
+        $repository->shouldReceive('listForTenant')->once()->with((string) $tenant->id, false)->andReturn([
+            'ok' => true,
+            'error' => null,
+            'domains' => [[
+                'domain_name' => 'www.status.example',
+                'status' => 'pending',
+                'security_mode' => 'balanced',
+                'hostname_status' => 'pending',
+                'ssl_status' => 'pending_validation',
+                'provisioning_status' => TenantDomain::PROVISIONING_PENDING,
+                'cname_target' => 'customers.verifysky.com',
+                'created_at' => '2026-04-28 10:00:00',
+                'updated_at' => '2026-04-28 10:00:00',
+            ]],
+        ]);
+        $this->app->instance(DomainConfigRepository::class, $repository);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => true,
+        ])->getJson(route('admin.tenants.domains.statuses', $tenant));
+
+        $response->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('polling', true)
+            ->assertJsonPath('groups.0.live_status.label', 'QUEUED');
     }
 
     public function test_admin_firewall_create_is_scoped_to_route_tenant_domain(): void

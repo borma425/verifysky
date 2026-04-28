@@ -23,6 +23,11 @@ class TenantDomain extends Model
 
     public const REDIRECT_STATUS_FAILED = 'failed';
 
+    public const PROVISIONING_PENDING = 'pending';
+    public const PROVISIONING_PROVISIONING = 'provisioning';
+    public const PROVISIONING_ACTIVE = 'active';
+    public const PROVISIONING_FAILED = 'failed';
+
     protected $fillable = [
         'tenant_id',
         'hostname',
@@ -41,6 +46,11 @@ class TenantDomain extends Model
         'force_captcha',
         'ownership_verification',
         'thresholds',
+        'provisioning_status',
+        'provisioning_error',
+        'provisioning_payload',
+        'provisioning_started_at',
+        'provisioning_finished_at',
         'verified_at',
     ];
 
@@ -50,7 +60,10 @@ class TenantDomain extends Model
             'force_captcha' => 'boolean',
             'ownership_verification' => 'array',
             'thresholds' => 'array',
+            'provisioning_payload' => 'array',
             'apex_redirect_checked_at' => 'datetime',
+            'provisioning_started_at' => 'datetime',
+            'provisioning_finished_at' => 'datetime',
             'verified_at' => 'datetime',
         ];
     }

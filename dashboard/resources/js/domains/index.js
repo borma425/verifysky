@@ -3,6 +3,21 @@ document.addEventListener('alpine:init', () => {
         copied: '',
         showWizard: Boolean(config.openWizard),
         selectedDomain: Number.isFinite(Number(config.selectedDomain)) ? Number(config.selectedDomain) : 0,
+        statusUrl: String(config.statusUrl || ''),
+        shouldPollStatuses: Boolean(config.polling),
+        pollingTimer: null,
+        pollingBusy: false,
+        pollingAttempts: 0,
+        maxPollingAttempts: 80,
+
+        init() {
+            if (!this.statusUrl || (!this.shouldPollStatuses && !this.hasPollableDomains())) {
+                return;
+            }
+
+            window.setTimeout(() => this.refreshLiveStatuses(), 1200);
+            this.pollingTimer = window.setInterval(() => this.refreshLiveStatuses(), 7000);
+        },
 
         openWizard() {
             this.showWizard = true;
@@ -43,6 +58,152 @@ document.addEventListener('alpine:init', () => {
                 event.preventDefault();
             }
         },
+
+        hasPollableDomains() {
+            return document.querySelector('[data-domain-live][data-domain-polling="1"]') !== null;
+        },
+
+        stopStatusPolling() {
+            if (this.pollingTimer) {
+                window.clearInterval(this.pollingTimer);
+                this.pollingTimer = null;
+            }
+        },
+
+        refreshLiveStatuses() {
+            if (!this.statusUrl || this.pollingBusy) {
+                return;
+            }
+
+            if (this.pollingAttempts >= this.maxPollingAttempts) {
+                this.stopStatusPolling();
+                return;
+            }
+
+            this.pollingBusy = true;
+            this.pollingAttempts += 1;
+
+            fetch(this.statusUrl, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            })
+                .then((response) => response.ok ? response.json() : null)
+                .then((payload) => {
+                    if (!payload || payload.ok !== true || !Array.isArray(payload.groups)) {
+                        return;
+                    }
+
+                    let keepPolling = false;
+                    payload.groups.forEach((group) => {
+                        this.applyDomainStatus(group);
+                        keepPolling = keepPolling || Boolean(group.live_status?.polling);
+                    });
+
+                    if (!keepPolling) {
+                        this.stopStatusPolling();
+                    }
+                })
+                .catch(() => {})
+                .finally(() => {
+                    this.pollingBusy = false;
+                });
+        },
+
+        applyDomainStatus(group) {
+            const displayDomain = String(group.display_domain || '');
+            if (!displayDomain) {
+                return;
+            }
+
+            const live = group.live_status || {};
+            document.querySelectorAll('[data-domain-live]').forEach((card) => {
+                if (card.getAttribute('data-domain-live') !== displayDomain) {
+                    return;
+                }
+
+                card.setAttribute('data-domain-polling', live.polling ? '1' : '0');
+                card.setAttribute('data-domain-locked', live.locked ? '1' : '0');
+                this.setText(card, '[data-domain-status-label]', live.label || group.overall_status || '');
+                this.setText(card, '[data-domain-status-description]', live.description || '');
+                this.setText(card, '[data-domain-health-score]', String(group.health_score ?? 0));
+                this.setText(card, '[data-domain-dns-label]', this.statusWord(group.primary_hostname_status));
+                this.setText(card, '[data-domain-ssl-label]', this.sslStatusWord(group.primary_ssl_status));
+                this.setText(card, '[data-domain-runtime-label]', group.is_active && group.primary_verified ? 'Enabled' : (group.is_active ? 'Pending...' : 'Disabled'));
+                this.setText(card, '[data-domain-edge-label]', group.primary_verified ? 'Success' : 'Pending');
+
+                this.setClass(card, '[data-domain-status-badge]', `rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${live.badge_class || 'border-white/10 bg-white/5 text-[#D7E1F5]'}`);
+                this.setClass(card, '[data-domain-dns-class]', `es-status-value font-mono leading-none ${group.primary_hostname_status === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
+                this.setClass(card, '[data-domain-ssl-class]', `es-status-value font-mono leading-none ${group.primary_ssl_status === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
+                this.setClass(card, '[data-domain-runtime-class]', `es-status-value font-mono leading-none ${group.is_active && group.primary_verified ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
+                this.setClass(card, '[data-domain-edge-class]', `rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm ${group.primary_verified ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
+
+                const spinner = card.querySelector('[data-domain-status-spinner]');
+                if (spinner) {
+                    spinner.classList.toggle('hidden', !live.locked);
+                }
+
+                card.querySelectorAll('[data-domain-action-guard]').forEach((element) => {
+                    this.setGuardedActionState(element, Boolean(live.locked));
+                });
+            });
+
+            document.querySelectorAll('[data-domain-row]').forEach((row) => {
+                if (row.getAttribute('data-domain-row') !== displayDomain) {
+                    return;
+                }
+
+                const progress = row.querySelector('[data-domain-progress]');
+                if (progress) {
+                    progress.style.width = `${Number(group.health_score || 0)}%`;
+                }
+
+                this.setText(row, '[data-domain-row-count]', `${Math.max(Number(group.dns_active_count || 0), Number(group.ssl_active_count || 0))}/${Number(group.total_checks || 1)}`);
+                this.setText(row, '[data-domain-row-status]', live.label || group.overall_status || '');
+
+                const dot = row.querySelector('[data-domain-row-dot]');
+                if (dot) {
+                    dot.className = `es-pulse-dot ${live.dot_class || 'es-pulse-dot-muted'}`;
+                }
+            });
+        },
+
+        setText(root, selector, value) {
+            const element = root.querySelector(selector);
+            if (element) {
+                element.textContent = String(value || '');
+            }
+        },
+
+        setClass(root, selector, className) {
+            const element = root.querySelector(selector);
+            if (element) {
+                element.className = className;
+            }
+        },
+
+        setGuardedActionState(element, locked) {
+            const tag = element.tagName.toLowerCase();
+            if (tag === 'a') {
+                element.classList.toggle('pointer-events-none', locked);
+                element.classList.toggle('opacity-50', locked);
+                element.setAttribute('aria-disabled', locked ? 'true' : 'false');
+                return;
+            }
+
+            if ('disabled' in element) {
+                element.disabled = locked;
+            }
+        },
+
+        statusWord(status) {
+            return String(status || '').toLowerCase() === 'active' ? 'Active' : 'Pending';
+        },
+
+        sslStatusWord(status) {
+            return String(status || '').toLowerCase() === 'active' ? 'Active' : 'Pending';
+        },
     }));
 
     Alpine.data('domainCreateForm', (config = {}) => ({
@@ -52,92 +213,30 @@ document.addEventListener('alpine:init', () => {
         domainName: String(config.domainName ?? ''),
         dnsTarget: String(config.dnsTarget ?? ''),
         manualOrigin: String(config.manualOrigin ?? ''),
-        apexMode: String(config.apexMode ?? 'www_redirect'),
-        dnsProvider: String(config.dnsProvider ?? 'other'),
         useAutomaticOrigin: !Boolean(config.forceManualOrigin) && String(config.manualOrigin ?? '').trim() === '',
 
         protectedHostname() {
-            return this.protectedHostnames()[0] || '';
-        },
-
-        protectedHostnames() {
-            const normalized = this.normalizeDomain(this.domainName);
-            if (!normalized) {
-                return [];
-            }
-            if (normalized.startsWith('www.') || !this.looksLikeApex(normalized)) {
-                return [normalized];
-            }
-            if (this.apexMode === 'direct_apex') {
-                return [normalized, `www.${normalized}`];
-            }
-            if (this.apexMode === 'subdomain_only') {
-                return [normalized];
-            }
-            return [`www.${normalized}`];
-        },
-
-        canonicalHostname() {
             const normalized = this.normalizeDomain(this.domainName);
             if (!normalized) {
                 return '';
             }
-            return this.looksLikeApex(normalized) && this.apexMode === 'www_redirect'
-                ? `www.${normalized}`
-                : normalized;
+            return normalized.startsWith('www.') || !this.looksLikeApex(normalized)
+                ? normalized
+                : `www.${normalized}`;
         },
 
         dnsRecordName() {
-            return this.dnsRows()[0]?.name || '';
-        },
-
-        dnsRows() {
             const normalized = this.normalizeDomain(this.domainName);
-            return this.protectedHostnames().map((hostname) => {
-                const isRoot = hostname === normalized && this.looksLikeApex(hostname);
-
-                return {
-                    type: isRoot && this.apexMode === 'direct_apex' ? 'ALIAS / ANAME / Flattened CNAME' : 'CNAME',
-                    name: isRoot ? '@' : (hostname.startsWith('www.') && hostname.slice(4) === normalized ? 'www' : hostname.split('.')[0] || hostname),
-                    value: this.dnsTarget,
-                    hostname,
-                };
-            });
-        },
-
-        rootInstruction() {
-            const normalized = this.normalizeDomain(this.domainName);
-            if (!this.looksLikeApex(normalized) || this.apexMode !== 'www_redirect') {
+            if (!normalized) {
                 return '';
             }
-
-            return `${normalized} -> https://${this.canonicalHostname()} using 301 or 308`;
-        },
-
-        providerNote() {
-            if (this.apexMode === 'direct_apex') {
-                if (this.dnsProvider === 'cloudflare') {
-                    return 'Use a root CNAME at @. Cloudflare will flatten it automatically.';
-                }
-                if (this.dnsProvider === 'namecheap') {
-                    return 'Use an ALIAS record at @ if a regular root CNAME is not available.';
-                }
-                if (this.dnsProvider === 'godaddy') {
-                    return 'GoDaddy root ALIAS support is limited. Recommended mode is www + root forwarding.';
-                }
-                return 'Use ALIAS, ANAME, or flattened CNAME if your DNS provider supports it.';
+            if (normalized.startsWith('www.')) {
+                return 'www';
             }
-            if (this.apexMode === 'www_redirect') {
-                if (this.dnsProvider === 'godaddy') {
-                    return 'Use Domain Forwarding from the root domain to the www hostname and choose permanent forwarding when available.';
-                }
-                if (this.dnsProvider === 'cloudflare') {
-                    return 'Create the www CNAME, then add a Redirect Rule from the root domain to the www hostname.';
-                }
-                return 'Create the www CNAME, then configure a permanent 301 or 308 redirect from the root domain to the www hostname.';
+            if (this.looksLikeApex(normalized)) {
+                return 'www';
             }
-
-            return 'This setup protects only the exact hostname entered.';
+            return normalized.split('.')[0] || normalized;
         },
 
         nextFromDetails() {

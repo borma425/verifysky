@@ -26,15 +26,11 @@
   @php
     $setup = session('domain_setup');
     $setupDomains = is_array($setup['domains'] ?? null) ? $setup['domains'] : [];
-    $setupRecords = is_array($setup['dns_records'] ?? null) ? $setup['dns_records'] : [];
     $setupTarget = (string) ($setup['cname_target'] ?? 'customers.verifysky.com');
     $setupOrigin = trim((string) ($setup['origin_server'] ?? ''));
-    $setupCanonical = trim((string) ($setup['canonical_hostname'] ?? ''));
-    $redirectInstruction = is_array($setup['redirect_instruction'] ?? null) ? $setup['redirect_instruction'] : null;
-    $providerNotes = array_values(array_filter((array) ($setup['provider_notes'] ?? []), fn ($note): bool => trim((string) $note) !== ''));
     $setupWarnings = array_values(array_filter((array) ($setup['warnings'] ?? []), fn ($warning): bool => trim((string) $warning) !== ''));
   @endphp
-  @if(count($setupDomains) > 0 || count($setupRecords) > 0)
+  @if(count($setupDomains) > 0)
     <div class="es-animate rounded-2xl border border-[#FCB900]/26 bg-[#FCB900]/10 p-5 shadow-lg backdrop-blur-md">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div class="max-w-xl">
@@ -47,10 +43,6 @@
         <div class="rounded-lg border border-white/10 bg-[#202632] px-4 py-3 text-xs text-[#D7E1F5]">
           <div class="font-bold uppercase tracking-widest text-[#959BA7]">DNS Target</div>
           <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupTarget }}</div>
-          @if($setupCanonical !== '')
-            <div class="mt-3 font-bold uppercase tracking-widest text-[#959BA7]">Canonical Hostname</div>
-            <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupCanonical }}</div>
-          @endif
           @if($setupOrigin !== '')
             <div class="mt-3 font-bold uppercase tracking-widest text-[#959BA7]">Origin</div>
             <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupOrigin }}</div>
@@ -66,28 +58,17 @@
         </div>
       @endif
 
-      @if($providerNotes !== [])
-        <div class="mt-4 rounded-lg border border-white/10 bg-[#202632] px-4 py-3 text-sm text-[#D7E1F5]">
-          @foreach($providerNotes as $note)
-            <div>{{ $note }}</div>
-          @endforeach
-        </div>
-      @endif
-
       <div class="mt-5 grid gap-3">
-        @foreach($setupRecords !== [] ? $setupRecords : $setupDomains as $record)
+        @foreach($setupDomains as $domain)
           @php
-            $recordArray = is_array($record) ? $record : [];
-            $domainName = strtolower(trim((string) ($recordArray['hostname'] ?? $record)));
-            $recordName = (string) ($recordArray['name'] ?? (str_starts_with($domainName, 'www.') ? 'www' : '@'));
-            $recordType = (string) ($recordArray['type'] ?? 'CNAME');
-            $recordContent = (string) ($recordArray['content'] ?? $setupTarget);
+            $domainName = strtolower(trim((string) $domain));
+            $recordName = str_starts_with($domainName, 'www.') ? 'www' : '@';
           @endphp
           <div class="rounded-lg border border-white/8 bg-[#202632] p-4">
             <div class="grid gap-3 md:grid-cols-[0.8fr_0.8fr_1.6fr_auto] md:items-center">
               <div>
                 <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">Type</div>
-                <div class="mt-1 font-mono text-sm font-bold text-[#FFFFFF]">{{ $recordType }}</div>
+                <div class="mt-1 font-mono text-sm font-bold text-[#FFFFFF]">CNAME</div>
               </div>
               <div>
                 <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">Name</div>
@@ -95,35 +76,17 @@
               </div>
               <div>
                 <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">Content</div>
-                <div class="mt-1 font-mono text-sm text-[#FFFFFF] break-all">{{ $recordContent }}</div>
+                <div class="mt-1 font-mono text-sm text-[#FFFFFF] break-all">{{ $setupTarget }}</div>
               </div>
               <div class="flex gap-2 md:justify-end">
-                <button type="button" x-on:click="copy(@js($recordType), 'setup-type-{{ $loop->index }}')" class="es-btn es-btn-secondary es-btn-compact">Copy Type</button>
-                <button type="button" x-on:click="copy(@js($recordContent), 'setup-target-{{ $loop->index }}')" class="es-btn es-btn-compact">Copy Target</button>
+                <button type="button" x-on:click="copy('CNAME', 'setup-type-{{ $loop->index }}')" class="es-btn es-btn-secondary es-btn-compact">Copy Type</button>
+                <button type="button" x-on:click="copy(@js($setupTarget), 'setup-target-{{ $loop->index }}')" class="es-btn es-btn-compact">Copy Target</button>
               </div>
             </div>
             <div class="mt-3 text-xs text-[#959BA7]">Hostname: <span class="font-mono text-[#D7E1F5]">{{ $domainName }}</span></div>
           </div>
         @endforeach
       </div>
-
-      @if($redirectInstruction)
-        <div class="mt-4 rounded-lg border border-[#FCB900]/24 bg-[#202632] p-4">
-          <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">Root Domain Redirect</div>
-          <div class="mt-2 grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-center">
-            <div>
-              <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">From</div>
-              <div class="mt-1 font-mono text-sm text-[#FFFFFF]">{{ $redirectInstruction['from'] ?? '' }}</div>
-            </div>
-            <div>
-              <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">To</div>
-              <div class="mt-1 break-all font-mono text-sm text-[#FFFFFF]">{{ $redirectInstruction['to'] ?? '' }}</div>
-            </div>
-            <button type="button" x-on:click="copy(@js((string) ($redirectInstruction['to'] ?? '')), 'setup-redirect-target')" class="es-btn es-btn-compact">Copy Target</button>
-          </div>
-          <p class="mt-3 text-xs text-[#D7E1F5]">Use a permanent 301 or 308 redirect. Temporary redirects are shown as warnings.</p>
-        </div>
-      @endif
     </div>
   @endif
 @endif

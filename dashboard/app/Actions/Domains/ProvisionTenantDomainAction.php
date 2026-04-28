@@ -2,263 +2,222 @@
 
 namespace App\Actions\Domains;
 
+use App\Jobs\Domains\EnsureCloudflareWorkerRouteJob;
+use App\Jobs\Domains\ProvisionCloudflareSaasHostnameJob;
+use App\Jobs\Domains\SyncDomainConfigToD1Job;
+use App\Jobs\Domains\SyncSaasSecurityArtifactsJob;
+use App\Jobs\Domains\ValidateOriginServerJob;
+use App\Models\Tenant;
 use App\Models\TenantDomain;
-use App\Services\Domains\DnsVerificationService;
 use App\Services\EdgeShieldService;
+use App\Services\Plans\PlanLimitsService;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class ProvisionTenantDomainAction
 {
     public function __construct(
         private readonly EdgeShieldService $edgeShield,
-        private readonly DnsVerificationService $dnsVerification
+        private readonly PlanLimitsService $planLimits
     ) {}
 
     public function execute(array $validated, ?string $tenantId): array
     {
+        $tenantId = trim((string) $tenantId);
+        if ($tenantId === '') {
+            return ['ok' => false, 'error' => 'Tenant context is required to provision a domain.'];
+        }
+
+        if (! Schema::hasTable('tenant_domains')) {
+            return ['ok' => false, 'error' => 'Domain storage is not ready. Run database migrations before onboarding domains.'];
+        }
+
+        $tenant = Tenant::query()->find($tenantId);
+        if (! $tenant instanceof Tenant) {
+            return ['ok' => false, 'error' => 'Tenant was not found.'];
+        }
+
         $securityMode = $validated['security_mode'] ?? 'balanced';
         $originServer = trim((string) ($validated['origin_server'] ?? ''));
-        $requestedDomain = $this->dnsVerification->normalizeDomain((string) $validated['domain_name']);
-        $apexMode = $this->normalizeApexMode((string) ($validated['apex_mode'] ?? TenantDomain::APEX_MODE_WWW_REDIRECT), $requestedDomain);
-        $dnsProvider = $this->normalizeDnsProvider((string) ($validated['dns_provider'] ?? 'other'));
-        $canonicalHostname = $this->dnsVerification->canonicalHostname($requestedDomain, $apexMode);
-        $hostnames = $this->edgeShield->saasHostnamesForInput($requestedDomain, $apexMode);
+        $originMode = $originServer === '' ? 'auto' : 'manual';
+        $requestedDomain = (string) $validated['domain_name'];
+        $hostnames = $this->edgeShield->saasHostnamesForInput($requestedDomain);
+
         if (count($hostnames) === 0) {
             return ['ok' => false, 'error' => 'Domain name is empty.'];
         }
 
-        $originMode = 'manual';
-        if ($originServer === '') {
-            $detectedOrigin = $this->edgeShield->detectOriginServerForInput($requestedDomain);
-            if (! $detectedOrigin['ok']) {
-                return [
-                    'ok' => false,
-                    'error' => $detectedOrigin['error'],
-                    'origin_detection_failed' => true,
-                ];
+        $created = [];
+        $warnings = [];
+
+        foreach ($hostnames as $hostname) {
+            $hostname = strtolower(trim((string) $hostname));
+            if ($hostname === '') {
+                continue;
             }
 
-            $originServer = (string) ($detectedOrigin['origin_server'] ?? '');
-            $originMode = 'auto';
+            $existing = TenantDomain::query()->where('hostname', $hostname)->first();
+            if ($existing instanceof TenantDomain && (string) $existing->tenant_id !== $tenantId) {
+                return $created === []
+                    ? ['ok' => false, 'error' => 'This hostname is already assigned to another tenant.']
+                    : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
+                        'One hostname was skipped because it is already assigned to another tenant.',
+                    ]));
+            }
+
+            if ($existing instanceof TenantDomain && $this->isActiveDuplicate($existing)) {
+                return $created === []
+                    ? ['ok' => false, 'error' => 'This hostname is already provisioned for this tenant.']
+                    : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
+                        'One hostname was skipped because it is already provisioned for this tenant.',
+                    ]));
+            }
+
+            if (! $this->hasReusableSlot($existing) && ! ($this->planLimits->getDomainsUsage($tenant)['can_add'] ?? false)) {
+                return $created === []
+                    ? ['ok' => false, 'error' => (string) ($this->planLimits->getDomainsUsage($tenant)['message'] ?? 'You have reached the maximum number of domains for your current plan.')]
+                    : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
+                        'One hostname was skipped because this tenant has reached the domain limit.',
+                    ]));
+            }
+
+            $domain = $this->upsertPendingTenantDomain($tenantId, $hostname, $originServer, (string) $securityMode, $existing);
+
+            try {
+                $this->dispatchProvisioningChain($domain, $requestedDomain, $originServer);
+                $created[] = $hostname;
+            } catch (Throwable $exception) {
+                $domain->forceFill([
+                    'provisioning_status' => TenantDomain::PROVISIONING_FAILED,
+                    'provisioning_error' => 'VerifySky could not queue domain provisioning. Please retry.',
+                    'provisioning_finished_at' => now(),
+                ])->save();
+
+                $warnings[] = 'Domain '.$hostname.' was saved locally, but provisioning could not be queued yet.';
+            }
         }
 
-        $created = [];
-        foreach ($hostnames as $hostname) {
-            $originValidation = $this->edgeShield->validateOriginServerForHostname($hostname, $originServer);
-            if (! $originValidation['ok']) {
-                return ['ok' => false, 'error' => $originValidation['error']];
-            }
-
-            $provisioned = $this->edgeShield->provisionSaasCustomHostname($hostname, $originServer);
-            if (! $provisioned['ok']) {
-                return ['ok' => false, 'error' => 'We could not start verification for this domain. Please check the hostname and try again.'];
-            }
-
-            $sql = sprintf(
-                "INSERT INTO domain_configs (
-                    domain_name, tenant_id, zone_id, turnstile_sitekey, turnstile_secret, status, force_captcha, security_mode,
-                    custom_hostname_id, cname_target, origin_server, hostname_status, ssl_status, ownership_verification_json, updated_at
-                 )
-                 VALUES ('%s', '%s', '%s', '%s', '%s', 'active', 0, '%s', '%s', '%s', '%s', '%s', '%s', '%s', CURRENT_TIMESTAMP)
-                 ON CONFLICT(domain_name) DO UPDATE SET
-                   tenant_id = excluded.tenant_id,
-                   zone_id = excluded.zone_id,
-                   turnstile_sitekey = excluded.turnstile_sitekey,
-                   turnstile_secret = excluded.turnstile_secret,
-                   security_mode = excluded.security_mode,
-                   custom_hostname_id = excluded.custom_hostname_id,
-                   cname_target = excluded.cname_target,
-                   origin_server = excluded.origin_server,
-                   hostname_status = excluded.hostname_status,
-                   ssl_status = excluded.ssl_status,
-                   ownership_verification_json = excluded.ownership_verification_json,
-                   updated_at = CURRENT_TIMESTAMP,
-                   status = 'active'",
-                str_replace("'", "''", (string) $provisioned['domain_name']),
-                $tenantId ? str_replace("'", "''", (string) $tenantId) : '',
-                str_replace("'", "''", (string) $provisioned['zone_id']),
-                str_replace("'", "''", (string) $provisioned['turnstile_sitekey']),
-                str_replace("'", "''", (string) $provisioned['turnstile_secret']),
-                str_replace("'", "''", (string) $securityMode),
-                str_replace("'", "''", (string) $provisioned['custom_hostname_id']),
-                str_replace("'", "''", (string) $provisioned['cname_target']),
-                str_replace("'", "''", (string) $originServer),
-                str_replace("'", "''", (string) $provisioned['hostname_status']),
-                str_replace("'", "''", (string) $provisioned['ssl_status']),
-                str_replace("'", "''", (string) $provisioned['ownership_verification_json'])
-            );
-
-            $result = $this->edgeShield->queryD1($sql);
-            if (! $result['ok']) {
-                return ['ok' => false, 'error' => 'Domain verification started, but we could not save it in VerifySky. Please try again.'];
-            }
-
-            $route = $this->edgeShield->ensureWorkerRoute(
-                (string) $provisioned['zone_id'],
-                (string) $provisioned['domain_name']
-            );
-            if (! $route['ok']) {
-                return ['ok' => false, 'error' => 'Domain verification started, but we could not route traffic through VerifySky Worker. '.$route['error']];
-            }
-
-            if ($tenantId) {
-                TenantDomain::query()->updateOrCreate(
-                    ['hostname' => (string) $provisioned['domain_name']],
-                    [
-                        'tenant_id' => $tenantId,
-                        'requested_domain' => $requestedDomain,
-                        'canonical_hostname' => $canonicalHostname,
-                        'apex_mode' => $apexMode,
-                        'dns_provider' => $dnsProvider,
-                        'apex_redirect_status' => $apexMode === TenantDomain::APEX_MODE_WWW_REDIRECT
-                            ? TenantDomain::REDIRECT_STATUS_UNCHECKED
-                            : null,
-                        'apex_redirect_checked_at' => null,
-                        'cname_target' => (string) $provisioned['cname_target'],
-                        'origin_server' => (string) $originServer,
-                        'cloudflare_custom_hostname_id' => (string) $provisioned['custom_hostname_id'],
-                        'hostname_status' => (string) $provisioned['hostname_status'],
-                        'ssl_status' => (string) $provisioned['ssl_status'],
-                        'security_mode' => $securityMode,
-                        'ownership_verification' => (string) $provisioned['ownership_verification_json'],
-                    ]
-                );
-            }
-
-            $created[] = (string) $provisioned['domain_name'];
+        if ($warnings !== []) {
+            return $this->partialResult($created, $originMode, $originServer, $warnings);
         }
 
         return [
             'ok' => true,
+            'partial' => false,
             'created' => $created,
             'origin_mode' => $originMode,
-            'message' => $this->successMessage($created, $originMode, $apexMode),
-            'domain_setup' => $this->domainSetupPayload($requestedDomain, $canonicalHostname, $created, $apexMode, $dnsProvider, $originServer, $originMode),
+            'message' => $this->successMessage($created, $originMode),
+            'domain_setup' => $this->domainSetupPayload($created, $originServer, $originMode),
         ];
-    }
-
-    private function normalizeApexMode(string $mode, string $domain): string
-    {
-        if (! $this->dnsVerification->looksLikeApexDomain($domain) || str_starts_with($domain, 'www.')) {
-            return TenantDomain::APEX_MODE_SUBDOMAIN_ONLY;
-        }
-
-        return in_array($mode, [
-            TenantDomain::APEX_MODE_WWW_REDIRECT,
-            TenantDomain::APEX_MODE_DIRECT_APEX,
-            TenantDomain::APEX_MODE_SUBDOMAIN_ONLY,
-        ], true) ? $mode : TenantDomain::APEX_MODE_WWW_REDIRECT;
-    }
-
-    private function normalizeDnsProvider(string $provider): string
-    {
-        return in_array($provider, ['cloudflare', 'namecheap', 'godaddy', 'spaceship', 'other'], true) ? $provider : 'other';
     }
 
     /**
      * @param  array<int, string>  $created
+     * @param  array<int, string>  $warnings
+     */
+    private function partialResult(array $created, string $originMode, string $originServer, array $warnings): array
+    {
+        return [
+            'ok' => $created !== [],
+            'partial' => true,
+            'created' => $created,
+            'origin_mode' => $originMode,
+            'warnings' => array_values(array_unique(array_filter($warnings))),
+            'warning' => implode("\n", array_values(array_unique(array_filter($warnings)))),
+            'message' => $this->successMessage($created, $originMode),
+            'domain_setup' => $this->domainSetupPayload($created, $originServer, $originMode),
+            'error' => $created === [] ? 'We could not queue provisioning for this domain.' : null,
+        ];
+    }
+
+    /**
+     * @param  array<int, string>  $domains
      * @return array<string, mixed>
      */
-    private function domainSetupPayload(
-        string $requestedDomain,
-        string $canonicalHostname,
-        array $created,
-        string $apexMode,
-        string $dnsProvider,
-        string $originServer,
-        string $originMode
-    ): array {
-        $target = $this->edgeShield->saasCnameTarget();
-
+    private function domainSetupPayload(array $domains, string $originServer, string $originMode): array
+    {
         return [
-            'domains' => $created,
-            'protected_hostnames' => $created,
-            'requested_domain' => $requestedDomain,
-            'canonical_hostname' => $canonicalHostname,
-            'setup_profile' => $apexMode,
-            'dns_provider' => $dnsProvider,
-            'cname_target' => $target,
+            'domains' => $domains,
+            'cname_target' => (string) config('edgeshield.saas_cname_target', 'customers.verifysky.com'),
             'origin_server' => $originServer,
             'origin_mode' => $originMode,
-            'dns_records' => $this->dnsRecords($created, $requestedDomain, $apexMode, $target),
-            'redirect_instruction' => $this->redirectInstruction($requestedDomain, $canonicalHostname, $apexMode, $dnsProvider),
-            'provider_notes' => $this->providerNotes($dnsProvider, $apexMode),
+            'provisioning_status' => TenantDomain::PROVISIONING_PENDING,
         ];
-    }
-
-    /**
-     * @param  array<int, string>  $hostnames
-     * @return array<int, array<string, string>>
-     */
-    private function dnsRecords(array $hostnames, string $requestedDomain, string $apexMode, string $target): array
-    {
-        return array_map(function (string $hostname) use ($requestedDomain, $apexMode, $target): array {
-            $isRoot = $hostname === $requestedDomain && $this->dnsVerification->looksLikeApexDomain($hostname);
-
-            return [
-                'type' => $isRoot && $apexMode === TenantDomain::APEX_MODE_DIRECT_APEX ? 'ALIAS / ANAME / Flattened CNAME' : 'CNAME',
-                'name' => $isRoot ? '@' : (str_starts_with($hostname, 'www.') && substr($hostname, 4) === $requestedDomain ? 'www' : explode('.', $hostname)[0]),
-                'content' => $target,
-                'hostname' => $hostname,
-            ];
-        }, $hostnames);
-    }
-
-    /**
-     * @return array<string, string>|null
-     */
-    private function redirectInstruction(string $requestedDomain, string $canonicalHostname, string $apexMode, string $dnsProvider): ?array
-    {
-        if ($apexMode !== TenantDomain::APEX_MODE_WWW_REDIRECT || $requestedDomain === $canonicalHostname) {
-            return null;
-        }
-
-        return [
-            'type' => '301 / 308 Permanent Redirect',
-            'from' => $requestedDomain,
-            'to' => 'https://'.$canonicalHostname,
-            'status' => 'unchecked',
-            'provider' => $dnsProvider,
-        ];
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function providerNotes(string $dnsProvider, string $apexMode): array
-    {
-        if ($apexMode === TenantDomain::APEX_MODE_DIRECT_APEX) {
-            return match ($dnsProvider) {
-                'cloudflare' => ['Use a CNAME record at @. Cloudflare will flatten it automatically at the root domain.'],
-                'namecheap' => ['Use an ALIAS record at @ when the root domain cannot use a regular CNAME.'],
-                'godaddy' => ['GoDaddy commonly does not support ALIAS at the root. Use the recommended www + root redirect mode unless you move DNS to a provider with ALIAS support.'],
-                default => ['Use ALIAS, ANAME, or flattened CNAME for the root domain if your DNS provider supports it.'],
-            };
-        }
-
-        if ($apexMode === TenantDomain::APEX_MODE_WWW_REDIRECT) {
-            return match ($dnsProvider) {
-                'cloudflare' => ['Create the www CNAME, then add a Redirect Rule from the root domain to https://www.'],
-                'godaddy' => ['Create the www CNAME, then use Domain Forwarding from the root domain to the www hostname. Use a permanent redirect when available.'],
-                default => ['Create the www CNAME, then configure a permanent 301 or 308 redirect from the root domain to the www hostname.'],
-            };
-        }
-
-        return ['This setup protects only the exact hostname entered.'];
     }
 
     /**
      * @param  array<int, string>  $domains
      */
-    private function successMessage(array $domains, string $originMode, string $apexMode): string
+    private function successMessage(array $domains, string $originMode): string
     {
-        $message = 'Route creation started for '.implode(', ', $domains).'. Add the DNS record shown in the setup panel to continue verification.';
-        if ($apexMode === TenantDomain::APEX_MODE_WWW_REDIRECT) {
-            $message .= ' Configure a permanent root redirect to complete root-domain handling.';
-        }
+        $message = 'Provisioning started for '.implode(', ', $domains).'. Add the DNS record shown in the setup panel while VerifySky activates protection in the background.';
+
         if ($originMode === 'auto') {
-            $message .= ' Backend origin was detected automatically.';
+            $message .= ' Backend origin detection will run in the provisioning queue.';
         }
 
         return $message;
+    }
+
+    private function upsertPendingTenantDomain(
+        string $tenantId,
+        string $hostname,
+        string $originServer,
+        string $securityMode,
+        ?TenantDomain $existing
+    ): TenantDomain {
+        $domain = $existing instanceof TenantDomain ? $existing : new TenantDomain(['hostname' => $hostname]);
+        $domain->forceFill([
+            'tenant_id' => $tenantId,
+            'hostname' => $hostname,
+            'cname_target' => (string) config('edgeshield.saas_cname_target', 'customers.verifysky.com'),
+            'origin_server' => $originServer,
+            'cloudflare_custom_hostname_id' => null,
+            'hostname_status' => 'pending',
+            'ssl_status' => 'pending_validation',
+            'security_mode' => $securityMode,
+            'force_captcha' => false,
+            'ownership_verification' => null,
+            'provisioning_status' => TenantDomain::PROVISIONING_PENDING,
+            'provisioning_error' => null,
+            'provisioning_payload' => null,
+            'provisioning_started_at' => null,
+            'provisioning_finished_at' => null,
+            'verified_at' => null,
+        ])->save();
+
+        return $domain->refresh();
+    }
+
+    private function dispatchProvisioningChain(TenantDomain $domain, string $requestedDomain, string $originServer): void
+    {
+        Bus::chain([
+            new ValidateOriginServerJob((int) $domain->getKey(), $requestedDomain, $originServer === '' ? null : $originServer),
+            new EnsureCloudflareWorkerRouteJob((int) $domain->getKey()),
+            new ProvisionCloudflareSaasHostnameJob((int) $domain->getKey()),
+            new SyncDomainConfigToD1Job((int) $domain->getKey()),
+            new SyncSaasSecurityArtifactsJob((int) $domain->getKey()),
+        ])
+            ->onConnection(config('queue.default', 'database'))
+            ->onQueue('default')
+            ->dispatch();
+    }
+
+    private function isActiveDuplicate(TenantDomain $domain): bool
+    {
+        return (string) ($domain->provisioning_status ?? TenantDomain::PROVISIONING_ACTIVE) === TenantDomain::PROVISIONING_ACTIVE;
+    }
+
+    private function hasReusableSlot(?TenantDomain $domain): bool
+    {
+        if (! $domain instanceof TenantDomain) {
+            return false;
+        }
+
+        return in_array((string) ($domain->provisioning_status ?? ''), [
+            TenantDomain::PROVISIONING_PENDING,
+            TenantDomain::PROVISIONING_PROVISIONING,
+        ], true);
     }
 }

@@ -6,6 +6,7 @@ use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Services\Billing\EffectiveTenantPlanService;
 use App\Services\EdgeShield\D1DatabaseClient;
+use Illuminate\Support\Facades\Schema;
 
 class PlanLimitsService
 {
@@ -60,7 +61,7 @@ class PlanLimitsService
         $includedLimit = is_numeric($rawLimit) ? max(0, (int) $rawLimit) : null;
         $extraAllowance = $this->extraDomainAllowance($tenant);
         $limit = $includedLimit === null ? null : $includedLimit + $extraAllowance;
-        $used = $this->tenantDomainsQuery((string) $tenant->getKey())->count();
+        $used = $this->countBillableDomains((string) $tenant->getKey());
         $remaining = $limit === null ? null : max(0, $limit - $used);
         $canAdd = $limit === null || $used < $limit;
 
@@ -278,6 +279,21 @@ class PlanLimitsService
     private function tenantDomainsQuery(?string $tenantId)
     {
         return TenantDomain::query()->where('tenant_id', trim((string) $tenantId));
+    }
+
+    private function countBillableDomains(string $tenantId): int
+    {
+        $query = $this->tenantDomainsQuery($tenantId);
+
+        if (Schema::hasColumn('tenant_domains', 'provisioning_status')) {
+            $query->whereIn('provisioning_status', [
+                TenantDomain::PROVISIONING_PENDING,
+                TenantDomain::PROVISIONING_PROVISIONING,
+                TenantDomain::PROVISIONING_ACTIVE,
+            ]);
+        }
+
+        return $query->count();
     }
 
     private function extraDomainAllowance(Tenant $tenant): int

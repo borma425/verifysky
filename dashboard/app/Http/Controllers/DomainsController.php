@@ -24,6 +24,7 @@ use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use App\ViewData\DomainIndexViewData;
 use App\ViewData\DomainTuningViewData;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 
@@ -61,6 +62,15 @@ class DomainsController extends Controller
         return view('domains.index', $viewData->toArray());
     }
 
+    public function statuses(): JsonResponse
+    {
+        $tenantId = trim((string) session('current_tenant_id'));
+        $isAdmin = (bool) session('is_admin');
+        $result = $this->domainConfigs->listForTenant($tenantId !== '' ? $tenantId : null, $isAdmin);
+
+        return response()->json($this->domainStatusPayload($result, $isAdmin));
+    }
+
     public function store(StoreDomainRequest $request): RedirectResponse
     {
         $result = $this->provisionTenantDomain->execute($request->validated(), session('current_tenant_id'));
@@ -73,16 +83,25 @@ class DomainsController extends Controller
             return $response;
         }
 
-        $message = (string) ($result['message'] ?? ('Route creation started for '.implode(', ', $result['created']).'. Add the DNS record shown in the setup panel to continue verification.'));
-        $domainSetup = is_array($result['domain_setup'] ?? null) ? $result['domain_setup'] : [
-            'domains' => $result['created'],
-            'cname_target' => $this->edgeShield->saasCnameTarget(),
-        ];
+        $message = (string) ($result['message'] ?? '');
+        if ($message === '') {
+            $message = 'Route creation started for '.implode(', ', $result['created'] ?? []).'. Add the DNS record shown in the setup panel to continue verification.';
+            if (($result['origin_mode'] ?? 'manual') === 'auto') {
+                $message .= ' Backend origin was detected automatically.';
+            }
+        }
 
-        return back()->with(
-            'status',
-            $message
-        )->with('domain_setup', $domainSetup);
+        $response = back()->with('status', $message);
+        if (! empty($result['warning'])) {
+            $response->with('warning', (string) $result['warning']);
+        }
+
+        $domainSetup = is_array($result['domain_setup'] ?? null) ? $result['domain_setup'] : [];
+
+        return $response->with('domain_setup', array_merge([
+            'domains' => $result['created'] ?? [],
+            'cname_target' => (string) ($domainSetup['cname_target'] ?? config('edgeshield.saas_cname_target', 'customers.verifysky.com')),
+        ], $domainSetup));
     }
 
     public function updateStatus(string $domain, UpdateDomainStatusRequest $request): RedirectResponse
@@ -111,10 +130,6 @@ class DomainsController extends Controller
 
         if (! $result['ok']) {
             return back()->with('error', $result['error']);
-        }
-
-        if (! empty($result['warning'])) {
-            return back()->with('status', $result['warning']);
         }
 
         return back()->with('status', 'Target Origin Server successfully updated. Traffic is now routing to '.$request->validated()['origin_server'].'.');
@@ -267,5 +282,40 @@ class DomainsController extends Controller
         }
 
         return $this->planLimits->getDomainsUsage($tenant);
+    }
+
+    private function domainStatusPayload(array $result, bool $isAdmin): array
+    {
+        $viewData = (new DomainIndexViewData(
+            $result,
+            (string) config('edgeshield.saas_cname_target', 'customers.verifysky.com'),
+            $isAdmin,
+            []
+        ))->toArray();
+
+        $groups = array_map(function (array $group): array {
+            return [
+                'display_domain' => (string) ($group['display_domain'] ?? ''),
+                'primary_domain' => (string) ($group['primary_domain'] ?? ''),
+                'overall_status' => (string) ($group['overall_status'] ?? ''),
+                'provisioning_status' => (string) ($group['provisioning_status'] ?? ''),
+                'primary_hostname_status' => (string) ($group['primary_hostname_status'] ?? ''),
+                'primary_ssl_status' => (string) ($group['primary_ssl_status'] ?? ''),
+                'primary_verified' => (bool) ($group['primary_verified'] ?? false),
+                'is_active' => strtolower((string) ($group['status'] ?? 'active')) === 'active',
+                'health_score' => (int) ($group['health_score'] ?? 0),
+                'dns_active_count' => (int) ($group['dns_active_count'] ?? 0),
+                'ssl_active_count' => (int) ($group['ssl_active_count'] ?? 0),
+                'total_checks' => (int) ($group['total_checks'] ?? 1),
+                'live_status' => is_array($group['live_status'] ?? null) ? $group['live_status'] : [],
+            ];
+        }, $viewData['preparedDomainGroups'] ?? []);
+
+        return [
+            'ok' => $viewData['error'] === null,
+            'error' => $viewData['error'],
+            'polling' => (bool) ($viewData['domains_needs_polling'] ?? false),
+            'groups' => $groups,
+        ];
     }
 }

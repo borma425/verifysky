@@ -5,14 +5,20 @@ namespace Tests\Feature;
 use App\Repositories\DomainConfigRepository;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
+use App\Models\Tenant;
+use App\Models\TenantDomain;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Bus;
 use Mockery;
 use Mockery\MockInterface;
 use Tests\TestCase;
 
 class DomainActionsTest extends TestCase
 {
+    use RefreshDatabase;
+
     private PlanLimitsService|MockInterface $planLimits;
 
     protected function setUp(): void
@@ -40,6 +46,16 @@ class DomainActionsTest extends TestCase
         return $mock;
     }
 
+    private function tenant(): Tenant
+    {
+        return Tenant::query()->create([
+            'name' => 'Customer Tenant',
+            'slug' => 'customer-tenant-'.strtolower(str()->random(8)),
+            'plan' => 'starter',
+            'status' => 'active',
+        ]);
+    }
+
     public function test_admin_is_redirected_away_from_customer_domains_index(): void
     {
         $repository = Mockery::mock(DomainConfigRepository::class);
@@ -64,6 +80,12 @@ class DomainActionsTest extends TestCase
 
     public function test_refresh_hostname_status_endpoint_works(): void
     {
+        $tenant = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'example.com',
+        ]);
+
         $mock = $this->bindServiceMock();
         $mock->shouldReceive('refreshSaasCustomHostname')->once()->with('example.com')->andReturn([
             'ok' => true,
@@ -72,185 +94,147 @@ class DomainActionsTest extends TestCase
         ]);
         $mock->shouldReceive('purgeDomainConfigCache')->once()->with('example.com')->andReturn(['ok' => true]);
 
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])->post('/domains/example.com/sync-route');
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->post('/domains/example.com/sync-route');
 
         $response->assertRedirect()->assertSessionHas('status');
     }
 
-    public function test_store_apex_domain_provisions_www_hostname_for_universal_dns_setup(): void
+    public function test_domain_status_polling_endpoint_returns_lifecycle_payload(): void
     {
-        $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
-            'www.cashup.cash',
-        ]);
-        $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
+        $tenant = $this->tenant();
+        $repository = Mockery::mock(DomainConfigRepository::class);
+        $repository->shouldReceive('listForTenant')->once()->with((string) $tenant->id, false)->andReturn([
             'ok' => true,
             'error' => null,
-        ]);
-        $mock->shouldReceive('provisionSaasCustomHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
-            'ok' => true,
-            'domain_name' => 'www.cashup.cash',
-            'zone_id' => 'zone1',
-            'turnstile_sitekey' => 'sitekey2',
-            'turnstile_secret' => 'secret2',
-            'custom_hostname_id' => 'custom-hostname-2',
-            'cname_target' => 'customers.verifysky.com',
-            'hostname_status' => 'pending',
-            'ssl_status' => 'pending_validation',
-            'ownership_verification_json' => 'null',
-        ]);
-        $mock->shouldReceive('queryD1')->once()->andReturn([
-            'ok' => true,
-            'output' => '',
-            'error' => null,
-        ]);
-        $mock->shouldReceive('ensureWorkerRoute')->once()->with('zone1', 'www.cashup.cash')->andReturn([
-            'ok' => true,
-            'error' => null,
-            'action' => 'www.cashup.cash/*:created, cashup.cash/*:created',
-        ]);
-        $mock->shouldReceive('saasCnameTarget')->once()->andReturn('customers.verifysky.com');
-
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])->post(route('domains.store'), [
-            'domain_name' => 'cashup.cash',
-            'origin_server' => '192.0.2.100',
-            'security_mode' => 'balanced',
-        ]);
-
-        $response->assertRedirect()
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'www.cashup.cash'));
-    }
-
-    public function test_store_domain_auto_detects_origin_when_manual_origin_is_omitted(): void
-    {
-        $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
-            'www.cashup.cash',
-        ]);
-        $mock->shouldReceive('detectOriginServerForInput')->once()->with('cashup.cash')->andReturn([
-            'ok' => true,
-            'origin_server' => '192.0.2.100',
-        ]);
-        $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
-            'ok' => true,
-            'error' => null,
-        ]);
-        $mock->shouldReceive('provisionSaasCustomHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
-            'ok' => true,
-            'domain_name' => 'www.cashup.cash',
-            'zone_id' => 'zone1',
-            'turnstile_sitekey' => 'sitekey2',
-            'turnstile_secret' => 'secret2',
-            'custom_hostname_id' => 'custom-hostname-2',
-            'cname_target' => 'customers.verifysky.com',
-            'hostname_status' => 'pending',
-            'ssl_status' => 'pending_validation',
-            'ownership_verification_json' => 'null',
-        ]);
-        $mock->shouldReceive('queryD1')->once()->andReturn([
-            'ok' => true,
-            'output' => '',
-            'error' => null,
-        ]);
-        $mock->shouldReceive('ensureWorkerRoute')->once()->with('zone1', 'www.cashup.cash')->andReturn([
-            'ok' => true,
-            'error' => null,
-            'action' => 'www.cashup.cash/*:created, cashup.cash/*:created',
-        ]);
-        $mock->shouldReceive('saasCnameTarget')->once()->andReturn('customers.verifysky.com');
-
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])->post(route('domains.store'), [
-            'domain_name' => 'cashup.cash',
-            'security_mode' => 'balanced',
-        ]);
-
-        $response->assertRedirect()
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'detected automatically'));
-    }
-
-    public function test_store_direct_apex_domain_provisions_root_and_www_hostnames(): void
-    {
-        $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'direct_apex')->andReturn([
-            'cashup.cash',
-            'www.cashup.cash',
-        ]);
-        foreach (['cashup.cash', 'www.cashup.cash'] as $hostname) {
-            $mock->shouldReceive('validateOriginServerForHostname')->once()->with($hostname, '192.0.2.100')->andReturn([
-                'ok' => true,
-                'error' => null,
-            ]);
-            $mock->shouldReceive('provisionSaasCustomHostname')->once()->with($hostname, '192.0.2.100')->andReturn([
-                'ok' => true,
-                'domain_name' => $hostname,
-                'zone_id' => 'zone1',
-                'turnstile_sitekey' => 'sitekey2',
-                'turnstile_secret' => 'secret2',
-                'custom_hostname_id' => 'custom-hostname-'.$hostname,
-                'cname_target' => 'customers.verifysky.com',
+            'domains' => [[
+                'domain_name' => 'www.example.com',
+                'status' => 'pending',
+                'security_mode' => 'balanced',
                 'hostname_status' => 'pending',
                 'ssl_status' => 'pending_validation',
-                'ownership_verification_json' => 'null',
-            ]);
-            $mock->shouldReceive('ensureWorkerRoute')->once()->with('zone1', $hostname)->andReturn([
-                'ok' => true,
-                'error' => null,
-                'action' => $hostname.'/*:created',
-            ]);
-        }
-        $mock->shouldReceive('queryD1')->twice()->andReturn([
-            'ok' => true,
-            'output' => '',
-            'error' => null,
+                'provisioning_status' => TenantDomain::PROVISIONING_PROVISIONING,
+                'provisioning_error' => '',
+                'cname_target' => 'customers.verifysky.com',
+                'created_at' => '2026-04-28 10:00:00',
+                'updated_at' => '2026-04-28 10:00:00',
+            ]],
         ]);
-        $mock->shouldReceive('saasCnameTarget')->once()->andReturn('customers.verifysky.com');
+        $this->app->instance(DomainConfigRepository::class, $repository);
 
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])->post(route('domains.store'), [
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->getJson(route('domains.statuses'));
+
+        $response->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('polling', true)
+            ->assertJsonPath('groups.0.display_domain', 'example.com')
+            ->assertJsonPath('groups.0.live_status.label', 'PROVISIONING')
+            ->assertJsonPath('groups.0.live_status.locked', true)
+            ->assertJsonPath('groups.0.health_score', 0);
+    }
+
+    public function test_non_admin_cannot_refresh_another_tenant_domain(): void
+    {
+        $owner = $this->tenant();
+        $other = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $owner->id,
+            'hostname' => 'locked.example.com',
+        ]);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('refreshSaasCustomHostname')->never();
+        $mock->shouldReceive('purgeDomainConfigCache')->never();
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $other->id,
+        ])->post('/domains/locked.example.com/sync-route');
+
+        $response->assertRedirect()->assertSessionHas('error', 'We could not refresh this domain yet. Please try again in a few minutes.');
+    }
+
+    public function test_store_apex_domain_provisions_www_hostname_for_universal_dns_setup(): void
+    {
+        Bus::fake();
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->twice()->with(Mockery::type(Tenant::class))->andReturn(['can_add' => true]);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+            'www.cashup.cash',
+        ]);
+        $mock->shouldReceive('validateOriginServerForHostname')->never();
+        $mock->shouldReceive('provisionSaasCustomHostname')->never();
+        $mock->shouldReceive('queryD1')->never();
+        $mock->shouldReceive('ensureWorkerRoute')->never();
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->post(route('domains.store'), [
             'domain_name' => 'cashup.cash',
             'origin_server' => '192.0.2.100',
             'security_mode' => 'balanced',
-            'apex_mode' => 'direct_apex',
-            'dns_provider' => 'cloudflare',
         ]);
 
         $response->assertRedirect()
-            ->assertSessionHas('domain_setup', fn (array $setup): bool => ($setup['setup_profile'] ?? '') === 'direct_apex'
-                && ($setup['protected_hostnames'] ?? []) === ['cashup.cash', 'www.cashup.cash']);
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'));
+
+        $this->assertDatabaseHas('tenant_domains', [
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.cashup.cash',
+            'provisioning_status' => TenantDomain::PROVISIONING_PENDING,
+        ]);
     }
 
-    public function test_store_domain_returns_partial_error_when_worker_route_sync_fails(): void
+    public function test_store_domain_defers_origin_detection_when_manual_origin_is_omitted(): void
     {
+        Bus::fake();
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->twice()->with(Mockery::type(Tenant::class))->andReturn(['can_add' => true]);
+
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
             'www.cashup.cash',
         ]);
-        $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
-            'ok' => true,
-            'error' => null,
-        ]);
-        $mock->shouldReceive('provisionSaasCustomHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
-            'ok' => true,
-            'domain_name' => 'www.cashup.cash',
-            'zone_id' => 'zone1',
-            'turnstile_sitekey' => 'sitekey2',
-            'turnstile_secret' => 'secret2',
-            'custom_hostname_id' => 'custom-hostname-2',
-            'cname_target' => 'customers.verifysky.com',
-            'hostname_status' => 'pending',
-            'ssl_status' => 'pending_validation',
-            'ownership_verification_json' => 'null',
-        ]);
-        $mock->shouldReceive('queryD1')->once()->andReturn([
-            'ok' => true,
-            'output' => '',
-            'error' => null,
-        ]);
-        $mock->shouldReceive('ensureWorkerRoute')->once()->with('zone1', 'www.cashup.cash')->andReturn([
-            'ok' => false,
-            'error' => 'Cloudflare route API failed.',
+        $mock->shouldReceive('detectOriginServerForInput')->never();
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->post(route('domains.store'), [
+            'domain_name' => 'cashup.cash',
+            'security_mode' => 'balanced',
         ]);
 
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false, 'current_tenant_id' => 'tenant-1'])
+        $response->assertRedirect()
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Backend origin detection will run in the provisioning queue.'));
+    }
+
+    public function test_store_domain_defers_worker_route_sync_to_queue(): void
+    {
+        Bus::fake();
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->twice()->with(Mockery::type(Tenant::class))->andReturn(['can_add' => true]);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+            'www.cashup.cash',
+        ]);
+        $mock->shouldReceive('ensureWorkerRoute')->never();
+
+        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false, 'current_tenant_id' => (string) $tenant->id])
             ->from(route('domains.index'))
             ->post(route('domains.store'), [
                 'domain_name' => 'cashup.cash',
@@ -259,43 +243,55 @@ class DomainActionsTest extends TestCase
             ]);
 
         $response->assertRedirect(route('domains.index'))
-            ->assertSessionHas('error', fn (string $message): bool => str_contains($message, 'could not route traffic through VerifySky Worker'));
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'))
+            ->assertSessionMissing('warning')
+            ->assertSessionHas('domain_setup', fn (array $setup): bool => ($setup['domains'] ?? []) === ['www.cashup.cash']);
     }
 
-    public function test_store_domain_returns_clear_error_when_auto_detection_fails(): void
+    public function test_store_domain_no_longer_fails_synchronously_when_auto_detection_will_fail_later(): void
     {
+        Bus::fake();
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->twice()->with(Mockery::type(Tenant::class))->andReturn(['can_add' => true]);
+
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
             'www.cashup.cash',
         ]);
-        $mock->shouldReceive('detectOriginServerForInput')->once()->with('cashup.cash')->andReturn([
-            'ok' => false,
-            'error' => 'We could not automatically detect the backend origin for this domain. Open Manual Origin and enter the backend IP or hostname.',
-        ]);
+        $mock->shouldReceive('detectOriginServerForInput')->never();
 
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])->from(route('domains.index'))->post(route('domains.store'), [
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->from(route('domains.index'))->post(route('domains.store'), [
             'domain_name' => 'cashup.cash',
             'security_mode' => 'balanced',
         ]);
 
         $response->assertRedirect(route('domains.index'))
-            ->assertSessionHas('domain_origin_detection_failed', true)
-            ->assertSessionHas('error', 'We could not automatically detect the backend origin for this domain. Open Manual Origin and enter the backend IP or hostname.');
+            ->assertSessionMissing('domain_origin_detection_failed')
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'));
     }
 
-    public function test_store_domain_rejects_invalid_manual_origin_before_provisioning(): void
+    public function test_store_domain_defers_manual_origin_validation_to_queue(): void
     {
+        Bus::fake();
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->twice()->with(Mockery::type(Tenant::class))->andReturn(['can_add' => true]);
+
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
             'www.cashup.cash',
         ]);
-        $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '203.0.113.77')->andReturn([
-            'ok' => false,
-            'error' => 'We could not reach this backend for the selected domain. Enter a valid hosting IP or backend hostname before continuing.',
-        ]);
+        $mock->shouldReceive('validateOriginServerForHostname')->never();
         $mock->shouldReceive('provisionSaasCustomHostname')->never();
 
-        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])
             ->from(route('domains.index'))
             ->post(route('domains.store'), [
                 'domain_name' => 'cashup.cash',
@@ -304,7 +300,7 @@ class DomainActionsTest extends TestCase
             ]);
 
         $response->assertRedirect(route('domains.index'))
-            ->assertSessionHas('error', 'We could not reach this backend for the selected domain. Enter a valid hosting IP or backend hostname before continuing.');
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'));
     }
 
     public function test_disable_forced_captcha_button_endpoint_works(): void

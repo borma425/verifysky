@@ -17,11 +17,13 @@ class DomainIndexViewData
     {
         $domains = $this->successful() ? ($this->result['domains'] ?? []) : [];
         $domainGroups = $this->groupDomainsForDisplay($domains);
+        $preparedDomainGroups = $this->prepareDomainGroups($domainGroups);
 
         return [
             'domains' => $domains,
             'domainGroups' => $domainGroups,
-            'preparedDomainGroups' => $this->prepareDomainGroups($domainGroups),
+            'preparedDomainGroups' => $preparedDomainGroups,
+            'domains_needs_polling' => $this->domainsNeedPolling($preparedDomainGroups),
             'cnameTarget' => $this->cnameTarget,
             'isAdmin' => $this->isAdmin,
             'domains_used' => (int) ($this->domainsUsage['used'] ?? 0),
@@ -61,6 +63,8 @@ class DomainIndexViewData
                     'display_domain' => $key,
                     'cname_target' => $domain['cname_target'] ?? $this->cnameTarget,
                     'status' => $domain['status'] ?? 'active',
+                    'provisioning_status' => $this->normalizeLifecycle((string) ($domain['provisioning_status'] ?? 'active')),
+                    'provisioning_error' => (string) ($domain['provisioning_error'] ?? ''),
                     'security_mode' => $domain['security_mode'] ?? self::DEFAULT_MODE,
                     'force_captcha' => (int) ($domain['force_captcha'] ?? 0),
                     'created_at' => $domain['created_at'] ?? '',
@@ -101,6 +105,17 @@ class DomainIndexViewData
         return array_map(fn (array $group): array => $this->prepareDomainGroup($group), $domainGroups);
     }
 
+    private function domainsNeedPolling(array $domainGroups): bool
+    {
+        foreach ($domainGroups as $group) {
+            if (($group['live_status']['polling'] ?? false) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function prepareDomainGroup(array $group): array
     {
         $rows = is_array($group['rows'] ?? null) ? $group['rows'] : [];
@@ -108,44 +123,43 @@ class DomainIndexViewData
             return is_array($row)
                 && (str_starts_with((string) ($row['domain_name'] ?? ''), 'www.') || count($rows) === 1);
         }));
-        if ($this->containsDirectApex($rows)) {
-            $primaryRows = $rows;
-        }
         $advancedRows = array_values(array_filter($rows, fn ($row): bool => ! in_array($row, $primaryRows, true)));
 
         $primaryDomain = (string) ($primaryRows[0]['domain_name'] ?? ($group['display_domain'] ?? ''));
-        $requestedDomain = (string) ($primaryRows[0]['requested_domain'] ?? ($group['display_domain'] ?? ''));
-        $canonicalHostname = (string) ($primaryRows[0]['canonical_hostname'] ?? $primaryDomain);
-        $apexMode = (string) ($primaryRows[0]['apex_mode'] ?? 'www_redirect');
-        $dnsProvider = (string) ($primaryRows[0]['dns_provider'] ?? 'other');
-        $apexRedirectStatus = (string) ($primaryRows[0]['apex_redirect_status'] ?? '');
-        $hostnameStatus = $this->aggregateStatus($primaryRows, 'hostname_status', 'pending');
-        $sslStatus = $this->aggregateStatus($primaryRows, 'ssl_status', 'pending_validation');
+        $hostnameStatus = strtolower((string) ($primaryRows[0]['hostname_status'] ?? 'pending'));
+        $sslStatus = strtolower((string) ($primaryRows[0]['ssl_status'] ?? 'pending_validation'));
+        $lifecycleStatus = $this->lifecycleStatus($primaryRows);
+        $provisioningError = (string) ($primaryRows[0]['provisioning_error'] ?? ($group['provisioning_error'] ?? ''));
         $primaryVerified = $hostnameStatus === 'active' && $sslStatus === 'active';
         $mode = strtolower((string) ($group['security_mode'] ?? self::DEFAULT_MODE));
+        $healthCounts = $this->healthCounts($primaryRows);
+        $overallStatus = $this->overallStatus($primaryVerified, $hostnameStatus, $lifecycleStatus);
+        $liveStatus = $this->liveStatus(
+            $overallStatus,
+            $primaryVerified,
+            $hostnameStatus,
+            $sslStatus,
+            $lifecycleStatus,
+            $provisioningError
+        );
 
         return array_merge($group, [
             'mode' => $mode,
             'primary_rows' => $primaryRows,
             'advanced_rows' => $advancedRows,
             'primary_domain' => $primaryDomain,
-            'requested_domain' => $requestedDomain,
-            'canonical_hostname' => $canonicalHostname,
-            'apex_mode' => $apexMode,
-            'dns_provider' => $dnsProvider,
-            'apex_redirect_status' => $apexRedirectStatus,
-            'root_domain' => $this->rootDomain($requestedDomain, $primaryDomain),
-            'root_handling_label' => $this->rootHandlingLabel($apexMode, $apexRedirectStatus),
-            'root_handling_class' => $this->rootHandlingClass($apexMode, $apexRedirectStatus),
-            'protected_hostnames' => array_values(array_map(
-                static fn (array $row): string => (string) ($row['domain_name'] ?? ''),
-                $primaryRows
-            )),
             'primary_hostname_status' => $hostnameStatus,
             'primary_ssl_status' => $sslStatus,
+            'provisioning_status' => $lifecycleStatus,
+            'provisioning_error' => $provisioningError,
             'primary_verified' => $primaryVerified,
-            'overall_status' => $this->overallStatus($primaryVerified, $hostnameStatus),
-            'overall_badge_class' => $this->overallBadgeClass($primaryVerified),
+            'overall_status' => $overallStatus,
+            'overall_badge_class' => $liveStatus['badge_class'],
+            'live_status' => $liveStatus,
+            'health_score' => $healthCounts['health_score'],
+            'dns_active_count' => $healthCounts['dns_active'],
+            'ssl_active_count' => $healthCounts['ssl_active'],
+            'total_checks' => $healthCounts['total_checks'],
             'mode_badge_class' => $this->modeBadgeClass($mode),
             'dns_rows' => $this->dnsRows($group, $primaryRows),
             'health_rows' => $this->healthRows($primaryRows),
@@ -158,10 +172,9 @@ class DomainIndexViewData
             $rowName = (string) ($row['domain_name'] ?? '');
             $displayDomain = (string) ($group['display_domain'] ?? '');
             $target = (string) ($group['cname_target'] ?? $this->cnameTarget);
-            $isDirectApexRoot = (string) ($row['apex_mode'] ?? '') === 'direct_apex' && $rowName === $displayDomain;
 
             return array_merge($row, [
-                'record_type' => $isDirectApexRoot ? 'ALIAS / Flattened CNAME' : 'CNAME',
+                'record_type' => 'CNAME',
                 'record_name' => $this->recordName($rowName, $displayDomain),
                 'target' => $target,
             ]);
@@ -175,6 +188,7 @@ class DomainIndexViewData
             $sslStatus = strtolower((string) ($row['ssl_status'] ?? 'pending_validation'));
 
             return array_merge($row, [
+                'provisioning_status_normalized' => $this->normalizeLifecycle((string) ($row['provisioning_status'] ?? 'active')),
                 'hostname_status_normalized' => $hostnameStatus,
                 'ssl_status_normalized' => $sslStatus,
                 'hostname_status_class' => $this->healthClass($hostnameStatus),
@@ -197,8 +211,16 @@ class DomainIndexViewData
         return explode('.', $rowName)[0];
     }
 
-    private function overallStatus(bool $primaryVerified, string $hostnameStatus): string
+    private function overallStatus(bool $primaryVerified, string $hostnameStatus, string $lifecycleStatus): string
     {
+        if ($lifecycleStatus === 'failed') {
+            return 'failed';
+        }
+
+        if (in_array($lifecycleStatus, ['pending', 'provisioning'], true)) {
+            return $lifecycleStatus;
+        }
+
         if ($primaryVerified) {
             return 'active';
         }
@@ -206,13 +228,122 @@ class DomainIndexViewData
         return $hostnameStatus === 'active' ? 'ssl pending' : 'dns pending';
     }
 
-    private function overallBadgeClass(bool $primaryVerified): string
-    {
-        if ($primaryVerified) {
-            return 'border-emerald-400/18 bg-emerald-400/8 text-emerald-200';
+    private function liveStatus(
+        string $overallStatus,
+        bool $primaryVerified,
+        string $hostnameStatus,
+        string $sslStatus,
+        string $lifecycleStatus,
+        string $provisioningError
+    ): array {
+        $base = [
+            'state' => $overallStatus,
+            'label' => strtoupper($overallStatus),
+            'description' => 'Domain setup is being checked.',
+            'tone' => 'warning',
+            'badge_class' => 'border-[#FCB900]/22 bg-[#FCB900]/10 text-[#FFDC9C]',
+            'value_class' => 'text-[#D7E1F5]',
+            'dot_class' => 'es-pulse-dot-warn',
+            'polling' => true,
+            'locked' => false,
+            'action_label' => null,
+        ];
+
+        if ($lifecycleStatus === 'failed') {
+            return array_merge($base, [
+                'label' => 'ACTION REQUIRED',
+                'description' => $provisioningError !== ''
+                    ? $provisioningError
+                    : 'Domain provisioning did not complete. Review the setup details or retry refresh.',
+                'tone' => 'danger',
+                'badge_class' => 'border-[#D47B78]/32 bg-[#D47B78]/12 text-[#FFE6E3]',
+                'value_class' => 'text-[#F3B5AE]',
+                'dot_class' => 'es-pulse-dot-danger',
+                'polling' => false,
+                'locked' => false,
+                'action_label' => 'Review setup',
+            ]);
         }
 
-        return 'border-amber-400/18 bg-amber-400/8 text-amber-200';
+        if ($lifecycleStatus === 'pending') {
+            return array_merge($base, [
+                'label' => 'QUEUED',
+                'description' => 'Domain setup is queued and will start in the background.',
+                'tone' => 'progress',
+                'badge_class' => 'border-[#FCB900]/28 bg-[#FCB900]/12 text-[#FFDC9C]',
+                'value_class' => 'text-[#FFDC9C]',
+                'dot_class' => 'es-pulse-dot-warn',
+                'polling' => true,
+                'locked' => true,
+            ]);
+        }
+
+        if ($lifecycleStatus === 'provisioning') {
+            return array_merge($base, [
+                'label' => 'PROVISIONING',
+                'description' => 'Configuring the protected route in the background.',
+                'tone' => 'progress',
+                'badge_class' => 'border-[#FCB900]/28 bg-[#FCB900]/12 text-[#FFDC9C]',
+                'value_class' => 'text-[#FFDC9C]',
+                'dot_class' => 'es-pulse-dot-warn',
+                'polling' => true,
+                'locked' => true,
+            ]);
+        }
+
+        if ($primaryVerified) {
+            return array_merge($base, [
+                'label' => 'PROTECTED ROUTE ACTIVE',
+                'description' => 'DNS, SSL, and runtime protection are active.',
+                'tone' => 'success',
+                'badge_class' => 'border-[#10B981]/24 bg-[#10B981]/10 text-[#A7F3D0]',
+                'value_class' => 'text-[#10B981]',
+                'dot_class' => 'es-pulse-dot-active',
+                'polling' => false,
+                'locked' => false,
+            ]);
+        }
+
+        if ($hostnameStatus === 'active' && $sslStatus !== 'active') {
+            return array_merge($base, [
+                'label' => 'SSL PENDING',
+                'description' => 'DNS is connected. The SSL certificate is still validating.',
+                'action_label' => 'Wait for SSL',
+            ]);
+        }
+
+        return array_merge($base, [
+            'label' => 'DNS ACTION REQUIRED',
+            'description' => 'Add or correct the DNS record shown in the setup panel.',
+            'action_label' => 'Check DNS record',
+        ]);
+    }
+
+    private function healthCounts(array $primaryRows): array
+    {
+        $totalChecks = max(count($primaryRows), 1);
+        $dnsActive = 0;
+        $sslActive = 0;
+
+        foreach ($primaryRows as $row) {
+            if (strtolower((string) ($row['hostname_status'] ?? 'pending')) === 'active') {
+                $dnsActive++;
+            }
+
+            if (strtolower((string) ($row['ssl_status'] ?? 'pending_validation')) === 'active') {
+                $sslActive++;
+            }
+        }
+
+        $dnsProgress = (int) round(($dnsActive / $totalChecks) * 100);
+        $sslProgress = (int) round(($sslActive / $totalChecks) * 100);
+
+        return [
+            'dns_active' => $dnsActive,
+            'ssl_active' => $sslActive,
+            'total_checks' => $totalChecks,
+            'health_score' => (int) round(($dnsProgress + $sslProgress) / 2),
+        ];
     }
 
     private function modeBadgeClass(string $mode): string
@@ -231,72 +362,33 @@ class DomainIndexViewData
             : 'text-amber-400 border-amber-500/20 bg-amber-500/5';
     }
 
-    private function containsDirectApex(array $rows): bool
+    private function lifecycleStatus(array $primaryRows): string
     {
-        foreach ($rows as $row) {
-            if (is_array($row) && (string) ($row['apex_mode'] ?? '') === 'direct_apex') {
-                return true;
-            }
+        $statuses = array_map(
+            fn (array $row): string => $this->normalizeLifecycle((string) ($row['provisioning_status'] ?? 'active')),
+            $primaryRows
+        );
+
+        if (in_array('failed', $statuses, true)) {
+            return 'failed';
         }
 
-        return false;
-    }
-
-    private function aggregateStatus(array $rows, string $key, string $fallback): string
-    {
-        if ($rows === []) {
-            return $fallback;
+        if (in_array('pending', $statuses, true)) {
+            return 'pending';
         }
 
-        foreach ($rows as $row) {
-            if (! is_array($row) || strtolower((string) ($row[$key] ?? $fallback)) !== 'active') {
-                return $fallback;
-            }
+        if (in_array('provisioning', $statuses, true)) {
+            return 'provisioning';
         }
 
         return 'active';
     }
 
-    private function rootDomain(string $requestedDomain, string $primaryDomain): string
+    private function normalizeLifecycle(string $status): string
     {
-        $domain = $requestedDomain !== '' ? $requestedDomain : $primaryDomain;
-        if (str_starts_with($domain, 'www.')) {
-            return substr($domain, 4);
-        }
+        $status = strtolower(trim($status));
 
-        return $domain;
-    }
-
-    private function rootHandlingLabel(string $apexMode, string $status): string
-    {
-        if ($apexMode === 'direct_apex') {
-            return 'Root protected directly';
-        }
-
-        if ($apexMode === 'subdomain_only') {
-            return 'Subdomain only';
-        }
-
-        return match ($status) {
-            'active' => 'Root redirects to protected route',
-            'warning' => 'Temporary redirect detected',
-            'failed' => 'Root redirect target mismatch',
-            'action_required' => 'Root domain not configured',
-            default => 'Root redirect not checked',
-        };
-    }
-
-    private function rootHandlingClass(string $apexMode, string $status): string
-    {
-        if ($apexMode === 'direct_apex' || $status === 'active') {
-            return 'text-[#10B981]';
-        }
-
-        if ($apexMode === 'subdomain_only') {
-            return 'text-[#D7E1F5]';
-        }
-
-        return in_array($status, ['warning', 'unchecked', ''], true) ? 'text-[#FCB900]' : 'text-[#F3B5AE]';
+        return in_array($status, ['pending', 'provisioning', 'active', 'failed'], true) ? $status : 'active';
     }
 
     private function displayGroupKey(string $hostname): string

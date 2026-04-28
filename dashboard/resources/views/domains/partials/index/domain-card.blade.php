@@ -21,23 +21,16 @@
     $isActive = strtolower((string) ($group['status'] ?? 'active')) === 'active';
     $forceCaptchaEnabled = (int) ($group['force_captcha'] ?? 0) === 1;
     $healthRows = is_array($group['health_rows'] ?? null) ? $group['health_rows'] : [];
-    $totalChecks = max(count($healthRows), 1);
-    $dnsActive = 0;
-    $sslActive = 0;
-    foreach ($healthRows as $row) {
-      if (strtolower((string) ($row['hostname_status_normalized'] ?? '')) === 'active') {
-        $dnsActive++;
-      }
-      if (strtolower((string) ($row['ssl_status_normalized'] ?? '')) === 'active') {
-        $sslActive++;
-      }
-    }
-    $dnsProgress = (int) round(($dnsActive / $totalChecks) * 100);
-    $sslProgress = (int) round(($sslActive / $totalChecks) * 100);
-    $overallProgress = (int) round(($dnsProgress + $sslProgress) / 2);
-    $statusChipClass = $group['primary_verified']
-      ? 'border-[#FCB900]/22 bg-[#FCB900]/10 text-[#FFFFFF]'
-      : 'border-white/10 bg-white/5 text-[#D7E1F5]';
+    $totalChecks = (int) ($group['total_checks'] ?? max(count($healthRows), 1));
+    $dnsActive = (int) ($group['dns_active_count'] ?? 0);
+    $sslActive = (int) ($group['ssl_active_count'] ?? 0);
+    $overallProgress = (int) ($group['health_score'] ?? 0);
+    $liveStatus = is_array($group['live_status'] ?? null) ? $group['live_status'] : [];
+    $statusChipClass = (string) ($liveStatus['badge_class'] ?? $group['overall_badge_class'] ?? 'border-white/10 bg-white/5 text-[#D7E1F5]');
+    $statusLabel = (string) ($liveStatus['label'] ?? strtoupper((string) $group['overall_status']));
+    $statusDescription = (string) ($liveStatus['description'] ?? 'Domain setup is being checked.');
+    $isProvisioningLocked = (bool) ($liveStatus['locked'] ?? false);
+    $isPolling = (bool) ($liveStatus['polling'] ?? false);
     $modeChipClass = match ($group['mode']) {
       'aggressive' => 'border-[#D47B78]/28 bg-[#D47B78]/12 text-[#FFE6E3]',
       'monitor' => 'border-white/10 bg-white/5 text-[#D7E1F5]',
@@ -45,17 +38,18 @@
     };
     $hostnameState = strtolower((string) ($group['primary_hostname_status'] ?? 'pending'));
     $sslState = strtolower((string) ($group['primary_ssl_status'] ?? 'pending_validation'));
-    $protectedHostnames = is_array($group['protected_hostnames'] ?? null) ? array_filter($group['protected_hostnames']) : [$group['primary_domain']];
-    $originServer = (string) ($group['primary_rows'][0]['origin_server'] ?? '');
   @endphp
 
-  <div class="es-domain-detail-shell">
+  <div class="es-domain-detail-shell" data-domain-live="{{ $group['display_domain'] }}" data-domain-polling="{{ $isPolling ? '1' : '0' }}" data-domain-locked="{{ $isProvisioningLocked ? '1' : '0' }}">
     <div class="flex flex-col gap-4 border-b border-[#303540]/50 bg-[#1B202A] p-6 md:flex-row md:items-center md:justify-between">
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-3">
           <h3 class="es-domain-title truncate font-bold leading-tight tracking-wide text-[#DEE2F0]">{{ $group['display_domain'] }}</h3>
-          <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider {{ $statusChipClass }}">
-            {{ strtoupper($group['overall_status']) }}
+          <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider {{ $statusChipClass }}" data-domain-status-badge>
+            <span class="inline-flex items-center gap-1.5">
+              <span class="es-live-spinner {{ $isProvisioningLocked ? '' : 'hidden' }}" data-domain-status-spinner></span>
+              <span data-domain-status-label>{{ $statusLabel }}</span>
+            </span>
           </span>
           <span class="rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider {{ $modeChipClass }}">
             {{ strtoupper($group['mode']) }}
@@ -64,7 +58,7 @@
 
         <div class="es-managed-route mt-2 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-sm text-[#D4C4AB]">
           <span class="material-symbols-outlined text-[16px]">public</span>
-          <span>Managed via VerifySky Edge Network</span>
+          <span data-domain-status-description>{{ $statusDescription }}</span>
         </div>
       </div>
 
@@ -75,14 +69,14 @@
             <span class="material-symbols-outlined text-lg">refresh</span>
           </button>
         </form>
-        <a href="{{ $tuningUrl }}" class="es-icon-btn h-9 w-9" title="Tuning">
+        <a href="{{ $tuningUrl }}" class="es-icon-btn h-9 w-9 {{ $isProvisioningLocked ? 'pointer-events-none opacity-50' : '' }}" title="{{ $isProvisioningLocked ? 'Available after provisioning completes' : 'Tuning' }}" data-domain-action-guard>
           <span class="material-symbols-outlined text-lg">tune</span>
         </a>
         <div class="hidden h-6 w-px bg-[#303540] md:block"></div>
         <form method="POST" action="{{ $destroyGroupUrl }}" x-on:submit="confirmRemoval($event)">
           @csrf
           @method('DELETE')
-          <button class="rounded bg-[#303540] px-4 py-1.5 text-sm font-bold text-[#FFB4AB] transition hover:bg-[#93000A]/20" type="submit">
+          <button class="rounded bg-[#303540] px-4 py-1.5 text-sm font-bold text-[#FFB4AB] transition hover:bg-[#93000A]/20 disabled:cursor-not-allowed disabled:opacity-50" type="submit" data-domain-action-guard @disabled($isProvisioningLocked)>
             Delete
           </button>
         </form>
@@ -94,38 +88,38 @@
       <div class="es-status-tile">
         <img src="{{ asset('duotone/globe.svg') }}" alt="coverage" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
         <div class="text-xs font-medium text-[#D4C4AB]">Health Score</div>
-        <div class="es-status-value font-mono leading-none text-[#D7E1F5]">{{ $overallProgress }}%</div>
+        <div class="es-status-value font-mono leading-none text-[#D7E1F5]"><span data-domain-health-score>{{ $overallProgress }}</span>%</div>
       </div>
       <div class="es-status-tile">
         <img src="{{ asset('duotone/server.svg') }}" alt="dns status" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
         <div class="text-xs font-medium text-[#D4C4AB]">DNS Record Status</div>
-        <div class="es-status-value font-mono leading-none {{ $hostnameState === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}">
+        <div class="es-status-value font-mono leading-none {{ $hostnameState === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-dns-class>
           @if($hostnameState === 'active')
-            <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> Active</div>
+            <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> <span data-domain-dns-label>Active</span></div>
           @else
-            Pending
+            <span data-domain-dns-label>Pending</span>
           @endif
         </div>
       </div>
       <div class="es-status-tile">
         <img src="{{ asset('duotone/lock-keyhole.svg') }}" alt="ssl" class="es-status-tile-icon es-duotone-icon es-icon-tone-brass h-6 w-6">
         <div class="text-xs font-medium {{ $sslState === 'active' ? 'text-[#10B981]' : 'text-[#D4C4AB]' }}">SSL Certificate</div>
-        <div class="es-status-value font-mono leading-none {{ $sslState === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}">
+        <div class="es-status-value font-mono leading-none {{ $sslState === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-ssl-class>
           @if($sslState === 'active')
-            <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> Active</div>
+            <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> <span data-domain-ssl-label>Active</span></div>
           @else
-            Pending
+            <span data-domain-ssl-label>Pending</span>
           @endif
         </div>
       </div>
       <div class="es-status-tile">
         <img src="{{ asset('duotone/microchip.svg') }}" alt="runtime" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
         <div class="text-xs font-medium text-[#D4C4AB]">Runtime System</div>
-        <div class="es-status-value font-mono leading-none {{ $isActive && $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}">
+        <div class="es-status-value font-mono leading-none {{ $isActive && $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-runtime-class>
           @if($isActive && $group['primary_verified'])
-            <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/shield-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> Enabled</div>
+            <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/shield-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> <span data-domain-runtime-label>Enabled</span></div>
           @else
-            {{ $isActive ? 'Pending...' : 'Disabled' }}
+            <span data-domain-runtime-label>{{ $isActive ? 'Pending...' : 'Disabled' }}</span>
           @endif
         </div>
       </div>
@@ -141,11 +135,11 @@
               <img src="{{ asset('duotone/shield-check.svg') }}" alt="verification" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
               <span>Edge Verification</span>
             </div>
-            <span class="rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm {{ $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}">
+            <span class="rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm {{ $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-edge-class>
               @if($group['primary_verified'])
-                <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-3.5 w-3.5"> Success</div>
+                <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-3.5 w-3.5"> <span data-domain-edge-label>Success</span></div>
               @else
-                Pending
+                <span data-domain-edge-label>Pending</span>
               @endif
             </span>
           </div>
@@ -158,33 +152,13 @@
             <span class="rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm text-[#D7E1F5]">{{ $group['display_domain'] }}</span>
           </div>
 
-          <div class="es-summary-row flex items-center justify-between gap-4">
-            <div class="flex items-center gap-2 text-sm text-[#D7E1F5]">
-              <img src="{{ asset('duotone/globe.svg') }}" alt="root handling" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
-              <span>Root Domain Handling</span>
-            </div>
-            <span class="rounded-md bg-[#0E131D] px-3 py-1.5 text-right text-sm {{ $group['root_handling_class'] ?? 'text-[#D7E1F5]' }}">{{ $group['root_handling_label'] ?? 'Not configured' }}</span>
-          </div>
-
           <div class="space-y-2">
-            <div class="text-sm text-[#D7E1F5]">Protected Hostname</div>
+            <div class="text-sm text-[#D7E1F5]">Target Edge Hostname</div>
             <div class="es-hostname-box flex items-center justify-between rounded-md bg-[#0E131D] px-3.5 py-3">
-              <span class="es-hostname-value break-all font-mono text-[#FCB900]">{{ implode(', ', $protectedHostnames) }}</span>
-              <button type="button" x-on:click="copy(@js(implode(', ', $protectedHostnames)), 'hostname-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
+              <span class="es-hostname-value break-all font-mono text-[#FCB900]">{{ $group['primary_domain'] }}</span>
+              <button type="button" x-on:click="copy(@js($group['primary_domain']), 'hostname-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
                 <img src="{{ asset('duotone/clipboard.svg') }}" alt="copy hostname" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
               </button>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <div class="text-sm text-[#D7E1F5]">Origin Server</div>
-            <div class="es-hostname-box flex items-center justify-between rounded-md bg-[#0E131D] px-3.5 py-3">
-              <span class="es-hostname-value break-all font-mono text-[#D7E1F5]">{{ $originServer !== '' ? $originServer : 'Not set' }}</span>
-              @if($originServer !== '')
-                <button type="button" x-on:click="copy(@js($originServer), 'origin-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
-                  <img src="{{ asset('duotone/clipboard.svg') }}" alt="copy origin" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
-                </button>
-              @endif
             </div>
           </div>
         </div>
@@ -217,20 +191,20 @@
           @csrf
           <div class="space-y-2">
             <label class="block text-xs font-medium text-[#D7E1F5]">Security Mode</label>
-            <select name="security_mode" class="es-input es-domain-select h-10 w-full text-xs">
+            <select name="security_mode" class="es-input es-domain-select h-10 w-full text-xs" data-domain-action-guard @disabled($isProvisioningLocked)>
               <option value="balanced" @selected($group['mode'] === 'balanced')>Balanced</option>
               <option value="monitor" @selected($group['mode'] === 'monitor')>Monitor</option>
               <option value="aggressive" @selected($group['mode'] === 'aggressive')>Aggressive</option>
             </select>
           </div>
-          <button class="es-btn w-full" type="submit">Apply Mode</button>
+          <button class="es-btn w-full" type="submit" data-domain-action-guard @disabled($isProvisioningLocked)>Apply Mode</button>
         </form>
 
         <div class="mt-5 space-y-4">
           <form method="POST" action="{{ $forceCaptchaUrl }}">
             @csrf
             <input type="hidden" name="force_captcha" value="{{ $forceCaptchaEnabled ? 0 : 1 }}">
-            <button class="es-inline-switch" type="submit" aria-label="Toggle forced captcha">
+            <button class="es-inline-switch disabled:cursor-not-allowed disabled:opacity-50" type="submit" aria-label="Toggle forced captcha" data-domain-action-guard @disabled($isProvisioningLocked)>
               <span class="es-inline-switch-copy">
                 <span class="es-inline-switch-title">Force CAPTCHA</span>
                 <span class="es-inline-switch-note">Challenge all incoming traffic</span>
@@ -242,7 +216,7 @@
           <form method="POST" action="{{ $statusUrl }}">
             @csrf
             <input type="hidden" name="status" value="{{ $isActive ? 'paused' : 'active' }}">
-            <button class="es-inline-switch" type="submit" aria-label="Toggle runtime status">
+            <button class="es-inline-switch disabled:cursor-not-allowed disabled:opacity-50" type="submit" aria-label="Toggle runtime status" data-domain-action-guard @disabled($isProvisioningLocked)>
               <span class="es-inline-switch-copy">
                 <span class="es-inline-switch-title">Runtime Protection</span>
                 <span class="es-inline-switch-note">WAF and DDoS mitigation</span>

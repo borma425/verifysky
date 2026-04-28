@@ -114,7 +114,6 @@ class DomainPlanLimitsTest extends TestCase
             'origin_mode' => 'manual',
         ]);
         $this->app->instance(ProvisionTenantDomainAction::class, $action);
-        $this->edgeShield->shouldReceive('saasCnameTarget')->once()->andReturn('customers.verifysky.com');
 
         $response = $this->withSession([
             'is_authenticated' => true,
