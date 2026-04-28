@@ -58,9 +58,9 @@ trait EdgeShieldDomainAndSaasFacade
         return $this->saasHostnames->validateOriginServerForHostname($domainName, $originServer);
     }
 
-    public function saasHostnamesForInput(string $domainName): array
+    public function saasHostnamesForInput(string $domainName, string $apexMode = 'www_redirect'): array
     {
-        return $this->saasHostnames->saasHostnamesForInput($domainName);
+        return $this->saasHostnames->saasHostnamesForInput($domainName, $apexMode);
     }
 
     public function refreshSaasCustomHostname(string $domainName): array

@@ -35,6 +35,8 @@
                     domainName: @js((string) old('domain_name', '')),
                     dnsTarget: @js((string) $cnameTarget),
                     manualOrigin: @js((string) old('origin_server', '')),
+                    apexMode: @js((string) old('apex_mode', 'www_redirect')),
+                    dnsProvider: @js((string) old('dns_provider', 'other')),
                     forceManualOrigin: @js((bool) session('domain_origin_detection_failed'))
                   })"
                   x-on:submit="submit()">
@@ -91,6 +93,39 @@
                   <p class="mt-2 text-[11px] leading-snug text-[#D7E1F5]">Enter the customer domain you want VerifySky to protect. If you enter an apex domain, VerifySky will prepare the `www` route first to keep onboarding predictable and safe.</p>
                 </div>
 
+                <div class="space-y-3">
+                  <label class="block text-sm font-bold text-[#FFFFFF]">Domain setup mode</label>
+                  <div class="grid gap-3 md:grid-cols-3">
+                    <label class="cursor-pointer rounded-lg border p-4 transition" :class="apexMode === 'www_redirect' ? 'border-[#FCB900]/50 bg-[#FCB900]/12' : 'border-white/10 bg-[#171C26]'">
+                      <input type="radio" name="apex_mode" value="www_redirect" x-model="apexMode" class="sr-only" @disabled(! $can_add_domain)>
+                      <span class="block text-sm font-bold text-[#FFFFFF]">Recommended</span>
+                      <span class="mt-1 block text-[11px] leading-snug text-[#D7E1F5]">Protect www and redirect the root domain permanently.</span>
+                    </label>
+                    <label class="cursor-pointer rounded-lg border p-4 transition" :class="apexMode === 'direct_apex' ? 'border-[#FCB900]/50 bg-[#FCB900]/12' : 'border-white/10 bg-[#171C26]'">
+                      <input type="radio" name="apex_mode" value="direct_apex" x-model="apexMode" class="sr-only" @disabled(! $can_add_domain)>
+                      <span class="block text-sm font-bold text-[#FFFFFF]">Protect root directly</span>
+                      <span class="mt-1 block text-[11px] leading-snug text-[#D7E1F5]">Use ALIAS, ANAME, or flattened CNAME support.</span>
+                    </label>
+                    <label class="cursor-pointer rounded-lg border p-4 transition" :class="apexMode === 'subdomain_only' ? 'border-[#FCB900]/50 bg-[#FCB900]/12' : 'border-white/10 bg-[#171C26]'">
+                      <input type="radio" name="apex_mode" value="subdomain_only" x-model="apexMode" class="sr-only" @disabled(! $can_add_domain)>
+                      <span class="block text-sm font-bold text-[#FFFFFF]">Subdomain only</span>
+                      <span class="mt-1 block text-[11px] leading-snug text-[#D7E1F5]">Protect only the exact hostname entered.</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="mb-2 block text-sm font-bold text-[#FFFFFF]">DNS provider</label>
+                  <select name="dns_provider" x-model="dnsProvider" class="es-input h-10 w-full text-sm" @disabled(! $can_add_domain)>
+                    <option value="cloudflare">Cloudflare</option>
+                    <option value="namecheap">Namecheap</option>
+                    <option value="godaddy">GoDaddy</option>
+                    <option value="spaceship">Spaceship</option>
+                    <option value="other">Other provider</option>
+                  </select>
+                  <p class="mt-2 text-[11px] leading-snug text-[#D7E1F5]" x-text="providerNote()"></p>
+                </div>
+
                 <div class="space-y-3 rounded-lg border border-white/10 bg-[#171C26] p-4">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -138,39 +173,44 @@
                   <p class="mt-2 text-sm leading-relaxed text-[#D7E1F5]">Create the record below at your registrar or DNS provider. Once saved, VerifySky can start monitoring propagation and verification for the protected route.</p>
                 </div>
 
-                <div class="grid gap-3 rounded-lg border border-white/10 bg-[#171C26] p-4 md:grid-cols-[0.8fr_0.95fr_1.65fr]">
-                  <div class="es-domain-subpanel px-4 py-3.5">
-                    <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Type</div>
-                    <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]">CNAME</div>
-                  </div>
-                  <div class="es-domain-subpanel px-4 py-3.5">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Name</div>
-                      <button type="button" x-on:click="copy(dnsRecordName(), 'wizard-dns-name')" class="es-copy-btn">
-                        <img src="{{ asset('duotone/clipboard.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-3.5 w-3.5">
-                        <span x-show="copied !== 'wizard-dns-name'">Copy</span>
-                        <span x-show="copied === 'wizard-dns-name'">Copied</span>
-                      </button>
+                <div class="space-y-3 rounded-lg border border-white/10 bg-[#171C26] p-4">
+                  <template x-for="(row, index) in dnsRows()" :key="row.hostname">
+                    <div class="grid gap-3 md:grid-cols-[0.8fr_0.95fr_1.65fr]">
+                      <div class="es-domain-subpanel px-4 py-3.5">
+                        <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Type</div>
+                        <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="row.type"></div>
+                      </div>
+                      <div class="es-domain-subpanel px-4 py-3.5">
+                        <div class="flex items-center justify-between gap-3">
+                          <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Name</div>
+                          <button type="button" x-on:click="copy(row.name, 'wizard-dns-name-' + index)" class="es-copy-btn">
+                            <img src="{{ asset('duotone/clipboard.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-3.5 w-3.5">
+                            <span x-show="copied !== 'wizard-dns-name-' + index">Copy</span>
+                            <span x-show="copied === 'wizard-dns-name-' + index">Copied</span>
+                          </button>
+                        </div>
+                        <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="row.name || '--'"></div>
+                      </div>
+                      <div class="es-domain-subpanel px-4 py-3.5">
+                        <div class="flex items-center justify-between gap-3">
+                          <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Value</div>
+                          <button type="button" x-on:click="copy(row.value, 'wizard-dns-target-' + index)" class="es-copy-btn">
+                            <img src="{{ asset('duotone/clipboard.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-3.5 w-3.5">
+                            <span x-show="copied !== 'wizard-dns-target-' + index">Copy</span>
+                            <span x-show="copied === 'wizard-dns-target-' + index">Copied</span>
+                          </button>
+                        </div>
+                        <div class="es-copy-value mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="row.value || '--'"></div>
+                      </div>
                     </div>
-                    <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="dnsRecordName() || '--'"></div>
-                  </div>
-                  <div class="es-domain-subpanel px-4 py-3.5">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Value</div>
-                      <button type="button" x-on:click="copy(dnsTarget, 'wizard-dns-target')" class="es-copy-btn">
-                        <img src="{{ asset('duotone/clipboard.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-3.5 w-3.5">
-                        <span x-show="copied !== 'wizard-dns-target'">Copy</span>
-                        <span x-show="copied === 'wizard-dns-target'">Copied</span>
-                      </button>
-                    </div>
-                    <div class="es-copy-value mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="dnsTarget || '--'"></div>
-                  </div>
+                  </template>
                 </div>
 
                 <div class="rounded-lg border border-white/10 bg-[#171C26] p-4">
-                  <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected Route</div>
-                  <div class="mt-2 font-mono text-sm text-[#FFFFFF]" x-text="protectedHostname() || '--'"></div>
-                  <p class="mt-3 text-[12px] leading-relaxed text-[#D7E1F5]">If you entered an apex domain, VerifySky starts with the `www` route first. This keeps onboarding straightforward, avoids ambiguous DNS behavior, and gives operators a clean verification path.</p>
+                  <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected Hostnames</div>
+                  <div class="mt-2 font-mono text-sm text-[#FFFFFF]" x-text="protectedHostnames().join(', ') || '--'"></div>
+                  <p class="mt-3 text-[12px] leading-relaxed text-[#D7E1F5]" x-text="providerNote()"></p>
+                  <div x-show="rootInstruction()" class="mt-3 rounded-md border border-[#FCB900]/20 bg-[#FCB900]/10 px-3 py-2 font-mono text-xs text-[#FFFFFF]" x-text="rootInstruction()"></div>
                 </div>
               </div>
 
@@ -188,12 +228,13 @@
                   </div>
                   <div class="es-domain-subpanel px-4 py-3.5">
                     <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected Route</div>
-                    <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="protectedHostname() || '--'"></div>
+                    <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="protectedHostnames().join(', ') || '--'"></div>
                   </div>
                 </div>
 
                 <div class="rounded-lg border border-[#FCB900]/18 bg-[#FCB900]/8 p-4 text-sm text-[#FFFFFF]">
                   Continue only after the DNS record is saved. Verification may remain pending until propagation completes.
+                  <div x-show="rootInstruction()" class="mt-2 text-xs text-[#FFF3D1]" x-text="'Root domain handling: ' + rootInstruction()"></div>
                 </div>
               </div>
 

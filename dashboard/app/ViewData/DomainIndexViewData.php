@@ -108,11 +108,19 @@ class DomainIndexViewData
             return is_array($row)
                 && (str_starts_with((string) ($row['domain_name'] ?? ''), 'www.') || count($rows) === 1);
         }));
+        if ($this->containsDirectApex($rows)) {
+            $primaryRows = $rows;
+        }
         $advancedRows = array_values(array_filter($rows, fn ($row): bool => ! in_array($row, $primaryRows, true)));
 
         $primaryDomain = (string) ($primaryRows[0]['domain_name'] ?? ($group['display_domain'] ?? ''));
-        $hostnameStatus = strtolower((string) ($primaryRows[0]['hostname_status'] ?? 'pending'));
-        $sslStatus = strtolower((string) ($primaryRows[0]['ssl_status'] ?? 'pending_validation'));
+        $requestedDomain = (string) ($primaryRows[0]['requested_domain'] ?? ($group['display_domain'] ?? ''));
+        $canonicalHostname = (string) ($primaryRows[0]['canonical_hostname'] ?? $primaryDomain);
+        $apexMode = (string) ($primaryRows[0]['apex_mode'] ?? 'www_redirect');
+        $dnsProvider = (string) ($primaryRows[0]['dns_provider'] ?? 'other');
+        $apexRedirectStatus = (string) ($primaryRows[0]['apex_redirect_status'] ?? '');
+        $hostnameStatus = $this->aggregateStatus($primaryRows, 'hostname_status', 'pending');
+        $sslStatus = $this->aggregateStatus($primaryRows, 'ssl_status', 'pending_validation');
         $primaryVerified = $hostnameStatus === 'active' && $sslStatus === 'active';
         $mode = strtolower((string) ($group['security_mode'] ?? self::DEFAULT_MODE));
 
@@ -121,6 +129,18 @@ class DomainIndexViewData
             'primary_rows' => $primaryRows,
             'advanced_rows' => $advancedRows,
             'primary_domain' => $primaryDomain,
+            'requested_domain' => $requestedDomain,
+            'canonical_hostname' => $canonicalHostname,
+            'apex_mode' => $apexMode,
+            'dns_provider' => $dnsProvider,
+            'apex_redirect_status' => $apexRedirectStatus,
+            'root_domain' => $this->rootDomain($requestedDomain, $primaryDomain),
+            'root_handling_label' => $this->rootHandlingLabel($apexMode, $apexRedirectStatus),
+            'root_handling_class' => $this->rootHandlingClass($apexMode, $apexRedirectStatus),
+            'protected_hostnames' => array_values(array_map(
+                static fn (array $row): string => (string) ($row['domain_name'] ?? ''),
+                $primaryRows
+            )),
             'primary_hostname_status' => $hostnameStatus,
             'primary_ssl_status' => $sslStatus,
             'primary_verified' => $primaryVerified,
@@ -138,9 +158,10 @@ class DomainIndexViewData
             $rowName = (string) ($row['domain_name'] ?? '');
             $displayDomain = (string) ($group['display_domain'] ?? '');
             $target = (string) ($group['cname_target'] ?? $this->cnameTarget);
+            $isDirectApexRoot = (string) ($row['apex_mode'] ?? '') === 'direct_apex' && $rowName === $displayDomain;
 
             return array_merge($row, [
-                'record_type' => 'CNAME',
+                'record_type' => $isDirectApexRoot ? 'ALIAS / Flattened CNAME' : 'CNAME',
                 'record_name' => $this->recordName($rowName, $displayDomain),
                 'target' => $target,
             ]);
@@ -208,6 +229,74 @@ class DomainIndexViewData
         return $status === 'active'
             ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'
             : 'text-amber-400 border-amber-500/20 bg-amber-500/5';
+    }
+
+    private function containsDirectApex(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if (is_array($row) && (string) ($row['apex_mode'] ?? '') === 'direct_apex') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function aggregateStatus(array $rows, string $key, string $fallback): string
+    {
+        if ($rows === []) {
+            return $fallback;
+        }
+
+        foreach ($rows as $row) {
+            if (! is_array($row) || strtolower((string) ($row[$key] ?? $fallback)) !== 'active') {
+                return $fallback;
+            }
+        }
+
+        return 'active';
+    }
+
+    private function rootDomain(string $requestedDomain, string $primaryDomain): string
+    {
+        $domain = $requestedDomain !== '' ? $requestedDomain : $primaryDomain;
+        if (str_starts_with($domain, 'www.')) {
+            return substr($domain, 4);
+        }
+
+        return $domain;
+    }
+
+    private function rootHandlingLabel(string $apexMode, string $status): string
+    {
+        if ($apexMode === 'direct_apex') {
+            return 'Root protected directly';
+        }
+
+        if ($apexMode === 'subdomain_only') {
+            return 'Subdomain only';
+        }
+
+        return match ($status) {
+            'active' => 'Root redirects to protected route',
+            'warning' => 'Temporary redirect detected',
+            'failed' => 'Root redirect target mismatch',
+            'action_required' => 'Root domain not configured',
+            default => 'Root redirect not checked',
+        };
+    }
+
+    private function rootHandlingClass(string $apexMode, string $status): string
+    {
+        if ($apexMode === 'direct_apex' || $status === 'active') {
+            return 'text-[#10B981]';
+        }
+
+        if ($apexMode === 'subdomain_only') {
+            return 'text-[#D7E1F5]';
+        }
+
+        return in_array($status, ['warning', 'unchecked', ''], true) ? 'text-[#FCB900]' : 'text-[#F3B5AE]';
     }
 
     private function displayGroupKey(string $hostname): string

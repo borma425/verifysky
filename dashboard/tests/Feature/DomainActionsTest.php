@@ -80,7 +80,7 @@ class DomainActionsTest extends TestCase
     public function test_store_apex_domain_provisions_www_hostname_for_universal_dns_setup(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
             'www.cashup.cash',
         ]);
         $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
@@ -124,7 +124,7 @@ class DomainActionsTest extends TestCase
     public function test_store_domain_auto_detects_origin_when_manual_origin_is_omitted(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
             'www.cashup.cash',
         ]);
         $mock->shouldReceive('detectOriginServerForInput')->once()->with('cashup.cash')->andReturn([
@@ -168,10 +168,60 @@ class DomainActionsTest extends TestCase
             ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'detected automatically'));
     }
 
+    public function test_store_direct_apex_domain_provisions_root_and_www_hostnames(): void
+    {
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'direct_apex')->andReturn([
+            'cashup.cash',
+            'www.cashup.cash',
+        ]);
+        foreach (['cashup.cash', 'www.cashup.cash'] as $hostname) {
+            $mock->shouldReceive('validateOriginServerForHostname')->once()->with($hostname, '192.0.2.100')->andReturn([
+                'ok' => true,
+                'error' => null,
+            ]);
+            $mock->shouldReceive('provisionSaasCustomHostname')->once()->with($hostname, '192.0.2.100')->andReturn([
+                'ok' => true,
+                'domain_name' => $hostname,
+                'zone_id' => 'zone1',
+                'turnstile_sitekey' => 'sitekey2',
+                'turnstile_secret' => 'secret2',
+                'custom_hostname_id' => 'custom-hostname-'.$hostname,
+                'cname_target' => 'customers.verifysky.com',
+                'hostname_status' => 'pending',
+                'ssl_status' => 'pending_validation',
+                'ownership_verification_json' => 'null',
+            ]);
+            $mock->shouldReceive('ensureWorkerRoute')->once()->with('zone1', $hostname)->andReturn([
+                'ok' => true,
+                'error' => null,
+                'action' => $hostname.'/*:created',
+            ]);
+        }
+        $mock->shouldReceive('queryD1')->twice()->andReturn([
+            'ok' => true,
+            'output' => '',
+            'error' => null,
+        ]);
+        $mock->shouldReceive('saasCnameTarget')->once()->andReturn('customers.verifysky.com');
+
+        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false])->post(route('domains.store'), [
+            'domain_name' => 'cashup.cash',
+            'origin_server' => '192.0.2.100',
+            'security_mode' => 'balanced',
+            'apex_mode' => 'direct_apex',
+            'dns_provider' => 'cloudflare',
+        ]);
+
+        $response->assertRedirect()
+            ->assertSessionHas('domain_setup', fn (array $setup): bool => ($setup['setup_profile'] ?? '') === 'direct_apex'
+                && ($setup['protected_hostnames'] ?? []) === ['cashup.cash', 'www.cashup.cash']);
+    }
+
     public function test_store_domain_returns_partial_error_when_worker_route_sync_fails(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
             'www.cashup.cash',
         ]);
         $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '192.0.2.100')->andReturn([
@@ -215,7 +265,7 @@ class DomainActionsTest extends TestCase
     public function test_store_domain_returns_clear_error_when_auto_detection_fails(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
             'www.cashup.cash',
         ]);
         $mock->shouldReceive('detectOriginServerForInput')->once()->with('cashup.cash')->andReturn([
@@ -236,7 +286,7 @@ class DomainActionsTest extends TestCase
     public function test_store_domain_rejects_invalid_manual_origin_before_provisioning(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash')->andReturn([
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('cashup.cash', 'www_redirect')->andReturn([
             'www.cashup.cash',
         ]);
         $mock->shouldReceive('validateOriginServerForHostname')->once()->with('www.cashup.cash', '203.0.113.77')->andReturn([

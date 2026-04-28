@@ -73,18 +73,16 @@ class DomainsController extends Controller
             return $response;
         }
 
-        $message = 'Route creation started for '.implode(', ', $result['created']).'. Add the DNS record shown in the setup panel to continue verification.';
-        if (($result['origin_mode'] ?? 'manual') === 'auto') {
-            $message .= ' Backend origin was detected automatically.';
-        }
+        $message = (string) ($result['message'] ?? ('Route creation started for '.implode(', ', $result['created']).'. Add the DNS record shown in the setup panel to continue verification.'));
+        $domainSetup = is_array($result['domain_setup'] ?? null) ? $result['domain_setup'] : [
+            'domains' => $result['created'],
+            'cname_target' => $this->edgeShield->saasCnameTarget(),
+        ];
 
         return back()->with(
             'status',
             $message
-        )->with('domain_setup', [
-            'domains' => $result['created'],
-            'cname_target' => $this->edgeShield->saasCnameTarget(),
-        ]);
+        )->with('domain_setup', $domainSetup);
     }
 
     public function updateStatus(string $domain, UpdateDomainStatusRequest $request): RedirectResponse

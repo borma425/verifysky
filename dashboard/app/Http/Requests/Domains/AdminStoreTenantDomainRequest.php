@@ -22,6 +22,8 @@ class AdminStoreTenantDomainRequest extends FormRequest
             'domain_name' => ['required', 'string', 'max:255'],
             'origin_server' => ['nullable', 'string', 'max:255'],
             'security_mode' => ['nullable', 'in:monitor,balanced,aggressive'],
+            'apex_mode' => ['nullable', 'in:www_redirect,direct_apex,subdomain_only'],
+            'dns_provider' => ['nullable', 'in:cloudflare,namecheap,godaddy,spaceship,other'],
         ];
     }
 

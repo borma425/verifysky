@@ -1,15 +1,17 @@
 <?php
 
-namespace App\Services\EdgeShield\Concerns {
-    function dns_get_record(string $hostname, int $type): array|false
-    {
-        return $GLOBALS['verifysky_test_dns_records'][$hostname][$type] ?? [];
+namespace App\Services\Domains {
+    if (! function_exists(__NAMESPACE__.'\\dns_get_record')) {
+        function dns_get_record(string $hostname, int $type): array|false
+        {
+            return $GLOBALS['verifysky_test_dns_records'][$hostname][$type] ?? [];
+        }
     }
 }
 
 namespace Tests\Unit {
     use App\Services\EdgeShield\Concerns\SaasHostnameLifecycleConcern;
-    use PHPUnit\Framework\TestCase;
+    use Tests\TestCase;
 
     class SaasHostnameLifecycleConcernTest extends TestCase
     {

@@ -2,22 +2,13 @@
 
 namespace App\Services\EdgeShield\Concerns;
 
+use App\Services\Domains\DnsVerificationService;
+
 trait SaasHostnameLifecycleConcern
 {
-    public function saasHostnamesForInput(string $domainName): array
+    public function saasHostnamesForInput(string $domainName, string $apexMode = 'www_redirect'): array
     {
-        $domain = $this->normalizeDomain($domainName);
-        if ($domain === '') {
-            return [];
-        }
-        if (str_starts_with($domain, 'www.')) {
-            return [$domain];
-        }
-        if ($this->looksLikeApexDomain($domain)) {
-            return ['www.'.$domain];
-        }
-
-        return [$domain];
+        return app(DnsVerificationService::class)->hostnamesForInput($domainName, $apexMode);
     }
 
     public function refreshSaasCustomHostname(string $domainName): array
@@ -39,6 +30,20 @@ trait SaasHostnameLifecycleConcern
         }
 
         $dnsRoute = $this->verifySaasDnsRouteSet($domain);
+        if (! ($dnsRoute['ok'] ?? false) && $this->looksLikeApexDomain($domain)) {
+            $apexRoute = app(DnsVerificationService::class)->verifyManagedHostname(
+                $domain,
+                $this->config->saasCnameTarget(),
+                true
+            );
+            if (($apexRoute['ok'] ?? false) && ($apexRoute['flattened_apex'] ?? false)) {
+                $dnsRoute = [
+                    'ok' => true,
+                    'reason' => $apexRoute['reason'] ?? null,
+                    'checks' => [$domain => $apexRoute],
+                ];
+            }
+        }
         $hostnameStatus = (string) ($customHostname['status'] ?? 'pending');
         if (! ($dnsRoute['ok'] ?? false)) {
             $hostnameStatus = 'pending';
@@ -70,64 +75,11 @@ trait SaasHostnameLifecycleConcern
 
     public function verifySaasDnsRoute(string $domainName, ?string $expectedTarget = null): array
     {
-        $domain = $this->normalizeDomain($domainName);
-        $target = $this->normalizeDomain((string) ($expectedTarget ?: $this->config->saasCnameTarget()));
-        if ($domain === '' || $target === '') {
-            return ['ok' => false, 'reason' => 'Domain or expected CNAME target is empty.', 'resolved' => []];
-        }
-
-        $resolved = [];
-        $visited = [];
-        $current = $domain;
-        for ($depth = 0; $depth < 6; $depth++) {
-            if (isset($visited[$current])) {
-                return ['ok' => false, 'reason' => 'DNS CNAME chain loops before reaching VerifySky.', 'resolved' => $resolved];
-            }
-            $visited[$current] = true;
-
-            $cnameRecords = @dns_get_record($current, DNS_CNAME);
-            if (! is_array($cnameRecords) || $cnameRecords === []) {
-                break;
-            }
-
-            $next = '';
-            foreach ($cnameRecords as $record) {
-                $candidate = $this->normalizeDomain((string) ($record['target'] ?? ''));
-                if ($candidate !== '') {
-                    $next = $candidate;
-                    break;
-                }
-            }
-
-            if ($next === '') {
-                break;
-            }
-
-            $resolved[] = ['type' => 'CNAME', 'name' => $current, 'target' => $next];
-            if ($next === $target) {
-                return ['ok' => true, 'reason' => null, 'resolved' => $resolved];
-            }
-
-            $current = $next;
-        }
-
-        $aRecords = @dns_get_record($domain, DNS_A);
-        $aaaaRecords = @dns_get_record($domain, DNS_AAAA);
-        $ipRecords = array_merge(is_array($aRecords) ? $aRecords : [], is_array($aaaaRecords) ? $aaaaRecords : []);
-        foreach ($ipRecords as $record) {
-            $ip = trim((string) ($record['ip'] ?? $record['ipv6'] ?? ''));
-            if ($ip !== '') {
-                $resolved[] = ['type' => isset($record['ipv6']) ? 'AAAA' : 'A', 'name' => $domain, 'target' => $ip];
-            }
-        }
-
-        return [
-            'ok' => false,
-            'reason' => $resolved === []
-                ? 'DNS does not currently resolve for this hostname.'
-                : 'DNS is not pointing at the VerifySky CNAME target.',
-            'resolved' => $resolved,
-        ];
+        return app(DnsVerificationService::class)->verifyManagedHostname(
+            $domainName,
+            (string) ($expectedTarget ?: $this->config->saasCnameTarget()),
+            false
+        );
     }
 
     public function verifySaasDnsRouteSet(string $domainName, ?string $expectedTarget = null): array

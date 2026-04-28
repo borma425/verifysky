@@ -106,12 +106,14 @@ class AdminTenantsController extends Controller
             return $response;
         }
 
-        $message = 'Domain setup started for '.implode(', ', $result['created']).'. VerifySky is now activating protection for this client.';
-        if (($result['origin_mode'] ?? 'manual') === 'auto') {
-            $message .= ' The server IP was detected automatically.';
+        $message = (string) ($result['message'] ?? ('Domain setup started for '.implode(', ', $result['created']).'. VerifySky is now activating protection for this client.'));
+
+        $response = back()->with('status', $message);
+        if (is_array($result['domain_setup'] ?? null)) {
+            $response->with('domain_setup', $result['domain_setup']);
         }
 
-        return back()->with('status', $message);
+        return $response;
     }
 
     public function forceCycleReset(Tenant $tenant): RedirectResponse

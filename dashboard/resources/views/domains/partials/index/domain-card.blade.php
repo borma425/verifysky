@@ -45,6 +45,8 @@
     };
     $hostnameState = strtolower((string) ($group['primary_hostname_status'] ?? 'pending'));
     $sslState = strtolower((string) ($group['primary_ssl_status'] ?? 'pending_validation'));
+    $protectedHostnames = is_array($group['protected_hostnames'] ?? null) ? array_filter($group['protected_hostnames']) : [$group['primary_domain']];
+    $originServer = (string) ($group['primary_rows'][0]['origin_server'] ?? '');
   @endphp
 
   <div class="es-domain-detail-shell">
@@ -156,13 +158,33 @@
             <span class="rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm text-[#D7E1F5]">{{ $group['display_domain'] }}</span>
           </div>
 
+          <div class="es-summary-row flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2 text-sm text-[#D7E1F5]">
+              <img src="{{ asset('duotone/globe.svg') }}" alt="root handling" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+              <span>Root Domain Handling</span>
+            </div>
+            <span class="rounded-md bg-[#0E131D] px-3 py-1.5 text-right text-sm {{ $group['root_handling_class'] ?? 'text-[#D7E1F5]' }}">{{ $group['root_handling_label'] ?? 'Not configured' }}</span>
+          </div>
+
           <div class="space-y-2">
-            <div class="text-sm text-[#D7E1F5]">Target Edge Hostname</div>
+            <div class="text-sm text-[#D7E1F5]">Protected Hostname</div>
             <div class="es-hostname-box flex items-center justify-between rounded-md bg-[#0E131D] px-3.5 py-3">
-              <span class="es-hostname-value break-all font-mono text-[#FCB900]">{{ $group['primary_domain'] }}</span>
-              <button type="button" x-on:click="copy(@js($group['primary_domain']), 'hostname-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
+              <span class="es-hostname-value break-all font-mono text-[#FCB900]">{{ implode(', ', $protectedHostnames) }}</span>
+              <button type="button" x-on:click="copy(@js(implode(', ', $protectedHostnames)), 'hostname-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
                 <img src="{{ asset('duotone/clipboard.svg') }}" alt="copy hostname" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
               </button>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="text-sm text-[#D7E1F5]">Origin Server</div>
+            <div class="es-hostname-box flex items-center justify-between rounded-md bg-[#0E131D] px-3.5 py-3">
+              <span class="es-hostname-value break-all font-mono text-[#D7E1F5]">{{ $originServer !== '' ? $originServer : 'Not set' }}</span>
+              @if($originServer !== '')
+                <button type="button" x-on:click="copy(@js($originServer), 'origin-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
+                  <img src="{{ asset('duotone/clipboard.svg') }}" alt="copy origin" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+                </button>
+              @endif
             </div>
           </div>
         </div>

@@ -3,6 +3,8 @@
 namespace App\Services\EdgeShield;
 
 use App\Jobs\PurgeRuntimeBundleCache;
+use App\Models\TenantDomain;
+use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 class DomainConfigService
@@ -64,7 +66,7 @@ class DomainConfigService
         $where = $tenantScope !== '' ? 'WHERE '.ltrim($tenantScope, ' AND') : '';
         $result = $this->d1->query(
             "SELECT domain_name, zone_id, status, force_captcha, security_mode,
-                    custom_hostname_id, cname_target, hostname_status, ssl_status,
+                    custom_hostname_id, cname_target, origin_server, hostname_status, ssl_status,
                     thresholds_json, created_at, updated_at
              FROM domain_configs
              $where
@@ -76,7 +78,7 @@ class DomainConfigService
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
 
-        return ['ok' => true, 'error' => null, 'domains' => $rows];
+        return ['ok' => true, 'error' => null, 'domains' => $this->mergeTenantDomainMetadata(is_array($rows) ? $rows : [], $tenantId, $isAdmin)];
     }
 
     public function listActiveDomainsForRouteSync(): array
@@ -157,6 +159,53 @@ class DomainConfigService
         }
 
         return array_values(array_unique(array_filter($variants)));
+    }
+
+    /**
+     * @param  array<int, mixed>  $rows
+     * @return array<int, mixed>
+     */
+    private function mergeTenantDomainMetadata(array $rows, ?string $tenantId, bool $isAdmin): array
+    {
+        if (! Schema::hasTable('tenant_domains') || $rows === []) {
+            return $rows;
+        }
+
+        $hostnames = array_values(array_filter(array_map(
+            static fn ($row): string => is_array($row) ? strtolower(trim((string) ($row['domain_name'] ?? ''))) : '',
+            $rows
+        )));
+        if ($hostnames === []) {
+            return $rows;
+        }
+
+        $query = TenantDomain::query()->whereIn('hostname', $hostnames);
+        if (! $isAdmin && trim((string) $tenantId) !== '') {
+            $query->where('tenant_id', trim((string) $tenantId));
+        }
+
+        $metadata = $query->get()->keyBy(fn (TenantDomain $domain): string => strtolower((string) $domain->hostname));
+
+        return array_map(function ($row) use ($metadata) {
+            if (! is_array($row)) {
+                return $row;
+            }
+
+            $domain = $metadata->get(strtolower(trim((string) ($row['domain_name'] ?? ''))));
+            if (! $domain instanceof TenantDomain) {
+                return $row;
+            }
+
+            return array_merge($row, [
+                'requested_domain' => $domain->requested_domain,
+                'canonical_hostname' => $domain->canonical_hostname,
+                'apex_mode' => $domain->apex_mode,
+                'dns_provider' => $domain->dns_provider,
+                'apex_redirect_status' => $domain->apex_redirect_status,
+                'apex_redirect_checked_at' => optional($domain->apex_redirect_checked_at)->toDateTimeString(),
+                'origin_server' => $row['origin_server'] ?? $domain->origin_server,
+            ]);
+        }, $rows);
     }
 
     private function schemaSyncRequiredException(): RuntimeException
