@@ -139,13 +139,6 @@ trait SaasHostnameLifecycleConcern
             $checks[$domain] = $this->verifySaasDnsRoute($domain, $expectedTarget);
         }
 
-        if (str_starts_with($domain, 'www.')) {
-            $apex = substr($domain, 4);
-            if ($this->looksLikeApexDomain($apex)) {
-                $checks[$apex] = $this->verifySaasDnsRoute($apex, $expectedTarget);
-            }
-        }
-
         $failed = array_filter($checks, static fn (array $check): bool => ! ($check['ok'] ?? false));
 
         return [
