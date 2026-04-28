@@ -58,7 +58,7 @@ class BillingPortalTest extends TestCase
             ->get(route('billing.index'));
 
         $response->assertOk()
-            ->assertSee('Manual PRO Grant Active')
+            ->assertSee('Bonus PRO Allowance Active')
             ->assertSee('Beta cohort')
             ->assertSee('Checkout');
     }

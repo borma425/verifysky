@@ -20,7 +20,7 @@
           </span>
           <div class="min-w-0">
             <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
-            <p class="mt-3 text-[10px] font-bold uppercase tracking-[0.24em] text-[#FCB900]">Admin Tenant Domains</p>
+            <p class="mt-3 text-[10px] font-bold uppercase tracking-[0.24em] text-[#FCB900]">Admin User Domains</p>
             <h2 class="es-page-title mt-1 font-black tracking-[-0.03em] text-[#FFFFFF]">Domain Management</h2>
             <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Use the same onboarding, DNS guidance, and health cards the customer sees, but from the admin writeable context.</p>
           </div>

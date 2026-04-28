@@ -2,6 +2,7 @@
 
 @section('content')
   @php
+    $billingTerms = app(\App\ViewData\BillingTerminologyViewData::class);
     $sessionTrustCount = number_format($stats['total_visitors_today'] ?? 0);
 
     $leftSignals = [
@@ -72,7 +73,7 @@
       @if($billingStatus)
         @if($billingStatus['active_grant'])
           <div class="mb-4 rounded-xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
-            Manual {{ strtoupper($billingStatus['active_grant']['granted_plan_key']) }} grant active until {{ $billingStatus['active_grant']['ends_at']?->format('Y-m-d') }}.
+            Bonus {{ strtoupper($billingStatus['active_grant']['granted_plan_key']) }} allowance active until {{ $billingStatus['active_grant']['ends_at']?->format('Y-m-d') }}.
           </div>
         @endif
 
@@ -81,14 +82,19 @@
             [
               'title' => 'Protected Sessions',
               'metric' => $billingStatus['protected_sessions'],
+              'limit_key' => 'protected_sessions',
               'meta' => 'Current cycle protection volume',
             ],
             [
               'title' => 'Bot Requests Rejected',
               'metric' => $billingStatus['bot_requests'],
+              'limit_key' => 'bot_fair_use',
               'meta' => 'Fair-use blocked or challenged traffic',
             ],
           ] as $usageCard)
+            @php
+              $limitEquation = $billingTerms->billingMetricEquation($billingStatus, $usageCard['metric'], $usageCard['limit_key']);
+            @endphp
             <div class="es-usage-card">
               <div class="es-usage-card-head">
                 <div>
@@ -107,6 +113,7 @@
               <div class="es-usage-progress">
                 <div class="es-usage-progress-bar es-usage-progress-bar-{{ $usageCard['metric']['level'] }}" style="width: {{ $usageCard['metric']['percentage'] }}%"></div>
               </div>
+              @include('partials.billing-limit-equation', ['equation' => $limitEquation, 'class' => 'mt-3'])
               <div class="es-usage-card-foot">
                 <span>{{ $usageCard['metric']['formatted_remaining'] }} remaining this cycle</span>
                 <span>{{ $billingStatus['current_cycle_end_at']->format('Y-m-d') }} reset</span>

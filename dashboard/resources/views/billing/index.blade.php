@@ -2,12 +2,13 @@
 
 @section('content')
   @php
+    $billingTerms = app(\App\ViewData\BillingTerminologyViewData::class);
     $subscriptionStatus = $subscription?->status ? ucfirst(str_replace('_', ' ', $subscription->status)) : 'No paid subscription';
     $periodEndsAt = $subscription?->current_period_ends_at?->utc();
     $planCards = $paidPlans ?? [];
     $grantEndsAt = $activeGrant?->ends_at?->utc();
     $currentPlanName = $currentPlan['name'] ?? ucfirst((string) $tenant->plan);
-    $effectivePlanSource = ucfirst(str_replace('_', ' ', $billingStatus['effective_plan_source'] ?? 'baseline'));
+    $effectivePlanSource = $billingTerms->sourceLabel($billingStatus['effective_plan_source'] ?? 'baseline');
   @endphp
 
   <style>
@@ -475,8 +476,8 @@
           <span class="vs-billing-value">{{ $currentPlanName }} Plan</span>
         </div>
         <div>
-          <span class="vs-billing-label">Source</span>
-          <span class="vs-billing-value-muted">Current plan source: {{ $effectivePlanSource }}</span>
+          <span class="vs-billing-label">Limit Basis</span>
+          <span class="vs-billing-value-muted">{{ $effectivePlanSource }}</span>
         </div>
         @if($periodEndsAt)
           <div>
@@ -486,8 +487,8 @@
         @endif
         @if($grantEndsAt)
           <div>
-            <span class="vs-billing-label">Manual Grant</span>
-            <span class="vs-billing-value-muted font-mono">Active until {{ $grantEndsAt->format('Y-m-d H:i') }} UTC</span>
+            <span class="vs-billing-label">Bonus</span>
+            <span class="vs-billing-value-muted font-mono">Extra allowance until {{ $grantEndsAt->format('Y-m-d H:i') }} UTC</span>
           </div>
         @endif
       </div>
@@ -503,7 +504,7 @@
         <div class="vs-billing-alert vs-billing-alert-info">
           <span class="material-symbols-outlined">info</span>
           <div class="vs-billing-alert-text">
-            Manual {{ strtoupper((string) $activeGrant->granted_plan_key) }} Grant Active, temporary admin-issued grant until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
+            Bonus {{ strtoupper((string) $activeGrant->granted_plan_key) }} Allowance Active, temporary extra capacity until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
             @if($activeGrant->reason)
               Reason: {{ $activeGrant->reason }}
             @endif
@@ -518,7 +519,7 @@
               <h2 class="vs-billing-h2">Current Subscription</h2>
               <p class="vs-billing-subcopy">This panel reflects the last known PayPal subscription state for your account.</p>
             </div>
-            <span class="vs-billing-status">{{ $grantEndsAt ? 'Manual Grant Active' : $subscriptionStatus }}</span>
+            <span class="vs-billing-status">{{ $grantEndsAt ? 'Bonus Active' : $subscriptionStatus }}</span>
           </div>
 
           <div class="vs-billing-metrics">
@@ -537,12 +538,13 @@
           @if($billingStatus)
             <div class="vs-billing-usage-list">
               @foreach([
-                ['title' => 'Protected Sessions', 'metric' => $billingStatus['protected_sessions']],
-                ['title' => 'Bot Fair Use', 'metric' => $billingStatus['bot_requests']],
+                ['title' => 'Protected Sessions', 'metric' => $billingStatus['protected_sessions'], 'limit_key' => 'protected_sessions'],
+                ['title' => 'Bot Fair Use', 'metric' => $billingStatus['bot_requests'], 'limit_key' => 'bot_fair_use'],
               ] as $usageCard)
                 @php
                   $usageColor = $usageCard['metric']['level'] === 'danger' ? '#D47B78' : ($usageCard['metric']['level'] === 'warning' ? '#FCB900' : '#3BCF8E');
                   $usageWidth = min(100, max(0, (int) $usageCard['metric']['percentage']));
+                  $limitEquation = $billingTerms->billingMetricEquation($billingStatus, $usageCard['metric'], $usageCard['limit_key']);
                 @endphp
                 <div class="vs-billing-usage">
                   <div class="vs-billing-usage-head">
@@ -556,6 +558,7 @@
                   <div class="vs-billing-progress">
                     <div class="vs-billing-progress-fill" style="width: {{ $usageWidth }}%; background-color: {{ $usageColor }}"></div>
                   </div>
+                  @include('partials.billing-limit-equation', ['equation' => $limitEquation])
                 </div>
               @endforeach
             </div>

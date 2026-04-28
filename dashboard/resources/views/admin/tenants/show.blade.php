@@ -2,6 +2,7 @@
 
 @section('content')
   @php
+    $billingTerms = app(\App\ViewData\BillingTerminologyViewData::class);
     $billing = $row['billing'];
     $grant = $row['active_grant'];
     $subscription = $row['active_subscription'];
@@ -10,13 +11,14 @@
     $domainRemaining = $domainsUsage['remaining'] ?? null;
     $canAddDomain = (bool) ($domainsUsage['can_add'] ?? true);
     $domainUsageLabel = $domainLimit === null ? $domainUsed.' / Unlimited' : $domainUsed.' / '.$domainLimit;
+    $domainLimitEquation = $billingTerms->domainEquation($domainsUsage);
   @endphp
 
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div>
-      <a href="{{ route('admin.tenants.index') }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to clients</a>
+      <a href="{{ route('admin.tenants.index') }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to users</a>
       <h1 class="es-title mt-2">{{ $tenant->name }}</h1>
-      <p class="es-subtitle mt-2">Client #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
+      <p class="es-subtitle mt-2">User #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
     </div>
     <div class="flex flex-wrap items-center gap-3">
       <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Global Firewall</a>
@@ -39,12 +41,10 @@
     <div class="es-card p-5">
       <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Plan</div>
       <div class="mt-3 text-xl font-bold text-white">{{ $row['effective_plan']['name'] ?? 'Starter' }}</div>
-      <div class="mt-1 text-sm text-sky-100/70">Source: {{ str_replace('_', ' ', $row['effective_plan']['source'] ?? 'baseline') }}</div>
-      <div class="mt-1 text-sm text-sky-100/70">Baseline: {{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</div>
+      <div class="mt-1 text-sm text-sky-100/70">Limit Basis: {{ $billingTerms->sourceLabel($row['effective_plan']['source'] ?? 'baseline') }}</div>
+      <div class="mt-1 text-sm text-sky-100/70">Plan Limit: {{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</div>
       <div class="mt-3 text-sm text-sky-100/80">Domains: {{ $domainUsageLabel }}</div>
-      @if(($domainsUsage['extra_allowance'] ?? 0) > 0)
-        <div class="mt-1 text-xs text-emerald-200">Includes {{ (int) $domainsUsage['extra_allowance'] }} extra domain slot(s).</div>
-      @endif
+      @include('partials.billing-limit-equation', ['equation' => $domainLimitEquation])
     </div>
     <div class="es-card p-5">
       <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Billing Cycle</div>
@@ -52,7 +52,9 @@
         <div class="mt-3 text-xl font-bold text-white">{{ str_replace('_', ' ', $billing['quota_status']) }}</div>
         <div class="mt-1 text-sm text-sky-100/70">{{ $billing['current_cycle_start_at']?->format('Y-m-d') }} to {{ $billing['current_cycle_end_at']?->format('Y-m-d') }}</div>
         <div class="mt-3 text-sm text-sky-100/80">Sessions: {{ $billing['protected_sessions']['formatted_used'] }} / {{ $billing['protected_sessions']['formatted_limit'] }}</div>
+        @include('partials.billing-limit-equation', ['equation' => $billingTerms->billingMetricEquation($billing, $billing['protected_sessions'], 'protected_sessions'), 'class' => 'mt-1'])
         <div class="text-sm text-sky-100/80">Bots: {{ $billing['bot_requests']['formatted_used'] }} / {{ $billing['bot_requests']['formatted_limit'] }}</div>
+        @include('partials.billing-limit-equation', ['equation' => $billingTerms->billingMetricEquation($billing, $billing['bot_requests'], 'bot_fair_use'), 'class' => 'mt-1'])
       @else
         <div class="mt-3 text-sm text-amber-100">No current cycle loaded.</div>
       @endif
@@ -72,17 +74,17 @@
   <div class="mt-5 grid gap-4 xl:grid-cols-2">
     <div class="es-card p-5">
       <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-lg font-bold text-white">Manual Grants</h2>
+        <h2 class="text-lg font-bold text-white">Bonus Allowance</h2>
         @if($grant)
           <form method="POST" action="{{ route('admin.tenants.manual_grants.revoke', [$tenant, $grant['id']]) }}">
             @csrf
-            <button class="text-sm font-semibold text-rose-200 hover:text-rose-100" type="submit">Revoke Active Grant</button>
+            <button class="text-sm font-semibold text-rose-200 hover:text-rose-100" type="submit">Revoke Active Bonus</button>
           </form>
         @endif
       </div>
       @if($grant)
         <div class="mb-4 rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-100">
-          Active {{ strtoupper($grant['granted_plan_key']) }} grant until {{ $grant['ends_at']?->format('Y-m-d H:i') }} UTC.
+          Active {{ strtoupper($grant['granted_plan_key']) }} bonus allowance until {{ $grant['ends_at']?->format('Y-m-d H:i') }} UTC.
         </div>
       @endif
       @if($billingAvailable)
@@ -97,7 +99,7 @@
             <input name="duration_days" class="es-input" type="number" min="1" max="365" value="14">
           </div>
           <input name="reason" class="es-input" placeholder="Reason">
-          <button class="es-btn" type="submit">Activate Manual Grant</button>
+          <button class="es-btn" type="submit">Activate Bonus Allowance</button>
         </form>
       @endif
     </div>
@@ -123,8 +125,8 @@
   <div class="es-card mt-5 p-5">
     <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
       <div>
-        <h2 class="text-lg font-bold text-white">Account Controls</h2>
-        <p class="mt-1 text-sm text-sky-100/65">Suspend access, resume access, or permanently delete this client.</p>
+        <h2 class="text-lg font-bold text-white">User Controls</h2>
+        <p class="mt-1 text-sm text-sky-100/65">Suspend access, resume access, or permanently delete this user.</p>
       </div>
       <div class="text-sm text-sky-100/70">Current status: {{ $tenant->status }}</div>
     </div>
@@ -132,20 +134,20 @@
       @if($tenant->status === 'suspended')
         <form method="POST" action="{{ route('admin.tenants.account.resume', $tenant) }}">
           @csrf
-          <button class="es-btn w-full" type="submit">Resume Account</button>
+          <button class="es-btn w-full" type="submit">Resume User</button>
         </form>
       @else
         <form method="POST" action="{{ route('admin.tenants.account.suspend', $tenant) }}">
           @csrf
-          <button class="es-btn es-btn-warning w-full" type="submit">Suspend Account</button>
+          <button class="es-btn es-btn-warning w-full" type="submit">Suspend User</button>
         </form>
       @endif
       <form method="POST" action="{{ route('admin.tenants.account.delete', $tenant) }}" class="xl:col-span-2">
         @csrf
         @method('DELETE')
         <div class="flex flex-col gap-2 md:flex-row">
-          <input class="es-input" name="confirm_tenant" placeholder="Type client slug to delete: {{ $tenant->slug }}">
-          <button class="es-btn es-btn-danger whitespace-nowrap" type="submit">Delete Account</button>
+          <input class="es-input" name="confirm_tenant" placeholder="Type user slug to delete: {{ $tenant->slug }}">
+          <button class="es-btn es-btn-danger whitespace-nowrap" type="submit">Delete User</button>
         </div>
       </form>
     </div>
@@ -156,7 +158,7 @@
       <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h2 class="text-lg font-bold text-white">Domains</h2>
-          <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules for this client.</p>
+          <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules for this user.</p>
         </div>
         <div class="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-sky-100/80">
           {{ $domainUsageLabel }} domains used
@@ -185,7 +187,7 @@
         </label>
         <div class="xl:col-span-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           @if($canAddDomain)
-            <div class="text-sm text-sky-100/65">Adding a domain starts VerifySky protection setup for this client.</div>
+            <div class="text-sm text-sky-100/65">Adding a domain starts VerifySky protection setup for this user.</div>
             <button class="es-btn" type="submit">Add Domain</button>
           @else
             <div class="text-sm text-amber-100">عفواً، لقد وصل هذا المستخدم للحد الأقصى لخطته. يرجى ترقية الخطة أو إضافة مساحة إضافية أولاً</div>

@@ -27,7 +27,7 @@
   <div class="es-card p-0">
     <div class="border-b border-white/10 p-5">
       <h2 class="text-lg font-bold text-white">Recent Security Events</h2>
-      <p class="mt-1 text-sm text-sky-100/65">Latest client account events from the customer-facing security feed.</p>
+      <p class="mt-1 text-sm text-sky-100/65">Latest client user events from the customer-facing security feed.</p>
     </div>
     <div class="overflow-x-auto">
       <table class="es-table min-w-[980px]">

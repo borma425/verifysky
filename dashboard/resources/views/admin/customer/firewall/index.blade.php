@@ -22,7 +22,7 @@
   <div class="es-card p-0">
     <div class="border-b border-white/10 p-5">
       <h2 class="text-lg font-bold text-white">Global Rule Set</h2>
-      <p class="mt-1 text-sm text-sky-100/65">All rules below are rendered in read-only mode for the selected account context.</p>
+      <p class="mt-1 text-sm text-sky-100/65">All rules below are rendered in read-only mode for the selected user context.</p>
     </div>
     <div class="overflow-x-auto">
       <table class="es-table min-w-[1100px]">

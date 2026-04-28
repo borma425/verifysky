@@ -11,7 +11,7 @@
     <div>
       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
       <h1 class="es-title mt-2">{{ $domainRecord->hostname }}</h1>
-      <p class="es-subtitle mt-2">Admin-scoped domain management for client #{{ $tenant->id }}.</p>
+      <p class="es-subtitle mt-2">Admin-scoped domain management for user #{{ $tenant->id }}.</p>
     </div>
     <div class="flex flex-wrap gap-2">
       <form method="POST" action="{{ route('admin.tenants.domains.sync_route', [$tenant, $domainRecord->hostname]) }}">

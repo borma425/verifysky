@@ -154,7 +154,7 @@ class DashboardBillingVisibilityTest extends TestCase
         ])->get('/dashboard');
 
         $response->assertOk()
-            ->assertSee('Manual PRO grant active until')
+            ->assertSee('Bonus PRO allowance active until')
             ->assertSee('/ 100,000', false);
     }
 

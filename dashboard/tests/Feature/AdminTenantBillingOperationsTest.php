@@ -56,7 +56,7 @@ class AdminTenantBillingOperationsTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Client Billing Operations')
+            ->assertSee('Users Billing Operations')
             ->assertSee('Acme Tenant')
             ->assertSee('pass through')
             ->assertSee('12,000 / 10,000', false);
@@ -99,7 +99,7 @@ class AdminTenantBillingOperationsTest extends TestCase
             ->assertSee('Starter')
             ->assertSee('Pro')
             ->assertSee('Beta cohort')
-            ->assertSee('Revoke Grant');
+            ->assertSee('Revoke Bonus');
     }
 
     public function test_admin_cannot_manually_add_domain_when_client_reached_plan_limit(): void

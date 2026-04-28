@@ -81,9 +81,9 @@ class AdminCommandCenterTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Client Billing Operations')
+            ->assertSee('Users Billing Operations')
             ->assertSee('Acme Ops')
-            ->assertSee('Manage Account')
+            ->assertSee('Manage User')
             ->assertSee('pass through')
             ->assertSee('12,000 / 10,000', false);
     }
@@ -116,7 +116,7 @@ class AdminCommandCenterTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Drill Tenant')
-            ->assertSee('Manual Grants')
+            ->assertSee('Bonus Allowance')
             ->assertSee('Memberships')
             ->assertSee('drill.example.com')
             ->assertSee('Manage Domain');
