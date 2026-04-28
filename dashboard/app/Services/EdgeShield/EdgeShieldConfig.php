@@ -165,6 +165,13 @@ class EdgeShieldConfig
 
     public function d1DatabaseId(): string
     {
+        if ($this->useLocalD1()) {
+            $matchedEnvironment = $this->matchedWranglerEnvironment();
+            if (($matchedEnvironment['database_ids'][0] ?? null) !== null) {
+                return (string) $matchedEnvironment['database_ids'][0];
+            }
+        }
+
         $id = $this->targetD1DatabaseId();
         if ($id !== null && $id !== '') {
             return $id;

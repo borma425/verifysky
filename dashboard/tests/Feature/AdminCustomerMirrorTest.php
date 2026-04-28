@@ -59,7 +59,8 @@ class AdminCustomerMirrorTest extends TestCase
         $response->assertOk()
             ->assertSee('Billing')
             ->assertDontSee('Tenants')
-            ->assertDontSee('Settings')
+            ->assertDontSee(route('admin.settings.index'), false)
+            ->assertDontSee('Platform Settings')
             ->assertDontSee('System Logs');
     }
 

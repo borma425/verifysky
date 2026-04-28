@@ -158,6 +158,8 @@ class AdminCommandCenterTest extends TestCase
 
     public function test_admin_firewall_create_is_scoped_to_route_tenant_domain(): void
     {
+        Queue::fake();
+
         $tenant = Tenant::query()->create(['name' => 'Firewall Tenant', 'slug' => 'firewall-tenant', 'plan' => 'starter', 'status' => 'active']);
         TenantDomain::query()->create([
             'tenant_id' => $tenant->id,
@@ -189,6 +191,7 @@ class AdminCommandCenterTest extends TestCase
         ]);
 
         $response->assertRedirect()->assertSessionHas('status');
+        Queue::assertPushed(PurgeRuntimeBundleCache::class, fn (PurgeRuntimeBundleCache $job): bool => $job->domain === 'fw.example.com');
     }
 
     public function test_admin_system_log_pages_render(): void

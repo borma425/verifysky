@@ -49,8 +49,8 @@ class BillingPortalTest extends TestCase
             'granted_plan_key' => 'pro',
             'source' => 'manual',
             'status' => TenantPlanGrant::STATUS_ACTIVE,
-            'starts_at' => '2026-04-10 00:00:00',
-            'ends_at' => '2026-04-24 00:00:00',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addMonth(),
             'reason' => 'Beta cohort',
         ]);
 
