@@ -12,6 +12,7 @@ class UpdateDomainOriginAction
     public function execute(string $domain, string $originServer, ?string $tenantId, bool $isAdmin): array
     {
         $normalizedDomain = strtolower(trim($domain));
+        $originServer = trim($originServer);
         $tenantScope = $this->tenantScopeSql($isAdmin, $tenantId);
         if ($tenantScope === null) {
             return ['ok' => false, 'error' => 'Tenant context is required to update this domain.'];
@@ -30,6 +31,14 @@ class UpdateDomainOriginAction
 
         $domainConfig = $config['config'];
         $customHostnameId = trim((string) ($domainConfig['custom_hostname_id'] ?? ($tenantDomain->cloudflare_custom_hostname_id ?? '')));
+
+        $originValidation = $this->edgeShield->validateOriginServerForHostname($normalizedDomain, $originServer);
+        if (! ($originValidation['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => $originValidation['error'] ?? 'We could not reach this backend for the selected domain. Enter a valid hosting IP or backend hostname before continuing.',
+            ];
+        }
 
         if ($customHostnameId !== '') {
             $update = $this->edgeShield->updateSaasCustomOrigin($customHostnameId, $originServer);
@@ -52,9 +61,21 @@ class UpdateDomainOriginAction
         if ($tenantDomain) {
             $tenantDomain->update(['origin_server' => $originServer]);
         }
+
+        $refresh = $this->edgeShield->refreshSaasCustomHostname($normalizedDomain);
         $this->edgeShield->purgeDomainConfigCache($normalizedDomain);
 
-        return ['ok' => true];
+        if (! ($refresh['ok'] ?? false)) {
+            return [
+                'ok' => true,
+                'warning' => 'Origin updated, but VerifySky could not refresh the DNS status immediately. Use Refresh status in a few minutes.',
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'dns_route' => $refresh['dns_route'] ?? null,
+        ];
     }
 
     private function tenantScopeSql(bool $isAdmin, ?string $tenantId): ?string

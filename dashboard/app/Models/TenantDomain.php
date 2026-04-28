@@ -11,6 +11,7 @@ class TenantDomain extends Model
         'tenant_id',
         'hostname',
         'cname_target',
+        'origin_server',
         'cloudflare_custom_hostname_id',
         'hostname_status',
         'ssl_status',

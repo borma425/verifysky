@@ -57,6 +57,10 @@ class AdminTenantDomainsController extends Controller
             false
         );
 
+        if (($result['ok'] ?? false) && ! empty($result['warning'])) {
+            return back()->with('status', $result['warning']);
+        }
+
         return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Origin updated and runtime cache purged.' : ($result['error'] ?? 'Failed to update origin.'));
     }
 

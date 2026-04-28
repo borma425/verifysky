@@ -115,6 +115,10 @@ class DomainsController extends Controller
             return back()->with('error', $result['error']);
         }
 
+        if (! empty($result['warning'])) {
+            return back()->with('status', $result['warning']);
+        }
+
         return back()->with('status', 'Target Origin Server successfully updated. Traffic is now routing to '.$request->validated()['origin_server'].'.');
     }
 
