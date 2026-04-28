@@ -2332,3 +2332,523 @@
     [class*="border-gray-"],
     [class*="border-slate-"] { border-color: rgba(215, 225, 245, 0.12) !important; }
 }
+
+@layer components {
+    .vs-tuning-shell {
+        color: #DEE2F0;
+    }
+
+    .vs-tuning-topline {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 1.25rem;
+        align-items: end;
+        margin-bottom: 1.25rem;
+    }
+
+    .vs-tuning-eyebrow {
+        display: inline-flex;
+        width: max-content;
+        align-items: center;
+        border-radius: 6px;
+        background: #252A34;
+        color: #D4C4AB;
+        padding: 0.3rem 0.55rem;
+        font-size: 0.68rem;
+        font-weight: 850;
+        text-transform: uppercase;
+    }
+
+    .vs-tuning-title {
+        margin-top: 0.65rem;
+        color: #FFFFFF;
+        font-size: clamp(1.6rem, 1.2rem + 1vw, 2.15rem);
+        font-weight: 900;
+        line-height: 1.08;
+    }
+
+    .vs-tuning-subtitle {
+        margin-top: 0.55rem;
+        color: #ABB5CA;
+        font-size: 0.95rem;
+        line-height: 1.45;
+    }
+
+    .vs-tuning-runtime {
+        min-width: 0;
+        border-radius: 8px;
+        background: #252A34;
+        color: #D4C4AB;
+        padding: 0.85rem 1rem;
+        font-size: 0.78rem;
+        overflow-wrap: anywhere;
+    }
+
+    .vs-tuning-card {
+        position: relative;
+        min-width: 0;
+        overflow: hidden;
+        border-radius: 8px;
+        border: 1px solid rgba(80, 69, 50, 0.28);
+        background: #1B202A;
+        box-shadow: 0 18px 44px rgba(10, 13, 18, 0.22);
+    }
+
+    .vs-tuning-card-pad {
+        padding: 1.25rem;
+    }
+
+    .vs-tuning-accent::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 2px;
+        background: var(--vs-tuning-accent, #FCB900);
+    }
+
+    .vs-tuning-grid {
+        display: grid;
+        gap: 1.25rem;
+    }
+
+    .vs-tuning-top-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin: 1.25rem 0;
+    }
+
+    .vs-tuning-settings-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .vs-tuning-four-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .vs-tuning-three-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .vs-tuning-two-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vs-tuning-panel {
+        min-width: 0;
+        border-radius: 8px;
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #252A34;
+        padding: 1rem;
+    }
+
+    .vs-tuning-section-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.1rem;
+    }
+
+    .vs-tuning-section-title {
+        margin: 0;
+        color: #FFFFFF;
+        font-size: 1.1rem;
+        font-weight: 850;
+        line-height: 1.2;
+    }
+
+    .vs-tuning-helper {
+        color: rgba(171, 181, 202, 0.78);
+        font-size: 0.78rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .vs-tuning-label {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        color: #D7E1F5;
+        font-size: 0.9rem;
+        font-weight: 800;
+        overflow-wrap: anywhere;
+    }
+
+    .vs-tuning-badge {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        border-radius: 6px;
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #303540;
+        color: #D4C4AB;
+        padding: 0.1rem 0.45rem;
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .vs-tuning-input {
+        display: block;
+        width: 100%;
+        height: 2.5rem;
+        margin-top: 0.55rem;
+        border-radius: 8px;
+        border: 1px solid rgba(80, 69, 50, 0.36);
+        background: #090E18;
+        color: #FFFFFF;
+        padding: 0 0.75rem;
+        font-weight: 800;
+        outline: none;
+        transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    .vs-tuning-input:focus {
+        border-color: rgba(252, 185, 0, 0.66);
+        box-shadow: 0 0 0 3px rgba(252, 185, 0, 0.12);
+    }
+
+    .vs-tuning-note {
+        border-radius: 8px;
+        border: 1px solid rgba(52, 211, 153, 0.25);
+        background: rgba(16, 185, 129, 0.1);
+        color: #C9F6DF;
+        padding: 0.9rem 1rem;
+        font-size: 0.9rem;
+        line-height: 1.65;
+        overflow-wrap: anywhere;
+    }
+
+    .vs-tuning-note strong,
+    .vs-tuning-loading-title {
+        color: #FFFFFF;
+        font-weight: 850;
+    }
+
+    .vs-tuning-note-quote {
+        display: block;
+        margin-top: 0.4rem;
+        color: #ECFDF5;
+        font-weight: 850;
+    }
+
+    .vs-tuning-button {
+        display: inline-flex;
+        min-height: 2.5rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        border-radius: 8px;
+        padding: 0 1rem;
+        font-size: 0.9rem;
+        font-weight: 850;
+        transition: filter 160ms ease, transform 160ms ease;
+        white-space: nowrap;
+    }
+
+    .vs-tuning-button:hover {
+        filter: brightness(1.06);
+    }
+
+    .vs-tuning-button:active {
+        transform: translateY(1px);
+    }
+
+    .vs-tuning-button-primary {
+        background: linear-gradient(180deg, #FFE066, #FCB900);
+        color: #261900;
+    }
+
+    .vs-tuning-button-muted {
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #303540;
+        color: #DEE2F0;
+    }
+
+    .vs-tuning-button-emerald {
+        background: #10B981;
+        color: #FFFFFF;
+    }
+
+    .vs-tuning-button-indigo {
+        background: #6366F1;
+        color: #FFFFFF;
+    }
+
+    .vs-tuning-metric {
+        margin-top: 0.9rem;
+        color: #FFFFFF;
+        font-family: var(--font-mono);
+        font-size: 2rem;
+        font-weight: 900;
+    }
+
+    .vs-tuning-loading {
+        margin-top: 0.9rem;
+        border-radius: 8px;
+        border: 1px solid rgba(52, 211, 153, 0.22);
+        background: rgba(9, 14, 24, 0.78);
+        padding: 0.9rem;
+        text-align: center;
+    }
+
+    .vs-tuning-loading-copy {
+        color: #A7F3D0;
+        font-size: 0.82rem;
+    }
+
+    .vs-tuning-origin-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.75rem;
+        align-items: end;
+        margin-top: 0.75rem;
+    }
+
+    .vs-tuning-ssl-note {
+        margin-top: 0.95rem;
+        border-radius: 8px;
+        background: rgba(99, 102, 241, 0.12);
+        color: #FDE68A;
+        padding: 0.7rem 0.75rem;
+        font-size: 0.78rem;
+        line-height: 1.55;
+    }
+
+    .vs-tuning-field-stack {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .vs-tuning-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.9rem;
+        margin-top: 1.1rem;
+        border-radius: 8px;
+        background: #090E18;
+        padding: 0.8rem;
+        color: #D7E1F5;
+        font-size: 0.9rem;
+        font-weight: 850;
+        cursor: pointer;
+    }
+
+    .vs-tuning-traffic-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: center;
+        margin-top: 1.25rem;
+        border-radius: 8px;
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #252A34;
+        padding: 1rem;
+        cursor: pointer;
+    }
+
+    .vs-tuning-traffic-icon {
+        display: inline-flex;
+        width: 2.5rem;
+        height: 2.5rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: #303540;
+        color: #FCB900;
+        font-size: 1rem;
+        font-weight: 900;
+    }
+
+    .vs-tuning-traffic-row input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .vs-tuning-toggle-row input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .vs-tuning-toggle {
+        position: relative;
+        width: 2.65rem;
+        height: 1.5rem;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: #303540;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+        transition: background-color 160ms ease;
+    }
+
+    .vs-tuning-toggle::after {
+        content: "";
+        position: absolute;
+        top: 0.25rem;
+        left: 0.25rem;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 999px;
+        background: #D7E1F5;
+        transition: transform 160ms ease, background-color 160ms ease;
+    }
+
+    .vs-tuning-toggle-row input:checked + .vs-tuning-toggle,
+    .vs-tuning-traffic-row input:checked + .vs-tuning-toggle {
+        background: #10B981;
+    }
+
+    .vs-tuning-toggle-row input:checked + .vs-tuning-toggle::after,
+    .vs-tuning-traffic-row input:checked + .vs-tuning-toggle::after {
+        transform: translateX(1.15rem);
+        background: #FFFFFF;
+    }
+
+    .vs-tuning-details {
+        margin-top: 1.25rem;
+    }
+
+    .vs-tuning-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .vs-tuning-summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .vs-tuning-chevron {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: #252A34;
+        color: #FDE68A;
+        padding: 0.3rem 0.65rem;
+        transition: transform 160ms ease;
+    }
+
+    .vs-tuning-details[open] .vs-tuning-chevron {
+        transform: rotate(180deg);
+    }
+
+    .vs-tuning-advanced-body {
+        display: grid;
+        gap: 1.5rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        align-items: start;
+        margin-top: 1.4rem;
+    }
+
+    .vs-tuning-advanced-body .vs-tuning-four-grid,
+    .vs-tuning-advanced-body .vs-tuning-three-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .vs-tuning-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.25rem;
+        border-radius: 8px;
+        background: #090E18;
+        padding: 0.25rem;
+        margin: 0.9rem 0 1rem;
+    }
+
+    .vs-tuning-tab {
+        border-radius: 6px;
+        padding: 0.65rem;
+        font-size: 0.85rem;
+        font-weight: 850;
+        transition: background-color 160ms ease, color 160ms ease;
+    }
+
+    .vs-tuning-tab-inactive {
+        color: #ABB5CA;
+        background: transparent;
+    }
+
+    .vs-tuning-tab-balanced {
+        color: #D1FAE5;
+        background: rgba(16, 185, 129, 0.24);
+        box-shadow: inset 0 -2px 0 rgba(52, 211, 153, 0.65);
+    }
+
+    .vs-tuning-tab-aggressive {
+        color: #FFE4E6;
+        background: rgba(244, 63, 94, 0.22);
+        box-shadow: inset 0 -2px 0 rgba(251, 113, 133, 0.65);
+    }
+
+    .vs-tuning-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 1.25rem;
+    }
+
+    .vs-tone-analysis {
+        color: #D1FAE5;
+    }
+
+    .vs-tone-origin {
+        color: #E0E7FF;
+    }
+
+    .vs-tone-risk {
+        color: #FFE4E6;
+    }
+
+    .vs-tone-advanced {
+        color: #FDE68A;
+    }
+
+    @media (max-width: 1100px) {
+        .vs-tuning-top-grid,
+        .vs-tuning-settings-grid,
+        .vs-tuning-advanced-body {
+            grid-template-columns: 1fr;
+        }
+
+        .vs-tuning-four-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .vs-tuning-advanced-body .vs-tuning-four-grid,
+        .vs-tuning-advanced-body .vs-tuning-three-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .vs-tuning-topline,
+        .vs-tuning-origin-row,
+        .vs-tuning-two-grid,
+        .vs-tuning-three-grid,
+        .vs-tuning-four-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .vs-tuning-section-head {
+            flex-direction: column;
+        }
+
+        .vs-tuning-traffic-row {
+            grid-template-columns: auto minmax(0, 1fr) auto;
+        }
+
+        .vs-tuning-button,
+        .vs-tuning-origin-row .vs-tuning-button,
+        .vs-tuning-actions .vs-tuning-button {
+            width: 100%;
+        }
+    }
+}

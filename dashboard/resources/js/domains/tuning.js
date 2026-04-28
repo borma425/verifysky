@@ -127,12 +127,12 @@ document.addEventListener('alpine:init', () => {
 
         challengeTabClass(mode) {
             if (mode !== this.activeChallengeMode) {
-                return 'bg-gray-800/40 text-gray-400';
+                return 'vs-tuning-tab-inactive';
             }
 
             return mode === 'balanced'
-                ? 'bg-emerald-500/25 text-emerald-200 shadow-[inset_0_-2px_0] border-emerald-400'
-                : 'bg-rose-500/25 text-rose-200 shadow-[inset_0_-2px_0] border-rose-400';
+                ? 'vs-tuning-tab-balanced'
+                : 'vs-tuning-tab-aggressive';
         },
 
         normalizeProfiles(profiles) {
