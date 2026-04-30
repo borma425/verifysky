@@ -1,10 +1,13 @@
-<details class="vs-tuning-card vs-tuning-card-pad vs-tuning-accent vs-tuning-details" style="--vs-tuning-accent: #F59E0B" open>
+<details class="vs-tuning-card vs-tuning-details" open>
   <summary class="vs-tuning-summary">
-    <span>
-      <span class="vs-tuning-section-title vs-tone-advanced">Advanced Calibration Engine</span>
-      <span class="vs-tuning-helper mt-1 block">Advanced Settings (Flood & Escalation)</span>
+    <span class="flex min-w-0 items-center gap-4">
+      <span class="material-symbols-outlined text-[#FCB900]">settings_input_component</span>
+      <span class="min-w-0">
+        <span class="vs-tuning-section-title block">Advanced Calibration Engine</span>
+        <span class="vs-tuning-helper mt-1 block uppercase font-bold tracking-widest">Advanced Settings (Flood & Escalation)</span>
+      </span>
     </span>
-    <span class="vs-tuning-chevron">⌄</span>
+    <span class="material-symbols-outlined text-[#D4C4AB]">expand_more</span>
   </summary>
 
   <div class="vs-tuning-advanced-body cursor-default">

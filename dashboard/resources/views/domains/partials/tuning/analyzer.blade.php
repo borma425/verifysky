@@ -1,28 +1,25 @@
-<div class="vs-tuning-card vs-tuning-card-pad vs-tuning-accent" style="--vs-tuning-accent: #34D399">
+<div class="vs-tuning-card vs-tuning-card-pad">
   <div class="vs-tuning-section-head">
-    <div>
-      <h3 class="vs-tuning-section-title vs-tone-analysis">Live Domain Analyzer</h3>
-      <p class="vs-tuning-helper mt-1">Scan your domain to auto-detect how many Pages + APIs fire per visit.</p>
-    </div>
-    <button type="button" x-on:click="startAnalysis()" class="vs-tuning-button vs-tuning-button-emerald" x-bind:disabled="isAnalyzing">
+    <h3 class="vs-tuning-kicker">
+      <span class="material-symbols-outlined text-[1.15rem] text-[#10B981]">analytics</span>
+      Live Domain Analyzer
+    </h3>
+    <button type="button" x-on:click="startAnalysis()" class="vs-tuning-button vs-tuning-button-compact" x-bind:disabled="isAnalyzing">
       <span x-text="isAnalyzing ? 'Analyzing...' : 'Analyze Domain'"></span>
     </button>
   </div>
 
   <div class="vs-tuning-grid vs-tuning-two-grid">
-    <div class="vs-tuning-panel">
-      <label class="vs-tuning-label">Pages Count</label>
-      <p class="vs-tuning-helper mt-1">HTML pages loaded per visit (usually 1)</p>
-      <div class="vs-tuning-metric" x-text="pagesCount"></div>
+    <div>
+      <label class="vs-tuning-mini-label">Pages Count</label>
+      <div class="vs-tuning-input vs-tuning-input-display" x-text="pagesCount"></div>
     </div>
 
-    <div class="vs-tuning-panel transition-all" x-bind:class="{ 'ring-1 ring-[#FCB900]/40': isEditingApi }">
-      <label class="vs-tuning-label">
+    <div class="transition-all" x-bind:class="{ 'ring-1 ring-[#FCB900]/40 rounded-lg': isEditingApi }">
+      <label class="vs-tuning-mini-label">
         <span>API Count</span>
-        <span class="vs-tuning-badge">Editable</span>
       </label>
-      <p class="vs-tuning-helper mt-1">Background XHR/fetch calls per page. Edit manually if needed.</p>
-      <input type="number" x-model.number="apiCount" x-on:focus="isEditingApi = true" x-on:blur="isEditingApi = false" min="0" class="vs-tuning-input text-2xl" placeholder="0">
+      <input type="number" x-model.number="apiCount" x-on:focus="isEditingApi = true" x-on:blur="isEditingApi = false" min="0" class="vs-tuning-input" placeholder="0">
     </div>
   </div>
 

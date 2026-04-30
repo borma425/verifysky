@@ -76,51 +76,6 @@
             Bonus {{ strtoupper($billingStatus['active_grant']['granted_plan_key']) }} allowance active until {{ $billingStatus['active_grant']['ends_at']?->format('Y-m-d') }}.
           </div>
         @endif
-
-        <div class="es-usage-grid">
-          @foreach([
-            [
-              'title' => 'Protected Sessions',
-              'metric' => $billingStatus['protected_sessions'],
-              'limit_key' => 'protected_sessions',
-              'meta' => 'Current cycle protection volume',
-            ],
-            [
-              'title' => 'Bot Requests Rejected',
-              'metric' => $billingStatus['bot_requests'],
-              'limit_key' => 'bot_fair_use',
-              'meta' => 'Fair-use blocked or challenged traffic',
-            ],
-          ] as $usageCard)
-            @php
-              $limitEquation = $billingTerms->billingMetricEquation($billingStatus, $usageCard['metric'], $usageCard['limit_key']);
-            @endphp
-            <div class="es-usage-card">
-              <div class="es-usage-card-head">
-                <div>
-                  <p class="es-usage-card-kicker">{{ $billingStatus['plan_name'] }} Plan</p>
-                  <h2 class="es-usage-card-title">{{ $usageCard['title'] }}</h2>
-                </div>
-                <span class="es-usage-card-badge es-usage-card-badge-{{ $usageCard['metric']['level'] }}">
-                  {{ $usageCard['metric']['percentage'] }}%
-                </span>
-              </div>
-              <div class="es-usage-card-value">
-                {{ $usageCard['metric']['formatted_used'] }}
-                <span>/ {{ $usageCard['metric']['formatted_limit'] }}</span>
-              </div>
-              <p class="es-usage-card-meta">{{ $usageCard['meta'] }}</p>
-              <div class="es-usage-progress">
-                <div class="es-usage-progress-bar es-usage-progress-bar-{{ $usageCard['metric']['level'] }}" style="width: {{ $usageCard['metric']['percentage'] }}%"></div>
-              </div>
-              @include('partials.billing-limit-equation', ['equation' => $limitEquation, 'class' => 'mt-3'])
-              <div class="es-usage-card-foot">
-                <span>{{ $usageCard['metric']['formatted_remaining'] }} remaining this cycle</span>
-                <span>{{ $billingStatus['current_cycle_end_at']->format('Y-m-d') }} reset</span>
-              </div>
-            </div>
-          @endforeach
-        </div>
       @endif
 
       <div class="es-overview-header">
@@ -138,20 +93,34 @@
 
       <div class="es-topology-frame">
         <div class="es-topology-grid"></div>
-        <svg class="es-topology-lines" viewBox="0 0 1000 520" role="img" aria-label="VerifySky control plane topology">
-          <path class="es-topology-line-primary" d="M120 120 C300 120 340 180 455 215" />
-          <path class="es-topology-line-accent" d="M120 205 C300 205 340 225 455 245" />
-          <path class="es-topology-line-secondary" d="M120 290 C300 290 340 265 455 275" />
-          <path class="es-topology-line-primary" d="M120 375 C300 375 340 310 455 305" />
+        <div class="es-topology-status">
+          <span class="es-overview-live-dot"></span>
+          <span>Edge Mesh Healthy</span>
+        </div>
+        <svg class="es-topology-lines" viewBox="0 0 1000 520" role="img" aria-label="VerifySky neural eye topology">
+          <path class="es-topology-eye-line" d="M118 260 C270 86 730 86 882 260" />
+          <path class="es-topology-eye-line" d="M118 260 C270 434 730 434 882 260" />
+          <path class="es-topology-retina-line" d="M382 260 C420 202 580 202 618 260 C580 318 420 318 382 260Z" />
 
-          <path class="es-topology-line-accent" d="M545 215 C660 180 700 120 880 120" />
-          <path class="es-topology-line-primary" d="M545 245 C660 225 700 205 880 205" />
-          <path class="es-topology-line-secondary" d="M545 275 C660 265 700 290 880 290" />
-          <path class="es-topology-line-accent" d="M545 305 C660 310 700 375 880 375" />
+          <path class="es-topology-line-primary" d="M134 126 C235 126 282 182 383 222" />
+          <path class="es-topology-line-accent" d="M134 214 C250 212 298 232 383 248" />
+          <path class="es-topology-line-secondary" d="M134 306 C250 306 300 282 383 272" />
+          <path class="es-topology-line-primary" d="M134 394 C242 390 286 332 383 298" />
 
-          @foreach([[120,120],[120,205],[120,290],[120,375],[880,120],[880,205],[880,290],[880,375]] as [$cx, $cy])
+          <path class="es-topology-line-accent" d="M617 222 C720 182 766 126 866 126" />
+          <path class="es-topology-line-primary" d="M617 248 C702 232 750 212 866 214" />
+          <path class="es-topology-line-secondary" d="M617 272 C700 282 750 306 866 306" />
+          <path class="es-topology-line-accent" d="M617 298 C714 332 758 390 866 394" />
+
+          <path class="es-topology-neural-thread" d="M304 174 C356 228 431 178 500 260 C569 342 646 292 696 346" />
+          <path class="es-topology-neural-thread" d="M304 346 C356 292 431 342 500 260 C569 178 646 228 696 174" />
+          <path class="es-topology-neural-thread-muted" d="M250 260 C332 142 668 142 750 260 C668 378 332 378 250 260Z" />
+
+          @foreach([[134,126],[134,214],[134,306],[134,394],[866,126],[866,214],[866,306],[866,394],[304,174],[304,346],[696,174],[696,346],[382,260],[618,260]] as [$cx, $cy])
             <circle class="es-topology-node es-topology-node-live" cx="{{ $cx }}" cy="{{ $cy }}" r="5" />
           @endforeach
+          <circle class="es-topology-core-node" cx="500" cy="260" r="13" />
+          <circle class="es-topology-core-node-inner" cx="500" cy="260" r="5" />
         </svg>
 
         <div class="es-topology-layout">
@@ -170,10 +139,14 @@
           <div class="es-topology-center">
             <div class="es-topology-ring es-topology-ring-lg"></div>
             <div class="es-topology-ring es-topology-ring-sm"></div>
-            <div class="es-topology-core-shell">
-              <div class="es-topology-core">
-                <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="h-14 w-14 object-contain">
+            <div class="es-topology-eye-shell">
+              <div class="es-topology-eye-aura"></div>
+              <div class="es-topology-eye">
+                <div class="es-topology-iris">
+                  <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="h-14 w-14 object-contain">
+                </div>
               </div>
+              <div class="es-topology-eye-label">Signal Correlation Core</div>
             </div>
           </div>
 
@@ -192,20 +165,69 @@
         </div>
       </div>
 
-      <div class="es-overview-kpi-grid">
-        @foreach($kpis as $metric)
-          <div class="es-overview-kpi-card">
-            <div class="es-overview-kpi-head">
-              <span>{{ $metric['label'] }}</span>
-              <img src="{{ asset('duotone/'.$metric['icon']) }}" alt="{{ $metric['label'] }}" class="es-duotone-icon es-overview-icon h-4 w-4">
-            </div>
-            <div class="es-overview-kpi-value">{{ $metric['value'] }}</div>
-            <div class="es-overview-kpi-meta {{ !empty($metric['danger']) ? 'es-overview-kpi-meta-danger' : '' }}">{{ $metric['meta'] }}</div>
-            <svg class="es-overview-sparkline" viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">
-              <polyline points="{{ $metric['points'] }}" fill="none" stroke="currentColor" stroke-width="2"/>
-            </svg>
+      <div class="es-overview-metrics-row {{ $billingStatus ? '' : 'es-overview-metrics-row-kpis-only' }}">
+        @if($billingStatus)
+          <div class="es-usage-grid">
+            @foreach([
+              [
+                'title' => 'Protected Sessions',
+                'metric' => $billingStatus['protected_sessions'],
+                'limit_key' => 'protected_sessions',
+                'meta' => 'Current cycle protection volume',
+              ],
+              [
+                'title' => 'Bot Requests Rejected',
+                'metric' => $billingStatus['bot_requests'],
+                'limit_key' => 'bot_fair_use',
+                'meta' => 'Fair-use blocked or challenged traffic',
+              ],
+            ] as $usageCard)
+              @php
+                $limitEquation = $billingTerms->billingMetricEquation($billingStatus, $usageCard['metric'], $usageCard['limit_key']);
+              @endphp
+              <div class="es-usage-card">
+                <div class="es-usage-card-head">
+                  <div>
+                    <p class="es-usage-card-kicker">{{ $billingStatus['plan_name'] }} Plan</p>
+                    <h2 class="es-usage-card-title">{{ $usageCard['title'] }}</h2>
+                  </div>
+                  <span class="es-usage-card-badge es-usage-card-badge-{{ $usageCard['metric']['level'] }}">
+                    {{ $usageCard['metric']['percentage'] }}%
+                  </span>
+                </div>
+                <div class="es-usage-card-value">
+                  {{ $usageCard['metric']['formatted_used'] }}
+                  <span>/ {{ $usageCard['metric']['formatted_limit'] }}</span>
+                </div>
+                <p class="es-usage-card-meta">{{ $usageCard['meta'] }}</p>
+                <div class="es-usage-progress">
+                  <div class="es-usage-progress-bar es-usage-progress-bar-{{ $usageCard['metric']['level'] }}" style="width: {{ $usageCard['metric']['percentage'] }}%"></div>
+                </div>
+                @include('partials.billing-limit-equation', ['equation' => $limitEquation, 'class' => 'mt-3'])
+                <div class="es-usage-card-foot">
+                  <span>{{ $usageCard['metric']['formatted_remaining'] }} remaining this cycle</span>
+                  <span>{{ $billingStatus['current_cycle_end_at']->format('Y-m-d') }} reset</span>
+                </div>
+              </div>
+            @endforeach
           </div>
-        @endforeach
+        @endif
+
+        <div class="es-overview-kpi-grid">
+          @foreach($kpis as $metric)
+            <div class="es-overview-kpi-card">
+              <div class="es-overview-kpi-head">
+                <span>{{ $metric['label'] }}</span>
+                <img src="{{ asset('duotone/'.$metric['icon']) }}" alt="{{ $metric['label'] }}" class="es-duotone-icon es-overview-icon h-4 w-4">
+              </div>
+              <div class="es-overview-kpi-value">{{ $metric['value'] }}</div>
+              <div class="es-overview-kpi-meta {{ !empty($metric['danger']) ? 'es-overview-kpi-meta-danger' : '' }}">{{ $metric['meta'] }}</div>
+              <svg class="es-overview-sparkline" viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden="true">
+                <polyline points="{{ $metric['points'] }}" fill="none" stroke="currentColor" stroke-width="2"/>
+              </svg>
+            </div>
+          @endforeach
+        </div>
       </div>
     </div>
   </section>

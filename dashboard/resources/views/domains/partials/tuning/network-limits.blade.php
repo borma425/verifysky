@@ -1,5 +1,5 @@
 <div class="vs-tuning-panel">
-  <h3 class="vs-tone-risk">Network Restrictions</h3>
+  <h3 class="vs-tuning-card-title">Network Restrictions</h3>
   <div class="vs-tuning-field-stack">
     <div>
       <label class="vs-tuning-label">

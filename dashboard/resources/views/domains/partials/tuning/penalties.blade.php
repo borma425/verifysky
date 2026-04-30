@@ -1,5 +1,5 @@
 <div class="vs-tuning-panel">
-  <h3 class="vs-tone-analysis">Risk Penalties</h3>
+  <h3 class="vs-tuning-card-title">Risk Penalties</h3>
   <div class="vs-tuning-field-stack">
     <div>
       <label class="vs-tuning-label">Failures</label>

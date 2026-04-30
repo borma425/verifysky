@@ -2,8 +2,11 @@
   @csrf
   <input type="hidden" name="api_count" x-bind:value="apiCount">
 
-  <section class="vs-tuning-card vs-tuning-card-pad">
-    <h2 class="vs-tuning-section-title mb-5">Threshold Configuration</h2>
+  <section class="vs-tuning-config-section">
+    <h2 class="vs-tuning-divider-title">
+      <span>Threshold Configuration</span>
+      <span aria-hidden="true"></span>
+    </h2>
     <div class="vs-tuning-grid vs-tuning-settings-grid">
       @include('domains.partials.tuning.general-thresholds')
       @include('domains.partials.tuning.network-limits')

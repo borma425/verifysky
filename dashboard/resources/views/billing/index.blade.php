@@ -460,6 +460,217 @@
         flex-direction: column;
       }
     }
+
+    .vs-billing {
+      font-family: Manrope, Inter, var(--font-sans);
+      gap: 2rem;
+    }
+
+    .vs-billing-header {
+      display: block;
+    }
+
+    .vs-billing-meta {
+      color: #FCB900;
+      font-family: Inter, var(--font-sans);
+      font-size: 0.8rem;
+      letter-spacing: 0.12em;
+    }
+
+    .vs-billing-title {
+      color: #FFFFFF;
+      font-family: Manrope, var(--font-sans);
+      font-size: 1.9rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .vs-billing-copy {
+      color: #DEE2F1;
+      max-width: 48rem;
+    }
+
+    .vs-billing-summary {
+      margin-top: 1.5rem;
+      border-radius: 4px;
+      border-left: 4px solid #FCB900;
+      background: #1B202A;
+      padding: 1rem;
+    }
+
+    .vs-billing-label,
+    .vs-billing-limit-label {
+      color: #D4C4AB;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .vs-billing-alert {
+      border-radius: 4px;
+      background: #171C26;
+      padding: 1rem;
+    }
+
+    .vs-billing-grid {
+      grid-template-columns: minmax(0, 7fr) minmax(22rem, 5fr);
+    }
+
+    .vs-billing-panel {
+      border-radius: 8px;
+      background: #1B202A;
+      outline: 1px solid rgba(80, 69, 50, 0.16);
+      padding: 1.5rem;
+    }
+
+    .vs-billing-plan-panel {
+      background: transparent;
+      outline: 0;
+      padding: 0;
+    }
+
+    .vs-billing-h2 {
+      color: #FFFFFF;
+      font-family: Manrope, var(--font-sans);
+      font-size: 1.25rem;
+      font-weight: 800;
+    }
+
+    .vs-billing-subcopy {
+      color: #D4C4AB;
+    }
+
+    .vs-billing-status {
+      border-color: rgba(59, 207, 142, 0.3);
+      border-radius: 4px;
+      background: rgba(59, 207, 142, 0.1);
+      color: #3BCF8E;
+      font-size: 0.72rem;
+    }
+
+    .vs-billing-metrics {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 2rem;
+    }
+
+    .vs-billing-metric,
+    .vs-billing-usage,
+    .vs-billing-limit {
+      border-radius: 4px;
+      background: #090E18;
+      outline: 1px solid rgba(80, 69, 50, 0.16);
+    }
+
+    .vs-billing-metric-value,
+    .vs-billing-usage-title,
+    .vs-billing-plan-name {
+      color: #FFFFFF;
+    }
+
+    .vs-billing-price {
+      color: #FCB900;
+    }
+
+    .vs-billing-usage-list {
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .vs-billing-usage {
+      background: transparent;
+      outline: 0;
+      padding: 0;
+    }
+
+    .vs-billing-progress {
+      height: 0.5rem;
+      background: #090E18;
+    }
+
+    .vs-billing-action-row {
+      border-top-color: #090E18;
+    }
+
+    .vs-billing-secondary-action {
+      border-radius: 4px;
+      background: #303540;
+      outline-color: rgba(80, 69, 50, 0.22);
+    }
+
+    .vs-billing-owner-note {
+      margin-top: 1rem;
+      border-radius: 4px;
+      background: transparent;
+      color: #D4C4AB;
+      outline: 0;
+      padding-inline: 0.5rem;
+    }
+
+    .vs-billing-plan-list {
+      gap: 1rem;
+    }
+
+    .vs-billing-plan-card {
+      border-radius: 8px;
+      background: #1B202A;
+      outline: 1px solid rgba(80, 69, 50, 0.16);
+      padding: 1.25rem;
+    }
+
+    .vs-billing-plan-card:hover {
+      background: #252A35;
+    }
+
+    .vs-billing-plan-card-current {
+      background: #252A35;
+      outline-color: #FCB900;
+    }
+
+    .vs-billing-current-badge {
+      border-color: rgba(252, 185, 0, 0.3);
+      border-radius: 4px;
+      background: rgba(252, 185, 0, 0.1);
+      color: #FCB900;
+    }
+
+    .vs-billing-plan-price {
+      color: #D4C4AB;
+    }
+
+    .vs-billing-checkout {
+      border-radius: 4px;
+      background: #090E18;
+      outline: 1px solid rgba(80, 69, 50, 0.22);
+    }
+
+    .vs-billing-plan-card:hover .vs-billing-checkout,
+    .vs-billing-checkout-current {
+      background: linear-gradient(to bottom, #FFDC9C, #FCB900);
+      color: #412D00;
+      outline: 0;
+      box-shadow: 0 0 15px rgba(252, 185, 0, 0.15);
+    }
+
+    .vs-billing-limit-grid {
+      gap: 0.5rem;
+    }
+
+    .vs-billing-limit {
+      color: #DEE2F1;
+      padding: 0.5rem;
+    }
+
+    .vs-billing-plan-card-current .vs-billing-limit {
+      border: 1px solid rgba(80, 69, 50, 0.22);
+    }
+
+    @media (max-width: 1279px) {
+      .vs-billing-grid,
+      .vs-billing-metrics {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 
   <section class="vs-billing es-animate">
@@ -532,6 +743,12 @@
               <span class="vs-billing-label">Renewal Window</span>
               <span class="vs-billing-metric-value font-mono">{{ $periodEndsAt ? $periodEndsAt->format('Y-m-d') : 'Not scheduled' }}</span>
               <span class="vs-billing-subcopy">{{ $subscription?->cancel_at_period_end ? 'Cancellation is queued for period end.' : 'Subscription remains active until PayPal changes state.' }}</span>
+            </div>
+            <div class="vs-billing-metric {{ $subscription?->cancel_at_period_end ? 'border-b-2 border-[#D47B78]' : '' }}">
+              <span class="vs-billing-label">Status</span>
+              <span class="vs-billing-metric-value {{ $subscription?->cancel_at_period_end ? 'text-[#D47B78]' : '' }}">
+                {{ $subscription?->cancel_at_period_end ? 'Cancellation queued' : ($grantEndsAt ? 'Bonus Active' : $subscriptionStatus) }}
+              </span>
             </div>
           </div>
 
