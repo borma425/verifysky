@@ -29,8 +29,8 @@
       <tbody>
       @forelse($logs as $row)
         @php
-          $eventScore = (int) ($row['event_score'] ?? 0);
-          $rowTone = $eventScore >= 70 ? 'vs-logs-row-danger' : ($eventScore >= 40 ? 'vs-logs-row-warning' : 'vs-logs-row-success');
+          $severityTone = $row['severity_tone'] ?? 'info';
+          $rowTone = 'vs-logs-row-'.$severityTone;
         @endphp
         <tr class="{{ $rowTone }}">
           <td data-label="Domain">
@@ -40,7 +40,10 @@
             <div class="vs-logs-event-stack">
               <div class="vs-logs-event-line">
                 <span class="vs-logs-event-name">{{ $row['event_display'] ?? '' }}</span>
-                <span class="vs-logs-risk-badge">{{ $row['event_score'] ?? 0 }}%</span>
+                <span class="vs-logs-severity-badge vs-logs-severity-{{ $severityTone }}">
+                  {{ $row['severity_label'] ?? 'Info' }}
+                </span>
+                <span class="vs-logs-risk-badge" aria-label="Risk score {{ $row['event_score'] ?? 0 }} percent">{{ $row['event_score'] ?? 0 }}%</span>
               </div>
               @if(!empty($row['is_repeat_offender']))
                 <span class="vs-logs-repeat-badge">REPEAT OFFENDER</span>
@@ -65,7 +68,7 @@
                     @csrf
                     <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                     <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                    <button type="submit" class="vs-logs-action-btn vs-logs-action-danger" title="Block IP for 24h" aria-label="Block IP">
+                    <button type="submit" class="vs-logs-action-btn vs-logs-action-danger" title="Block IP for 24h" aria-label="Block IP {{ $row['ip_address'] }}">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H5c-2 0-4 1.8-4 4v2"></path>
                         <circle cx="8.5" cy="7" r="4"></circle>
@@ -79,7 +82,7 @@
                     @csrf
                     <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                     <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                    <button type="submit" class="vs-logs-action-btn vs-logs-action-success" title="Allow-list IP and reset ban" aria-label="Allow-list IP and reset ban">
+                    <button type="submit" class="vs-logs-action-btn vs-logs-action-success" title="Allow-list IP and reset ban" aria-label="Allow-list IP {{ $row['ip_address'] }} and reset ban">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
                         <path d="M21 3v6h-6"></path>
@@ -108,7 +111,7 @@
             </div>
             @if(count($row['recent_paths'] ?? []) > 2)
               <details class="vs-logs-path-tooltip">
-                <summary class="vs-logs-path-trigger" title="Show last 50 paths" aria-label="Show last 50 paths">+</summary>
+                <summary class="vs-logs-path-trigger" title="Show last 50 paths" aria-label="Show last {{ count($row['recent_paths']) }} paths">+</summary>
                 <div class="vs-logs-path-panel">
                   <div class="vs-logs-path-panel-title">Last {{ count($row['recent_paths']) }} paths</div>
                   <div class="vs-logs-path-panel-list">
@@ -135,7 +138,8 @@
             @endif
           </td>
           <td data-label="Time">
-            <span class="vs-logs-time">{{ $row['created_at'] ?? '' }}</span>
+            <span class="vs-logs-time" title="{{ $row['created_at'] ?? '' }}">{{ $row['created_at_human'] ?? ($row['created_at'] ?? '') }}</span>
+            <span class="vs-logs-time-raw">{{ $row['created_at'] ?? '' }}</span>
           </td>
         </tr>
       @empty

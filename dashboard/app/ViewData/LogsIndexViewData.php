@@ -3,6 +3,7 @@
 namespace App\ViewData;
 
 use App\Services\EdgeShield\EdgeShieldConfig;
+use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class LogsIndexViewData
@@ -87,6 +88,7 @@ class LogsIndexViewData
             $domain = $this->resolveDomain($row);
             $eventType = trim((string) ($row['worst_event_type'] ?? $row['event_type'] ?? ''));
             $eventScore = $this->eventScore($eventType, $row);
+            $severity = $this->severity($eventType, $eventScore);
             $recentPaths = $this->recentPaths($row);
             $flaggedEvents = (int) ($row['flagged_events'] ?? 0);
             $solvedEvents = (int) ($row['solved_or_passed_events'] ?? 0);
@@ -99,6 +101,8 @@ class LogsIndexViewData
                 'event_display' => $this->eventDisplay($eventType, $isInIpFarm, $ttlHours),
                 'event_score' => $eventScore,
                 'event_score_class' => $this->eventScoreClass($eventScore),
+                'severity_label' => $severity['label'],
+                'severity_tone' => $severity['tone'],
                 'is_repeat_offender' => $this->hasHighVolume($row) && $flaggedEvents > $solvedEvents,
                 'ip_address' => $ip,
                 'asn' => (string) ($row['asn'] ?? ''),
@@ -111,6 +115,7 @@ class LogsIndexViewData
                 'details_items' => $this->detailsItems((string) ($row['details'] ?? '')),
                 'details_fallback' => $this->formatDetails((string) ($row['details'] ?? '')),
                 'created_at' => (string) ($row['created_at'] ?? ''),
+                'created_at_human' => $this->createdAtHuman((string) ($row['created_at'] ?? '')),
                 'prefer_block_action' => $solvedEvents > 0 && $flaggedEvents === 0,
                 'can_allow' => $ip !== '' && $ip !== 'N/A' && $domain !== '-',
                 'is_in_ip_farm' => $isInIpFarm,
@@ -189,6 +194,46 @@ class LogsIndexViewData
         }
 
         return 'border-emerald-400/40 bg-emerald-500/20 text-emerald-100';
+    }
+
+    private function severity(string $eventType, int $score): array
+    {
+        $normalized = strtolower(trim($eventType));
+        $criticalEvents = ['replay_detected'];
+        $dangerEvents = ['hard_block', 'challenge_failed', 'turnstile_failed', 'session_rejected', 'mode_escalated', 'waf_rule_created', 'waf_merge_new'];
+        $warningEvents = ['challenge_issued', 'challenge_warning', 'ai_defense', 'waf_merge_updated', 'waf_merge_skipped'];
+        $successEvents = ['challenge_solved', 'session_created'];
+
+        if (in_array($normalized, $criticalEvents, true) || $score >= 90) {
+            return ['tone' => 'critical', 'label' => 'Critical'];
+        }
+
+        if (in_array($normalized, $dangerEvents, true) || $score >= 70) {
+            return ['tone' => 'danger', 'label' => 'Failed'];
+        }
+
+        if (in_array($normalized, $warningEvents, true) || $score >= 40) {
+            return ['tone' => 'warning', 'label' => 'Warning'];
+        }
+
+        if (in_array($normalized, $successEvents, true) || $score <= 15) {
+            return ['tone' => 'success', 'label' => 'Success'];
+        }
+
+        return ['tone' => 'info', 'label' => 'Info'];
+    }
+
+    private function createdAtHuman(string $createdAt): string
+    {
+        if (trim($createdAt) === '') {
+            return 'Unknown time';
+        }
+
+        try {
+            return Carbon::parse($createdAt)->diffForHumans();
+        } catch (\Throwable) {
+            return $createdAt;
+        }
     }
 
     private function hasHighVolume(array $row): bool

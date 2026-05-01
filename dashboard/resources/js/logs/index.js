@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const pathTooltips = Array.from(document.querySelectorAll('.es-path-tooltip'));
+    const pathTooltips = Array.from(document.querySelectorAll('.vs-logs-path-tooltip'));
     if (pathTooltips.length === 0) {
         return;
     }

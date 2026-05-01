@@ -29,7 +29,7 @@
           <option value="30d">Older than 30 days</option>
           <option value="all">All Logs (Reset)</option>
         </select>
-        <button type="submit" class="vs-logs-btn vs-logs-btn-danger">
+        <button type="submit" class="vs-logs-btn vs-logs-btn-danger" aria-label="Clear selected security logs period">
           <img src="{{ asset('duotone/trash.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral" aria-hidden="true">
           Clear
         </button>
@@ -44,7 +44,7 @@
     </div>
   @endif
 
-  <form method="GET" action="{{ $logsIndexRoute }}" class="vs-logs-filter-form">
+  <form method="GET" action="{{ $logsIndexRoute }}" class="vs-logs-filter-form" aria-label="Security log filters">
     <div class="vs-logs-field">
       <label for="logs-domain-filter">Filter by domain</label>
       <select id="logs-domain-filter" class="vs-logs-input" name="domain_name">
@@ -68,11 +68,11 @@
       <input id="logs-ip-filter" class="vs-logs-input" name="ip_address" value="{{ $ipAddress ?? '' }}" placeholder="e.g. 203.0.113.10">
     </div>
     <div class="vs-logs-filter-actions">
-      <button class="vs-logs-btn vs-logs-btn-primary" type="submit">
+      <button class="vs-logs-btn vs-logs-btn-primary" type="submit" aria-label="Apply security log filters">
         <img src="{{ asset('duotone/filter.svg') }}" alt="" class="es-duotone-icon" style="filter: brightness(0);" aria-hidden="true">
         Filter
       </button>
-      <a class="vs-logs-btn vs-logs-btn-secondary" href="{{ $logsResetRoute }}">Reset</a>
+      <a class="vs-logs-btn vs-logs-btn-secondary" href="{{ $logsResetRoute }}" aria-label="Reset security log filters">Reset</a>
     </div>
   </form>
 
