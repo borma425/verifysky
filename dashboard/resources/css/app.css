@@ -13,6 +13,1909 @@
 }
 
 @layer components {
+    .vs-farm-page {
+        display: grid;
+        gap: 0.85rem;
+        color: #D7E1F5;
+        font-family: Manrope, Inter, var(--font-sans);
+    }
+
+    .vs-farm-page .es-duotone-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        object-fit: contain;
+    }
+
+    .vs-farm-admin-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .vs-farm-back {
+        color: #D4C4AB;
+        font-size: 0.85rem;
+        font-weight: 800;
+        text-decoration: none;
+    }
+
+    .vs-farm-back:hover {
+        color: #FFDC9C;
+    }
+
+    .vs-farm-admin-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .vs-farm-hero {
+        overflow: hidden;
+        border: 1px solid rgba(80, 69, 50, 0.2);
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(212, 123, 120, 0.1), rgba(252, 185, 0, 0.06) 42%, #1B202A);
+        padding: 0.95rem 1rem;
+    }
+
+    .vs-farm-hero-copy {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .vs-farm-mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.45rem;
+        height: 2.45rem;
+        border: 1px solid rgba(212, 123, 120, 0.24);
+        border-radius: 8px;
+        background: rgba(212, 123, 120, 0.13);
+        color: #FFE6E3;
+    }
+
+    .vs-farm-mark .es-duotone-icon {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+
+    .vs-farm-eyebrow {
+        margin: 0 0 0.25rem;
+        color: #D4C4AB;
+        font-size: 0.62rem;
+        font-weight: 850;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .vs-farm-hero h1,
+    .vs-farm-hero h2 {
+        margin: 0;
+        color: #FFFFFF;
+        font-size: clamp(1.35rem, 1.15rem + 0.45vw, 1.75rem);
+        font-weight: 850;
+        line-height: 1.1;
+    }
+
+    .vs-farm-hero p:not(.vs-farm-eyebrow) {
+        max-width: 58rem;
+        margin-top: 0.42rem;
+        color: #D4C4AB;
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+
+    .vs-farm-alert {
+        border: 1px solid rgba(252, 185, 0, 0.28);
+        border-radius: 8px;
+        background: rgba(252, 185, 0, 0.1);
+        color: #FFDC9C;
+        padding: 0.72rem 0.85rem;
+        font-size: 0.8rem;
+    }
+
+    .vs-farm-alert-soft {
+        margin-bottom: 1rem;
+    }
+
+    .vs-farm-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.8rem;
+    }
+
+    .vs-farm-stat {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 0.65rem;
+        border: 1px solid rgba(80, 69, 50, 0.2);
+        border-radius: 8px;
+        background: #1B202A;
+        padding: 0.75rem 0.85rem;
+    }
+
+    .vs-farm-stat-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 6px;
+        background: #303540;
+        color: #FCB900;
+    }
+
+    .vs-farm-stat-danger > .vs-farm-stat-icon {
+        background: rgba(212, 123, 120, 0.13);
+    }
+
+    .vs-farm-stat-success > .vs-farm-stat-icon {
+        background: rgba(62, 213, 152, 0.12);
+    }
+
+    .vs-farm-stat strong {
+        display: block;
+        color: #FFFFFF;
+        font-size: 1.15rem;
+        font-weight: 850;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+    }
+
+    .vs-farm-stat div span {
+        display: block;
+        margin-top: 0.25rem;
+        color: #9FAABC;
+        font-size: 0.64rem;
+        font-weight: 800;
+    }
+
+    .vs-farm-layout {
+        display: grid;
+        grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
+        align-items: start;
+        gap: 0.8rem;
+    }
+
+    .vs-farm-create,
+    .vs-farm-node,
+    .vs-farm-empty {
+        border: 1px solid rgba(80, 69, 50, 0.2);
+        border-radius: 8px;
+        background: #1B202A;
+        box-shadow: 0 18px 44px rgba(10, 13, 18, 0.18);
+    }
+
+    .vs-farm-create {
+        position: sticky;
+        top: 1rem;
+        padding: 0.85rem;
+    }
+
+    .vs-farm-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.8rem;
+        margin-bottom: 0.85rem;
+        border-bottom: 1px solid rgba(80, 69, 50, 0.18);
+        padding-bottom: 0.85rem;
+    }
+
+    .vs-farm-card-head h2,
+    .vs-farm-card-head h3 {
+        margin: 0;
+        color: #FFFFFF;
+        font-size: 0.95rem;
+        font-weight: 850;
+    }
+
+    .vs-farm-card-head > .es-duotone-icon {
+        width: 1.15rem;
+        height: 1.15rem;
+    }
+
+    .vs-farm-form {
+        display: grid;
+        gap: 0.7rem;
+    }
+
+    .vs-farm-form label:not(.vs-farm-check) {
+        display: grid;
+        gap: 0.3rem;
+    }
+
+    .vs-farm-form label > span {
+        color: #D4C4AB;
+        font-size: 0.62rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .vs-farm-input {
+        width: 100%;
+        min-height: 2.25rem;
+        border: 1px solid rgba(80, 69, 50, 0.24);
+        border-radius: 6px;
+        background: #090E18;
+        color: #DEE2F0;
+        padding: 0.48rem 0.65rem;
+        font-size: 0.78rem;
+        outline: none;
+    }
+
+    .vs-farm-input:focus {
+        border-color: rgba(252, 185, 0, 0.72);
+        box-shadow: 0 0 0 3px rgba(252, 185, 0, 0.1);
+    }
+
+    .vs-farm-textarea {
+        min-height: 7.6rem;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+    }
+
+    .vs-farm-textarea-tall {
+        min-height: 11rem;
+    }
+
+    .vs-farm-textarea-small {
+        min-height: 5.4rem;
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+    }
+
+    .vs-farm-check {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: #D4C4AB;
+        font-size: 0.72rem;
+        font-weight: 800;
+    }
+
+    .vs-farm-check input {
+        border-color: rgba(80, 69, 50, 0.35);
+        border-radius: 4px;
+        background: #252A34;
+        color: #FCB900;
+        width: 0.82rem;
+        height: 0.82rem;
+    }
+
+    .vs-farm-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.25rem;
+        border: 1px solid rgba(80, 69, 50, 0.24);
+        border-radius: 6px;
+        padding: 0 1rem;
+        font-size: 0.76rem;
+        font-weight: 850;
+        transition: transform 0.16s ease, background-color 0.16s ease;
+    }
+
+    .vs-farm-button:hover {
+        transform: translateY(-1px);
+    }
+
+    .vs-farm-button-primary {
+        border-color: rgba(252, 185, 0, 0.72);
+        background: #FCB900;
+        color: #261900;
+    }
+
+    .vs-farm-button-secondary {
+        background: #303540;
+        color: #DEE2F0;
+    }
+
+    .vs-farm-button-danger {
+        border-color: rgba(212, 123, 120, 0.36);
+        background: rgba(212, 123, 120, 0.14);
+        color: #FFE6E3;
+    }
+
+    .vs-farm-network {
+        position: relative;
+        display: grid;
+        gap: 0.8rem;
+    }
+
+    .vs-farm-node {
+        position: relative;
+        overflow: visible;
+        margin-left: 2rem;
+    }
+
+    .vs-farm-node-line {
+        position: absolute;
+        top: -1rem;
+        bottom: -1rem;
+        left: -1.05rem;
+        width: 1px;
+        background: linear-gradient(to bottom, transparent, rgba(212, 123, 120, 0.45), rgba(252, 185, 0, 0.25), transparent);
+    }
+
+    .vs-farm-node-dot {
+        position: absolute;
+        top: 1.4rem;
+        left: -1.32rem;
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 999px;
+        background: #D47B78;
+        box-shadow: 0 0 0 5px rgba(212, 123, 120, 0.12);
+    }
+
+    .vs-farm-node-paused .vs-farm-node-dot {
+        background: #FCB900;
+        box-shadow: 0 0 0 5px rgba(252, 185, 0, 0.12);
+    }
+
+    .vs-farm-node-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.8rem;
+        border-bottom: 1px solid rgba(80, 69, 50, 0.18);
+        padding: 0.85rem;
+    }
+
+    .vs-farm-node-title {
+        display: flex;
+        align-items: flex-start;
+        min-width: 0;
+        gap: 0.75rem;
+    }
+
+    .vs-farm-node-icon {
+        display: inline-flex;
+        flex: 0 0 2rem;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 6px;
+        background: rgba(212, 123, 120, 0.13);
+        color: #FFE6E3;
+    }
+
+    .vs-farm-node h3 {
+        margin: 0;
+        color: #FFFFFF;
+        font-size: 0.92rem;
+        font-weight: 850;
+        line-height: 1.2;
+    }
+
+    .vs-farm-node p {
+        margin-top: 0.35rem;
+        color: #9FAABC;
+        font-size: 0.68rem;
+        font-weight: 800;
+    }
+
+    .vs-farm-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.45rem;
+    }
+
+    .vs-farm-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.75rem;
+        border: 1px solid rgba(80, 69, 50, 0.22);
+        border-radius: 6px;
+        background: #303540;
+        color: #DEE2F0;
+        padding: 0 0.48rem;
+        font-size: 0.64rem;
+        font-weight: 850;
+        white-space: nowrap;
+    }
+
+    .vs-farm-pill-danger {
+        border-color: rgba(212, 123, 120, 0.34);
+        background: rgba(212, 123, 120, 0.13);
+        color: #FFE6E3;
+    }
+
+    .vs-farm-pill-warning {
+        border-color: rgba(252, 185, 0, 0.32);
+        background: rgba(252, 185, 0, 0.11);
+        color: #FFDC9C;
+    }
+
+    .vs-farm-icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.75rem;
+        height: 1.75rem;
+        border: 1px solid rgba(80, 69, 50, 0.24);
+        border-radius: 6px;
+        background: #303540;
+        color: #D4C4AB;
+        transition: transform 0.16s ease, color 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+    }
+
+    .vs-farm-icon-button:hover {
+        transform: translateY(-1px);
+        color: #FFDC9C;
+    }
+
+    .vs-farm-icon-button .es-duotone-icon {
+        width: 0.95rem;
+        height: 0.95rem;
+    }
+
+    .vs-farm-icon-danger:hover {
+        border-color: rgba(212, 123, 120, 0.42);
+        background: rgba(212, 123, 120, 0.15);
+        color: #FFE6E3;
+    }
+
+    .vs-farm-node-body {
+        display: grid;
+        gap: 0.8rem;
+        padding: 0.85rem;
+    }
+
+    .vs-farm-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        color: #9FAABC;
+        font-size: 0.68rem;
+        font-weight: 750;
+    }
+
+    .vs-farm-meta > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .vs-farm-meta .es-duotone-icon {
+        width: 0.82rem;
+        height: 0.82rem;
+    }
+
+    .vs-farm-ip-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.42rem;
+        max-height: 10rem;
+        overflow: auto;
+        border: 1px solid rgba(80, 69, 50, 0.14);
+        border-radius: 8px;
+        background: #090E18;
+        padding: 0.65rem;
+    }
+
+    .vs-farm-ip-grid span {
+        display: inline-flex;
+        border: 1px solid rgba(215, 225, 245, 0.08);
+        border-radius: 5px;
+        background: #171C26;
+        color: #DEE2F0;
+        padding: 0.28rem 0.48rem;
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        font-weight: 800;
+    }
+
+    .vs-farm-ip-grid em {
+        color: #9FAABC;
+        font-size: 0.76rem;
+        font-style: normal;
+    }
+
+    .vs-farm-editor {
+        border-top: 1px solid rgba(80, 69, 50, 0.16);
+        padding-top: 0.75rem;
+    }
+
+    .vs-farm-editor summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.42rem;
+        border: 1px solid rgba(252, 185, 0, 0.28);
+        border-radius: 6px;
+        background: rgba(252, 185, 0, 0.1);
+        color: #FFDC9C;
+        cursor: pointer;
+        padding: 0.55rem 0.75rem;
+        font-size: 0.72rem;
+        font-weight: 850;
+        list-style: none;
+    }
+
+    .vs-farm-editor summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .vs-farm-editor summary .es-duotone-icon {
+        width: 0.9rem;
+        height: 0.9rem;
+    }
+
+    .vs-farm-editor-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.8fr);
+        gap: 0.8rem;
+        margin-top: 0.85rem;
+    }
+
+    .vs-farm-editor-main,
+    .vs-farm-side-tools {
+        border: 1px solid rgba(80, 69, 50, 0.16);
+        border-radius: 8px;
+        background: #111822;
+        padding: 0.8rem;
+    }
+
+    .vs-farm-side-tools {
+        display: grid;
+        gap: 0.9rem;
+    }
+
+    .vs-farm-empty {
+        display: grid;
+        place-items: center;
+        gap: 0.5rem;
+        padding: 1.5rem;
+        color: #9FAABC;
+        text-align: center;
+    }
+
+    .vs-farm-empty .es-duotone-icon {
+        width: 1.35rem;
+        height: 1.35rem;
+    }
+
+    .vs-farm-empty h3 {
+        margin: 0;
+        color: #DEE2F0;
+        font-size: 0.9rem;
+        font-weight: 850;
+    }
+
+    .vs-farm-empty p {
+        margin: 0;
+        font-size: 0.78rem;
+    }
+
+    @media (max-width: 1180px) {
+        .vs-farm-layout {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .vs-farm-create {
+            position: static;
+        }
+
+        .vs-farm-editor-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 760px) {
+        .vs-farm-admin-bar,
+        .vs-farm-node-head,
+        .vs-farm-hero-copy {
+            flex-direction: column;
+        }
+
+        .vs-farm-stats {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .vs-farm-node {
+            margin-left: 0;
+        }
+
+        .vs-farm-node-line,
+        .vs-farm-node-dot {
+            display: none;
+        }
+
+        .vs-farm-actions {
+            justify-content: flex-start;
+        }
+
+        .vs-farm-button {
+            width: 100%;
+        }
+    }
+}
+
+@layer components {
+    .vs-logs-page {
+        display: grid;
+        gap: 1rem;
+        color: #D7E1F5;
+        font-family: Manrope, Inter, var(--font-sans);
+    }
+
+    .vs-logs-panel,
+    .vs-logs-stat {
+        border: 1px solid rgba(80, 69, 50, 0.2);
+        border-radius: 8px;
+        background: #1B202A;
+        box-shadow: 0 18px 44px rgba(10, 13, 18, 0.18);
+    }
+
+    .vs-logs-command {
+        display: grid;
+        gap: 1rem;
+        padding: 1rem;
+    }
+
+    .vs-logs-command-head,
+    .vs-logs-title-row,
+    .vs-logs-clear-form,
+    .vs-logs-filter-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .vs-logs-command-head {
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(80, 69, 50, 0.18);
+        padding-bottom: 1rem;
+    }
+
+    .vs-logs-title-block {
+        min-width: 0;
+    }
+
+    .vs-logs-title-row {
+        flex-wrap: wrap;
+        align-items: baseline;
+    }
+
+    .vs-logs-title-row h2 {
+        margin: 0;
+        color: #FFFFFF;
+        font-size: clamp(1.25rem, 1.05rem + 0.45vw, 1.55rem);
+        font-weight: 900;
+        letter-spacing: 0;
+        line-height: 1.1;
+    }
+
+    .vs-logs-title-block p,
+    .vs-logs-table-head p {
+        margin-top: 0.45rem;
+        max-width: 54rem;
+        color: #D4C4AB;
+        font-size: 0.88rem;
+        line-height: 1.55;
+    }
+
+    .vs-logs-env-badge,
+    .vs-logs-repeat-badge,
+    .vs-logs-count-badge,
+    .vs-logs-risk-badge {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        border-radius: 4px;
+        font-size: 0.66rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .vs-logs-env-badge {
+        border: 1px solid rgba(252, 185, 0, 0.28);
+        background: rgba(252, 185, 0, 0.1);
+        color: #FFDC9C;
+        padding: 0.34rem 0.5rem;
+    }
+
+    .vs-logs-env-live {
+        border-color: rgba(62, 213, 152, 0.28);
+        background: rgba(62, 213, 152, 0.1);
+        color: #DDF8EE;
+    }
+
+    .vs-logs-env-locked {
+        border-color: rgba(252, 185, 0, 0.3);
+        background: rgba(252, 185, 0, 0.1);
+        color: #FFDC9C;
+    }
+
+    .vs-logs-clear-form {
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .vs-logs-sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+    }
+
+    .vs-logs-input {
+        width: 100%;
+        min-height: 2.45rem;
+        border: 1px solid rgba(80, 69, 50, 0.24);
+        border-radius: 6px;
+        background: #090E18;
+        color: #DEE2F0;
+        padding: 0.52rem 0.75rem;
+        font-size: 0.86rem;
+        outline: none;
+        transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+    }
+
+    .vs-logs-input::placeholder {
+        color: #7F899A;
+    }
+
+    .vs-logs-input:focus {
+        border-color: rgba(252, 185, 0, 0.72);
+        box-shadow: 0 0 0 3px rgba(252, 185, 0, 0.1);
+    }
+
+    .vs-logs-input option {
+        background: #171C26;
+        color: #DEE2F0;
+    }
+
+    .vs-logs-input-compact {
+        min-height: 2.1rem;
+        width: auto;
+        max-width: 13rem;
+        padding-block: 0.35rem;
+        font-size: 0.78rem;
+    }
+
+    .vs-logs-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.42rem;
+        min-height: 2.45rem;
+        border-radius: 6px;
+        border: 1px solid rgba(80, 69, 50, 0.22);
+        padding: 0 0.95rem;
+        font-size: 0.8rem;
+        font-weight: 900;
+        text-decoration: none;
+        white-space: nowrap;
+        transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .vs-logs-btn:hover {
+        transform: translateY(-1px);
+    }
+
+    .vs-logs-btn .material-symbols-outlined {
+        font-size: 1rem;
+    }
+
+    .vs-logs-btn .es-duotone-icon {
+        display: block;
+        width: 1rem;
+        height: 1rem;
+        object-fit: contain;
+    }
+
+    .vs-logs-btn-primary {
+        border-color: rgba(252, 185, 0, 0.72);
+        background: #FCB900;
+        color: #261900;
+    }
+
+    .vs-logs-btn-secondary {
+        background: #303540;
+        color: #DEE2F0;
+    }
+
+    .vs-logs-btn-danger {
+        min-height: 2.1rem;
+        border-color: rgba(212, 123, 120, 0.36);
+        background: rgba(212, 123, 120, 0.13);
+        color: #FFE6E3;
+        padding-inline: 0.75rem;
+        font-size: 0.74rem;
+    }
+
+    .vs-logs-btn-danger:hover {
+        background: rgba(212, 123, 120, 0.2);
+    }
+
+    .vs-logs-alert {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+        gap: 0.65rem;
+        border-radius: 6px;
+        padding: 0.75rem 0.85rem;
+        font-size: 0.84rem;
+        line-height: 1.45;
+    }
+
+    .vs-logs-alert .material-symbols-outlined {
+        font-size: 1.05rem;
+        line-height: 1.35;
+    }
+
+    .vs-logs-alert .es-duotone-icon {
+        display: block;
+        width: 1rem;
+        height: 1rem;
+        object-fit: contain;
+        margin-top: 0.12rem;
+    }
+
+    .vs-logs-alert-warning {
+        border: 1px solid rgba(252, 185, 0, 0.24);
+        background: rgba(252, 185, 0, 0.09);
+        color: #FFDC9C;
+    }
+
+    .vs-logs-alert-danger {
+        border: 1px solid rgba(212, 123, 120, 0.32);
+        background: rgba(212, 123, 120, 0.12);
+        color: #FFE6E3;
+    }
+
+    .vs-logs-filter-form {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(12rem, 1fr)) auto;
+        gap: 0.8rem;
+        align-items: end;
+    }
+
+    .vs-logs-field {
+        display: grid;
+        gap: 0.4rem;
+        min-width: 0;
+    }
+
+    .vs-logs-field label {
+        color: #D4C4AB;
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        line-height: 1rem;
+        text-transform: uppercase;
+    }
+
+    .vs-logs-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .vs-logs-stat {
+        display: grid;
+        min-height: 9.1rem;
+        gap: 1rem;
+        overflow: hidden;
+        padding: 1rem;
+        position: relative;
+    }
+
+    .vs-logs-stat::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-top: 3px solid rgba(252, 185, 0, 0.22);
+        pointer-events: none;
+    }
+
+    .vs-logs-stat-danger::after {
+        border-top-color: rgba(212, 123, 120, 0.42);
+    }
+
+    .vs-logs-stat-success::after {
+        border-top-color: rgba(62, 213, 152, 0.35);
+    }
+
+    .vs-logs-stat-head {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+        gap: 0.75rem;
+    }
+
+    .vs-logs-stat-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.15rem;
+        height: 2.15rem;
+        border-radius: 6px;
+        background: #303540;
+        color: #FCB900;
+    }
+
+    .vs-logs-stat-danger .vs-logs-stat-icon {
+        color: #FFE6E3;
+        background: rgba(212, 123, 120, 0.12);
+    }
+
+    .vs-logs-stat-success .vs-logs-stat-icon {
+        color: #DDF8EE;
+        background: rgba(62, 213, 152, 0.12);
+    }
+
+    .vs-logs-stat-icon .material-symbols-outlined {
+        font-size: 1.2rem;
+    }
+
+    .vs-logs-stat-icon .es-duotone-icon {
+        display: block;
+        width: 1.15rem;
+        height: 1.15rem;
+        object-fit: contain;
+    }
+
+    .vs-logs-stat h3 {
+        margin: 0;
+        color: #D4C4AB;
+        font-size: 0.84rem;
+        font-weight: 900;
+        letter-spacing: 0;
+        line-height: 1.25;
+    }
+
+    .vs-logs-stat-head span:not(.material-symbols-outlined):not(.vs-logs-stat-icon) {
+        display: inline-block;
+        margin-top: 0.35rem;
+        color: #8C98AA;
+        font-size: 0.64rem;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    .vs-logs-stat-value {
+        align-self: end;
+        color: #FFFFFF;
+        font-size: clamp(2rem, 1.45rem + 1.4vw, 2.75rem);
+        font-weight: 950;
+        letter-spacing: 0;
+        line-height: 0.95;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .vs-logs-country-list {
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    .vs-logs-country-row,
+    .vs-logs-country-name {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .vs-logs-country-row {
+        justify-content: space-between;
+    }
+
+    .vs-logs-country-name img {
+        width: 1.25rem;
+        border-radius: 3px;
+        border: 1px solid rgba(215, 225, 245, 0.12);
+    }
+
+    .vs-logs-country-name span {
+        color: #DEE2F0;
+        font-size: 0.82rem;
+        font-weight: 850;
+    }
+
+    .vs-logs-count-badge {
+        border: 1px solid rgba(212, 123, 120, 0.32);
+        background: rgba(212, 123, 120, 0.12);
+        color: #FFE6E3;
+        padding: 0.34rem 0.45rem;
+    }
+
+    .vs-logs-empty-inline,
+    .vs-logs-na {
+        color: #8C98AA;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+    .vs-logs-table-panel {
+        overflow: hidden;
+    }
+
+    .vs-logs-table-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid rgba(80, 69, 50, 0.18);
+        background: #1B202A;
+        padding: 1rem;
+    }
+
+    .vs-logs-table-head h3 {
+        margin: 0;
+        color: #FFFFFF;
+        font-size: 1rem;
+        font-weight: 900;
+        letter-spacing: 0;
+    }
+
+    .vs-logs-table-scroll {
+        overflow-x: auto;
+    }
+
+    .vs-logs-table {
+        min-width: 1420px;
+        width: 100%;
+        border-collapse: collapse;
+        color: #D7E1F5;
+        font-size: 0.8rem;
+    }
+
+    .vs-logs-table thead {
+        background: #090E18;
+    }
+
+    .vs-logs-table th {
+        padding: 0.8rem 0.85rem;
+        color: #D4C4AB;
+        font-size: 0.66rem;
+        font-weight: 950;
+        letter-spacing: 0.1em;
+        text-align: left;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .vs-logs-table td {
+        border-top: 1px solid rgba(80, 69, 50, 0.18);
+        background: #171C26;
+        padding: 0.82rem 0.85rem;
+        vertical-align: top;
+    }
+
+    .vs-logs-table tbody tr:hover td {
+        background: #252A34;
+    }
+
+    .vs-logs-table tbody tr td:first-child {
+        box-shadow: inset 3px 0 0 rgba(252, 185, 0, 0.14);
+    }
+
+    .vs-logs-table tbody tr.vs-logs-row-danger td:first-child {
+        box-shadow: inset 3px 0 0 rgba(212, 123, 120, 0.68);
+    }
+
+    .vs-logs-table tbody tr.vs-logs-row-warning td:first-child {
+        box-shadow: inset 3px 0 0 rgba(252, 185, 0, 0.54);
+    }
+
+    .vs-logs-table tbody tr.vs-logs-row-success td:first-child {
+        box-shadow: inset 3px 0 0 rgba(62, 213, 152, 0.42);
+    }
+
+    .vs-logs-domain,
+    .vs-logs-mono,
+    .vs-logs-path,
+    .vs-logs-time {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .vs-logs-domain {
+        display: inline-flex;
+        max-width: 15rem;
+        overflow: hidden;
+        color: #FFFFFF;
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .vs-logs-event-stack,
+    .vs-logs-details-list,
+    .vs-logs-path-list {
+        display: grid;
+        gap: 0.38rem;
+    }
+
+    .vs-logs-event-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem;
+    }
+
+    .vs-logs-event-name {
+        color: #FFFFFF;
+        font-weight: 850;
+    }
+
+    .vs-logs-risk-badge {
+        border: 1px solid rgba(252, 185, 0, 0.28);
+        background: rgba(252, 185, 0, 0.1);
+        color: #FFDC9C;
+        padding: 0.28rem 0.4rem;
+    }
+
+    .vs-logs-row-danger .vs-logs-risk-badge {
+        border-color: rgba(212, 123, 120, 0.34);
+        background: rgba(212, 123, 120, 0.13);
+        color: #FFE6E3;
+    }
+
+    .vs-logs-row-success .vs-logs-risk-badge {
+        border-color: rgba(62, 213, 152, 0.28);
+        background: rgba(62, 213, 152, 0.1);
+        color: #DDF8EE;
+    }
+
+    .vs-logs-repeat-badge {
+        border: 1px solid rgba(212, 123, 120, 0.34);
+        background: rgba(212, 123, 120, 0.13);
+        color: #FFE6E3;
+        padding: 0.28rem 0.42rem;
+    }
+
+    .vs-logs-mono {
+        color: #DEE2F0;
+        font-size: 0.76rem;
+    }
+
+    .vs-logs-attack-stack {
+        display: grid;
+        width: fit-content;
+        gap: 0.32rem;
+    }
+
+    .vs-logs-attack-stack span {
+        border: 1px solid rgba(215, 225, 245, 0.08);
+        border-radius: 4px;
+        background: #090E18;
+        color: #D4C4AB;
+        padding: 0.22rem 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 850;
+        line-height: 1;
+        white-space: nowrap;
+    }
+
+    .vs-logs-action-form {
+        display: inline-flex;
+    }
+
+    .vs-logs-action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 6px;
+        border: 1px solid rgba(80, 69, 50, 0.2);
+        background: #303540;
+        color: #D4C4AB;
+        transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .vs-logs-action-btn:hover {
+        transform: translateY(-1px);
+    }
+
+    .vs-logs-action-btn svg {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .vs-logs-action-danger:hover {
+        border-color: rgba(212, 123, 120, 0.42);
+        background: rgba(212, 123, 120, 0.14);
+        color: #FFE6E3;
+    }
+
+    .vs-logs-action-success:hover {
+        border-color: rgba(62, 213, 152, 0.36);
+        background: rgba(62, 213, 152, 0.12);
+        color: #DDF8EE;
+    }
+
+    .vs-logs-country-code {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.45rem;
+        border-radius: 4px;
+        background: #303540;
+        color: #DEE2F0;
+        padding: 0.2rem 0.42rem;
+        font-size: 0.72rem;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+
+    .vs-logs-path-cell {
+        max-width: 20rem;
+        position: relative;
+    }
+
+    .vs-logs-path {
+        max-width: 18rem;
+        overflow: hidden;
+        border-radius: 4px;
+        background: #090E18;
+        color: #D7E1F5;
+        padding: 0.25rem 0.42rem;
+        font-size: 0.68rem;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .vs-logs-path-tooltip {
+        margin-top: 0.45rem;
+        position: relative;
+    }
+
+    .vs-logs-path-trigger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.45rem;
+        height: 1.45rem;
+        border-radius: 4px;
+        border: 1px solid rgba(252, 185, 0, 0.24);
+        background: rgba(252, 185, 0, 0.1);
+        color: #FFDC9C;
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-weight: 900;
+        list-style: none;
+    }
+
+    .vs-logs-path-trigger::-webkit-details-marker {
+        display: none;
+    }
+
+    .vs-logs-path-panel {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 0.45rem);
+        z-index: 20;
+        width: min(30rem, 72vw);
+        max-height: 22rem;
+        overflow: auto;
+        border: 1px solid rgba(80, 69, 50, 0.28);
+        border-radius: 8px;
+        background: #090E18;
+        box-shadow: 0 20px 52px rgba(0, 0, 0, 0.42);
+        padding: 0.8rem;
+    }
+
+    .vs-logs-path-panel-title {
+        margin-bottom: 0.5rem;
+        color: #FFDC9C;
+        font-size: 0.68rem;
+        font-weight: 950;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .vs-logs-path-panel-list {
+        display: grid;
+        gap: 0.32rem;
+        color: #D7E1F5;
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+    }
+
+    .vs-logs-details-cell {
+        max-width: 28rem;
+    }
+
+    .vs-logs-details-list {
+        gap: 0.3rem;
+        font-size: 0.75rem;
+        line-height: 1.35;
+    }
+
+    .vs-logs-details-list div {
+        display: grid;
+        grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+        gap: 0.4rem;
+    }
+
+    .vs-logs-details-list span {
+        color: #D4C4AB;
+        font-weight: 900;
+    }
+
+    .vs-logs-details-list strong,
+    .vs-logs-detail-fallback {
+        color: #DEE2F0;
+        font-weight: 600;
+    }
+
+    .vs-logs-time {
+        color: #D4C4AB;
+        font-size: 0.72rem;
+        white-space: nowrap;
+    }
+
+    .vs-logs-empty-row {
+        padding: 1.4rem !important;
+        color: #9FAABC !important;
+        text-align: center;
+    }
+
+    .vs-logs-pagination {
+        border-top: 1px solid rgba(80, 69, 50, 0.18);
+        background: #1B202A;
+        padding: 0.85rem 1rem;
+    }
+
+    @media (max-width: 1180px) {
+        .vs-logs-command-head,
+        .vs-logs-clear-form {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .vs-logs-filter-form {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .vs-logs-filter-actions {
+            grid-column: 1 / -1;
+        }
+
+        .vs-logs-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .vs-logs-stat-countries {
+            grid-column: 1 / -1;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .vs-logs-page {
+            gap: 0.85rem;
+        }
+
+        .vs-logs-command,
+        .vs-logs-table-head,
+        .vs-logs-stat {
+            padding: 0.9rem;
+        }
+
+        .vs-logs-filter-form,
+        .vs-logs-stats {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .vs-logs-stat-countries,
+        .vs-logs-filter-actions {
+            grid-column: auto;
+        }
+
+        .vs-logs-filter-actions,
+        .vs-logs-filter-actions .vs-logs-btn,
+        .vs-logs-clear-form,
+        .vs-logs-clear-form .vs-logs-btn,
+        .vs-logs-clear-form .vs-logs-input {
+            width: 100%;
+        }
+
+        .vs-logs-table {
+            min-width: 0;
+        }
+
+        .vs-logs-table thead {
+            display: none;
+        }
+
+        .vs-logs-table,
+        .vs-logs-table tbody,
+        .vs-logs-table tr,
+        .vs-logs-table td {
+            display: block;
+            width: 100%;
+        }
+
+        .vs-logs-table tbody tr {
+            display: grid;
+            margin: 0.85rem;
+            overflow: hidden;
+            border: 1px solid rgba(80, 69, 50, 0.22);
+            border-radius: 8px;
+            background: #171C26;
+        }
+
+        .vs-logs-table td {
+            display: grid;
+            grid-template-columns: minmax(6rem, 0.38fr) minmax(0, 1fr);
+            gap: 0.75rem;
+            border-top: 1px solid rgba(80, 69, 50, 0.14);
+            background: transparent;
+            padding: 0.78rem 0.85rem;
+        }
+
+        .vs-logs-table tbody tr td:first-child {
+            border-top: 0;
+            box-shadow: none;
+        }
+
+        .vs-logs-table td::before {
+            content: attr(data-label);
+            color: #D4C4AB;
+            font-size: 0.64rem;
+            font-weight: 950;
+            letter-spacing: 0.1em;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+
+        .vs-logs-empty-row {
+            display: block !important;
+            text-align: left;
+        }
+
+        .vs-logs-path-panel {
+            position: fixed;
+            left: 1rem;
+            right: 1rem;
+            top: auto;
+            bottom: 1rem;
+            width: auto;
+        }
+    }
+}
+
+@layer components {
+    .borma-preloader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        perspective: 400px;
+        background-color: #171C26;
+        z-index: 9999;
+    }
+
+    .borma-preloader-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        row-gap: 1.15rem;
+        transform: translateY(1rem);
+    }
+
+    .plane-animation {
+        width: 120px;
+        height: 120px;
+        transform-style: preserve-3d;
+    }
+
+    .plane-animation.track-preloader {
+        position: relative;
+        flex: 0 0 120px;
+        transform: rotateX(60deg) rotateZ(-30deg);
+        animation: rotate 3.5s linear 0.1s 1 normal forwards;
+    }
+
+    .plane-animation.track-preloader .circle {
+        position: absolute;
+        width: 120px;
+        height: 120px;
+        border-radius: 100%;
+        background-image: var(--borma-preloader-logo);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow: 0 0 60px #ffeb3b, inset 0 0 60px white;
+        box-sizing: border-box;
+        transform-style: preserve-3d;
+    }
+
+    .plane-animation.track-preloader .circle::before,
+    .plane-animation.track-preloader .circle::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 20%;
+        height: 20%;
+        margin: auto;
+        border-radius: 100%;
+        background: #f7e500;
+        background-image: var(--borma-preloader-logo);
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow: 0 0 60px 2px yellow;
+        box-sizing: border-box;
+    }
+
+    .plane-animation.track-preloader .circle::before {
+        transform: translateZ(-90px);
+    }
+
+    .plane-animation.track-preloader .circle::after {
+        transform: translateZ(90px);
+    }
+
+    .plane-animation.track-preloader .circle:nth-child(1) {
+        transform: rotateZ(72deg) rotateX(63.435deg);
+    }
+
+    .plane-animation.track-preloader .circle:nth-child(2) {
+        transform: rotateZ(144deg) rotateX(63.435deg);
+    }
+
+    .plane-animation.track-preloader .circle:nth-child(3) {
+        transform: rotateZ(216deg) rotateX(63.435deg);
+    }
+
+    .plane-animation.track-preloader .circle:nth-child(4) {
+        transform: rotateZ(288deg) rotateX(63.435deg);
+    }
+
+    .plane-animation.track-preloader .circle:nth-child(5) {
+        transform: rotateZ(360deg) rotateX(63.435deg);
+    }
+
+    .borma-preloader-progress {
+        margin-top: 1.45rem;
+        width: min(15rem, 64vw);
+        height: 0.35rem;
+        overflow: hidden;
+        border-radius: 999px;
+        border: 1px solid rgba(252, 185, 0, 0.24);
+        background: rgba(14, 19, 29, 0.72);
+        box-shadow: 0 0 24px rgba(252, 185, 0, 0.12);
+    }
+
+    .borma-preloader-text {
+        color: #D7E1F5;
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.24em;
+        line-height: 1;
+        text-transform: uppercase;
+    }
+
+    .borma-preloader-progress span {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #FCB900, #FFEB3B, #FCB900);
+        box-shadow: 0 0 18px rgba(252, 185, 0, 0.72);
+        transform-origin: left center;
+        animation: borma-preloader-fill 3.5s linear 0.1s forwards;
+    }
+
+    @keyframes borma-preloader-fill {
+        0% {
+            transform: scaleX(0);
+        }
+
+        70% {
+            transform: scaleX(0.72);
+        }
+
+        100% {
+            transform: scaleX(1);
+        }
+    }
+
+    @keyframes rotate {
+        0% {
+            transform: rotateX(0) rotateY(0) rotateZ(0);
+        }
+
+        100% {
+            transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg);
+        }
+    }
+
+    .vs-sp-label {
+        display: block;
+        color: #94A3B8;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .vs-sp-input {
+        width: 100%;
+        min-height: 2.25rem;
+        border-radius: 4px;
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #171C26;
+        color: #FFFFFF;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+        outline: none;
+        transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+    }
+
+    .vs-sp-input:focus {
+        border-color: #FCB900;
+        box-shadow: 0 0 0 1px rgba(252, 185, 0, 0.9);
+    }
+
+    .vs-sp-input::placeholder {
+        color: #64748B;
+    }
+
+    .vs-sp-input option {
+        background: #171C26;
+        color: #DEE2F0;
+    }
+
+    .vs-sp-input option:checked {
+        background: #252A34;
+        color: #FCB900;
+    }
+
+    .vs-sp-input option:hover {
+        background: #252A34;
+        color: #FFFFFF;
+    }
+
+    .vs-sp-th {
+        padding: 0.75rem;
+        color: #94A3B8;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        line-height: 12px;
+        text-transform: uppercase;
+    }
+
+    .vs-sp-table {
+        border-collapse: separate;
+        border-spacing: 0 0.5rem;
+    }
+
+    .vs-sp-table thead tr {
+        transform: translateY(0.25rem);
+    }
+
+    .vs-sp-td {
+        border-top: 1px solid rgba(215, 225, 245, 0.1);
+        border-bottom: 1px solid rgba(215, 225, 245, 0.1);
+        border-left: 1px solid rgba(215, 225, 245, 0.045);
+        background: #111822;
+        padding: 0.8rem 0.75rem;
+        vertical-align: middle;
+        transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+    }
+
+    .vs-sp-data-row .vs-sp-td:first-child {
+        border-left: 1px solid rgba(215, 225, 245, 0.1);
+        border-radius: 8px 0 0 8px;
+    }
+
+    .vs-sp-data-row .vs-sp-td:last-child {
+        border-right: 1px solid rgba(215, 225, 245, 0.1);
+        border-radius: 0 8px 8px 0;
+    }
+
+    .vs-sp-data-row:hover .vs-sp-td {
+        background: #1B202A;
+        border-top-color: rgba(252, 185, 0, 0.18);
+        border-bottom-color: rgba(252, 185, 0, 0.18);
+    }
+
+    .vs-sp-data-row-critical:hover .vs-sp-td:first-child {
+        box-shadow: inset 3px 0 0 rgba(212, 123, 120, 0.9);
+    }
+
+    .vs-sp-data-row-medium:hover .vs-sp-td:first-child {
+        box-shadow: inset 3px 0 0 rgba(245, 158, 11, 0.9);
+    }
+
+    .vs-sp-td-check {
+        width: 2.75rem;
+        text-align: center;
+    }
+
+    .vs-sp-path-cell {
+        display: grid;
+        grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr);
+        gap: 0.75rem;
+        align-items: center;
+    }
+
+    .vs-sp-path-value {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        border-radius: 6px;
+        background: rgba(16, 185, 129, 0.08);
+        color: #34D399;
+        padding: 0.28rem 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        font-weight: 700;
+        line-height: 1.1rem;
+        overflow-wrap: anywhere;
+    }
+
+    .vs-sp-type-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.55rem;
+        border-radius: 6px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(14, 19, 29, 0.72);
+        color: #CBD5E1;
+        padding: 0.18rem 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        line-height: 1rem;
+        white-space: nowrap;
+    }
+
+    .vs-sp-action-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 6px;
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #0E131D;
+        color: #94A3B8;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+    }
+
+    .vs-sp-action-button:hover {
+        transform: translateY(-1px);
+    }
+
+    .vs-sp-action-button-critical:hover {
+        border-color: rgba(212, 123, 120, 0.42);
+        background: rgba(212, 123, 120, 0.12);
+        color: #FFB4AB;
+    }
+
+    .vs-sp-action-button-medium:hover {
+        border-color: rgba(245, 158, 11, 0.42);
+        background: rgba(245, 158, 11, 0.12);
+        color: #F59E0B;
+    }
+
+    @media (max-width: 640px) {
+        .vs-sp-table,
+        .vs-sp-table tbody,
+        .vs-sp-table tr,
+        .vs-sp-table td {
+            display: block;
+            width: 100%;
+        }
+
+        .vs-sp-table {
+            border-spacing: 0;
+        }
+
+        .vs-sp-table thead {
+            display: none;
+        }
+
+        .vs-sp-data-row {
+            margin: 0.75rem;
+            overflow: hidden;
+            border: 1px solid rgba(215, 225, 245, 0.1);
+            border-radius: 8px;
+            background: #111822;
+        }
+
+        .vs-sp-data-row .vs-sp-td,
+        .vs-sp-data-row .vs-sp-td:first-child,
+        .vs-sp-data-row .vs-sp-td:last-child {
+            display: grid;
+            grid-template-columns: minmax(6.5rem, 0.42fr) minmax(0, 1fr);
+            gap: 0.75rem;
+            align-items: center;
+            border: 0;
+            border-bottom: 1px solid rgba(215, 225, 245, 0.075);
+            border-radius: 0;
+            background: transparent;
+            padding: 0.8rem 0.9rem;
+            text-align: left;
+        }
+
+        .vs-sp-data-row .vs-sp-td:last-child {
+            border-bottom: 0;
+        }
+
+        .vs-sp-td::before {
+            content: attr(data-label);
+            color: #94A3B8;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            line-height: 1rem;
+            text-transform: uppercase;
+        }
+
+        .vs-sp-td-check {
+            text-align: left;
+        }
+
+        .vs-sp-path-cell {
+            grid-template-columns: 1fr;
+            gap: 0.45rem;
+        }
+
+        .vs-sp-path-value {
+            width: fit-content;
+            max-width: 100%;
+        }
+
+        .vs-sp-action-button {
+            justify-self: start;
+        }
+    }
+
+    .vs-sp-checkbox {
+        border-radius: 4px;
+        border-color: #475569;
+        background: transparent;
+        --tw-ring-offset-color: #0E131D;
+    }
+
+    .vs-sp-domain-badge {
+        border-radius: 4px;
+        border: 1px solid rgba(215, 225, 245, 0.1);
+        background: #0E131D;
+        color: #CBD5E1;
+        padding: 0.125rem 0.375rem;
+        font-size: 10px;
+        line-height: 1rem;
+    }
+
+    .remove-row-btn:not(.hidden) {
+        display: inline-flex;
+    }
+}
+
+@layer components {
     .vs-fw-page {
         display: grid;
         gap: 1.25rem;
@@ -1358,6 +3261,34 @@
         color: #FCB900;
     }
 
+    .es-brand-mark .es-duotone-icon,
+    .es-nav-icon-wrap .es-duotone-icon,
+    .es-icon-btn .es-duotone-icon,
+    .es-top-icon .es-duotone-icon,
+    .es-sidebar-cta .es-duotone-icon {
+        display: block;
+        flex: 0 0 auto;
+        object-fit: contain;
+    }
+
+    .es-brand-mark-logo {
+        display: block;
+        width: 1.75rem;
+        height: 1.75rem;
+        object-fit: contain;
+    }
+
+    img[src$="Logo.png"] {
+        transition: transform 680ms cubic-bezier(0.2, 0.85, 0.2, 1), filter 260ms ease;
+        transform-origin: center;
+        will-change: transform;
+    }
+
+    img[src$="Logo.png"]:hover {
+        filter: saturate(1.18) contrast(1.04);
+        transform: rotate(360deg) scale(1.04);
+    }
+
     .es-loader-logo {
         width: 10.5rem;
         height: auto;
@@ -1369,9 +3300,9 @@
         display: flex;
         align-items: center;
         min-height: 2.75rem;
-        gap: 0.75rem;
+        gap: 0.7rem;
         border-radius: 8px;
-        padding: 0.75rem 1rem;
+        padding: 0.65rem 0.85rem;
         color: #ABB5CA;
         border: 0;
         transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
@@ -1393,13 +3324,18 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 2.5rem;
-        height: 2.5rem;
+        width: 2rem;
+        height: 2rem;
         border-radius: 0.5rem;
         border: 1px solid rgba(80, 69, 50, 0.15);
         background: #252A34;
         color: #FCB900;
         flex-shrink: 0;
+    }
+
+    .es-nav-link-active .es-nav-icon-wrap {
+        border-color: rgba(252, 185, 0, 0.26);
+        background: rgba(252, 185, 0, 0.1);
     }
 
     .es-sidebar-cta {
@@ -1443,11 +3379,19 @@
     }
 
     .es-top-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 6px;
+        background: #303540;
         color: #D4C4AB;
         transition: color 160ms ease, opacity 160ms ease, transform 160ms ease;
     }
 
     .es-top-icon:hover {
+        background: #343944;
         color: #FFDC9C;
     }
 
@@ -2704,6 +4648,21 @@
         animation: es-eye-breathe 3.8s ease-in-out infinite;
     }
 
+    .es-topology-logo {
+        width: 6rem;
+        height: 6rem;
+        border-radius: 9999px;
+        object-fit: cover;
+        object-position: center;
+        animation: es-logo-pulse 3.8s ease-in-out infinite;
+        box-shadow: 0 0 0 0 rgba(252, 185, 0, 0.24), 0 0 20px rgba(252, 185, 0, 0.14);
+    }
+
+    .es-topology-logo:hover {
+        animation: es-topology-logo-spin 920ms cubic-bezier(0.18, 0.9, 0.24, 1) both;
+        filter: saturate(1.22) contrast(1.06);
+    }
+
     .es-topology-eye-label {
         position: absolute;
         bottom: 0;
@@ -2870,6 +4829,37 @@
         }
     }
 
+    @keyframes es-logo-pulse {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(252, 185, 0, 0.24), 0 0 20px rgba(252, 185, 0, 0.14);
+            filter: saturate(1);
+            transform: scale(1);
+        }
+
+        45% {
+            box-shadow: 0 0 0 7px rgba(252, 185, 0, 0.05), 0 0 34px rgba(252, 185, 0, 0.28);
+            filter: saturate(1.16) contrast(1.04);
+            transform: scale(1.035);
+        }
+    }
+
+    @keyframes es-topology-logo-spin {
+        0% {
+            box-shadow: 0 0 0 0 rgba(252, 185, 0, 0.24), 0 0 20px rgba(252, 185, 0, 0.14);
+            transform: rotate(0deg) scale(1.02);
+        }
+
+        55% {
+            box-shadow: 0 0 0 9px rgba(252, 185, 0, 0.06), 0 0 38px rgba(252, 185, 0, 0.32);
+            transform: rotate(250deg) scale(1.09);
+        }
+
+        100% {
+            box-shadow: 0 0 0 0 rgba(252, 185, 0, 0.22), 0 0 24px rgba(252, 185, 0, 0.18);
+            transform: rotate(360deg) scale(1.04);
+        }
+    }
+
     @keyframes es-live-pulse {
         0% {
             box-shadow: 0 0 0 0 rgba(62, 213, 152, 0.55);
@@ -2906,6 +4896,15 @@
     @keyframes es-spin {
         to {
             transform: rotate(360deg);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        img[src$="Logo.png"],
+        img[src$="Logo.png"]:hover {
+            filter: none;
+            transform: none;
+            transition: none;
         }
     }
 
@@ -3264,6 +5263,11 @@
         .es-topology-iris {
             width: 5.4rem;
             height: 5.4rem;
+        }
+
+        .es-topology-logo {
+            width: 4.85rem;
+            height: 4.85rem;
         }
 
         .es-domain-asset-row {

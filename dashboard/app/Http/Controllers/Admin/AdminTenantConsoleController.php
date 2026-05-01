@@ -362,7 +362,7 @@ class AdminTenantConsoleController extends Controller
     private function validateIpFarmPayload(Request $request): array
     {
         return $request->validate([
-            'scope' => ['required', 'in:tenant,domain'],
+            'scope' => ['nullable', 'in:tenant,domain'],
             'domain_name' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:255'],
             'ips' => ['required', 'string', 'max:50000'],
@@ -372,12 +372,13 @@ class AdminTenantConsoleController extends Controller
 
     private function resolveTenantScopeAndDomain(Tenant $tenant, array $validated): array
     {
-        $scope = (string) ($validated['scope'] ?? 'domain');
-        if ($scope === 'tenant') {
+        $domainName = strtolower(trim((string) ($validated['domain_name'] ?? '')));
+        $scope = (string) ($validated['scope'] ?? ($domainName === 'global' ? 'tenant' : 'domain'));
+        if ($scope === 'tenant' || $domainName === 'global') {
             return ['tenant', 'global'];
         }
 
-        return ['domain', (string) $this->domainForTenant($tenant, (string) ($validated['domain_name'] ?? ''))->hostname];
+        return ['domain', (string) $this->domainForTenant($tenant, $domainName)->hostname];
     }
 
     private function splitIpFarmTargets(string $targets): array

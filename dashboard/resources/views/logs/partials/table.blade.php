@@ -1,12 +1,15 @@
-<div class="es-card es-animate es-animate-delay relative left-1/2 w-[98vw] max-w-none -translate-x-1/2 p-5 md:p-6">
-  <div class="mb-4 flex flex-col gap-1 border-b border-sky-500/15 pb-4">
-    <h3 class="text-base font-semibold text-white">{{ $isTenantScoped ? 'Recent Security Events' : 'Recent Security Log Events' }}</h3>
-    <p class="text-sm text-sky-100/65">
-      {{ $isTenantScoped ? 'Only events for the domains assigned to your account are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
-    </p>
+<section class="vs-logs-panel vs-logs-table-panel es-animate es-animate-delay" aria-labelledby="logs-table-title">
+  <div class="vs-logs-table-head">
+    <div>
+      <h3 id="logs-table-title">{{ $isTenantScoped ? 'Recent Security Events' : 'Recent Security Log Events' }}</h3>
+      <p>
+        {{ $isTenantScoped ? 'Only events for the domains assigned to your account are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
+      </p>
+    </div>
   </div>
-  <div class="overflow-x-auto">
-    <table class="es-table min-w-[{{ $canManageLogActions ? '1400px' : '1280px' }}]">
+
+  <div class="vs-logs-table-scroll">
+    <table class="vs-logs-table">
       <thead>
       <tr>
         <th>Domain</th>
@@ -25,36 +28,44 @@
       </thead>
       <tbody>
       @forelse($logs as $row)
-        <tr>
-          <td class="whitespace-nowrap">{{ $row['domain'] ?? '-' }}</td>
-          <td class="whitespace-nowrap align-top">
-            <div class="flex items-center gap-2">
-              <span>{{ $row['event_display'] ?? '' }}</span>
-              <span class="rounded-md border px-1.5 py-0.5 text-[11px] font-semibold leading-none {{ $row['event_score_class'] ?? '' }}">{{ $row['event_score'] ?? 0 }}%</span>
-            </div>
-            @if(!empty($row['is_repeat_offender']))
-              <div class="mt-1">
-                <span class="rounded-md border border-rose-400/40 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-rose-100">REPEAT OFFENDER</span>
-              </div>
-            @endif
+        @php
+          $eventScore = (int) ($row['event_score'] ?? 0);
+          $rowTone = $eventScore >= 70 ? 'vs-logs-row-danger' : ($eventScore >= 40 ? 'vs-logs-row-warning' : 'vs-logs-row-success');
+        @endphp
+        <tr class="{{ $rowTone }}">
+          <td data-label="Domain">
+            <span class="vs-logs-domain">{{ $row['domain'] ?? '-' }}</span>
           </td>
-          <td class="whitespace-nowrap">{{ $row['ip_address'] ?? '' }}</td>
-          <td class="whitespace-nowrap">
-            <div class="flex flex-col items-start gap-1 text-[11px] leading-tight text-cyan-100">
-              <span class="rounded-md border border-cyan-300/25 bg-cyan-400/10 px-2 py-0.5 font-semibold">T: {{ $row['requests_today'] ?? 0 }}</span>
-              <span class="rounded-md border border-sky-300/20 bg-sky-400/10 px-2 py-0.5 font-semibold">Y: {{ $row['requests_yesterday'] ?? 0 }}</span>
-              <span class="rounded-md border border-indigo-300/20 bg-indigo-400/10 px-2 py-0.5 font-semibold">M: {{ $row['requests_month'] ?? 0 }}</span>
+          <td data-label="Event">
+            <div class="vs-logs-event-stack">
+              <div class="vs-logs-event-line">
+                <span class="vs-logs-event-name">{{ $row['event_display'] ?? '' }}</span>
+                <span class="vs-logs-risk-badge">{{ $row['event_score'] ?? 0 }}%</span>
+              </div>
+              @if(!empty($row['is_repeat_offender']))
+                <span class="vs-logs-repeat-badge">REPEAT OFFENDER</span>
+              @endif
+            </div>
+          </td>
+          <td data-label="IP">
+            <span class="vs-logs-mono">{{ $row['ip_address'] ?? '' }}</span>
+          </td>
+          <td data-label="Attacks">
+            <div class="vs-logs-attack-stack">
+              <span>T: {{ $row['requests_today'] ?? 0 }}</span>
+              <span>Y: {{ $row['requests_yesterday'] ?? 0 }}</span>
+              <span>M: {{ $row['requests_month'] ?? 0 }}</span>
             </div>
           </td>
           @if($canManageLogActions)
-            <td>
+            <td data-label="Action">
               @if(!empty($row['can_allow']))
                 @if(!empty($row['prefer_block_action']))
-                  <form method="POST" action="{{ route('logs.block_ip') }}">
+                  <form method="POST" action="{{ route('logs.block_ip') }}" class="vs-logs-action-form">
                     @csrf
                     <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                     <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                    <button type="submit" class="es-icon-btn es-icon-btn-danger" title="Block IP for 24h" aria-label="Block IP">
+                    <button type="submit" class="vs-logs-action-btn vs-logs-action-danger" title="Block IP for 24h" aria-label="Block IP">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H5c-2 0-4 1.8-4 4v2"></path>
                         <circle cx="8.5" cy="7" r="4"></circle>
@@ -64,11 +75,11 @@
                     </button>
                   </form>
                 @else
-                  <form method="POST" action="{{ route('logs.allow_ip') }}">
+                  <form method="POST" action="{{ route('logs.allow_ip') }}" class="vs-logs-action-form">
                     @csrf
                     <input type="hidden" name="ip" value="{{ $row['ip_address'] }}">
                     <input type="hidden" name="domain" value="{{ $row['domain'] }}">
-                    <button type="submit" class="es-icon-btn es-icon-btn-success" title="Allow-list IP and reset ban" aria-label="Allow-list IP and reset ban">
+                    <button type="submit" class="vs-logs-action-btn vs-logs-action-success" title="Allow-list IP and reset ban" aria-label="Allow-list IP and reset ban">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
                         <path d="M21 3v6h-6"></path>
@@ -77,58 +88,68 @@
                   </form>
                 @endif
               @else
-                <span class="text-xs es-muted">N/A</span>
+                <span class="vs-logs-na">N/A</span>
               @endif
             </td>
           @endif
-          <td class="whitespace-nowrap">{{ $row['asn'] ?? '' }}</td>
-          <td class="whitespace-nowrap">{{ $row['country'] ?? '' }}</td>
-          <td class="max-w-[320px]">
-            <div class="space-y-1">
+          <td data-label="ASN">
+            <span class="vs-logs-mono">{{ $row['asn'] ?? '' }}</span>
+          </td>
+          <td data-label="Country">
+            <span class="vs-logs-country-code">{{ $row['country'] ?? '' }}</span>
+          </td>
+          <td data-label="Path" class="vs-logs-path-cell">
+            <div class="vs-logs-path-list">
               @forelse(($row['top_paths'] ?? []) as $path)
-                <div class="max-w-[290px] truncate font-mono text-[11px] text-slate-200">{{ $path }}</div>
+                <div class="vs-logs-path" title="{{ $path }}">{{ $path }}</div>
               @empty
-                <span class="text-xs es-muted">-</span>
+                <span class="vs-logs-na">-</span>
               @endforelse
             </div>
             @if(count($row['recent_paths'] ?? []) > 2)
-              <details class="es-path-tooltip mt-1">
-                <summary class="es-path-tooltip-trigger" title="Show last 50 paths" aria-label="Show last 50 paths">+</summary>
-                <div class="es-path-tooltip-panel">
-                  <div class="mb-2 text-[11px] font-semibold text-sky-100">Last {{ count($row['recent_paths']) }} paths</div>
-                  <div class="space-y-1">
+              <details class="vs-logs-path-tooltip">
+                <summary class="vs-logs-path-trigger" title="Show last 50 paths" aria-label="Show last 50 paths">+</summary>
+                <div class="vs-logs-path-panel">
+                  <div class="vs-logs-path-panel-title">Last {{ count($row['recent_paths']) }} paths</div>
+                  <div class="vs-logs-path-panel-list">
                     @foreach($row['recent_paths'] as $path)
-                      <div class="break-all font-mono text-[11px] text-slate-200">{{ $path }}</div>
+                      <div>{{ $path }}</div>
                     @endforeach
                   </div>
                 </div>
               </details>
             @endif
           </td>
-          <td class="max-w-[440px] break-words">
+          <td data-label="Details" class="vs-logs-details-cell">
             @if(!empty($row['details_items']))
-              <div class="space-y-1 text-[11.5px] leading-snug">
+              <div class="vs-logs-details-list">
                 @foreach($row['details_items'] as $detail)
                   <div>
-                    <span class="font-bold text-sky-200">{{ $detail['label'] }}:</span>
-                    <span class="text-slate-300">{{ $detail['value'] }}</span>
+                    <span>{{ $detail['label'] }}:</span>
+                    <strong>{{ $detail['value'] }}</strong>
                   </div>
                 @endforeach
               </div>
             @else
-              <span class="text-[11.5px] leading-snug">{{ $row['details_fallback'] ?? '' }}</span>
+              <span class="vs-logs-detail-fallback">{{ $row['details_fallback'] ?? '' }}</span>
             @endif
           </td>
-          <td class="whitespace-nowrap">{{ $row['created_at'] ?? '' }}</td>
+          <td data-label="Time">
+            <span class="vs-logs-time">{{ $row['created_at'] ?? '' }}</span>
+          </td>
         </tr>
       @empty
-        <tr><td colspan="{{ $canManageLogActions ? 10 : 9 }}" class="text-slate-300">{{ $emptyStateMessage ?? 'No logs.' }}</td></tr>
+        <tr>
+          <td colspan="{{ $canManageLogActions ? 10 : 9 }}" class="vs-logs-empty-row">
+            {{ $emptyStateMessage ?? 'No logs.' }}
+          </td>
+        </tr>
       @endforelse
       </tbody>
     </table>
   </div>
 
   @if($logs->hasPages())
-    <div class="mt-4">{{ $logs->onEachSide(1)->links() }}</div>
+    <div class="vs-logs-pagination">{{ $logs->onEachSide(1)->links() }}</div>
   @endif
-</div>
+</section>

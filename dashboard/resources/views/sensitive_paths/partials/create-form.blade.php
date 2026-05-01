@@ -1,29 +1,28 @@
-<div class="es-card es-animate mb-6 p-5 md:p-6 shadow-red-900/10 shadow-lg border-t pl-6 border-t-rose-500/30">
-  <h3 class="mb-4 text-lg font-bold text-rose-100 flex items-center gap-2">
-    <svg class="h-5 w-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-    Protect New Sensitive Path
-  </h3>
-
+<div class="rounded-lg border border-white/10 bg-[#171C26] p-4">
+  <div class="mb-4 flex items-center gap-2 border-b border-white/10 pb-4">
+    <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-5 w-5">
+    <h3 class="text-xl font-semibold leading-7 tracking-normal text-white">Protect New Sensitive Path</h3>
+  </div>
   <form method="POST" action="{{ route('sensitive_paths.store') }}" id="bulk-paths-form">
     @csrf
     <div id="paths-container" class="space-y-4">
-      <div class="path-row flex flex-wrap gap-3 items-end p-4 border border-rose-500/20 rounded-xl bg-slate-900/50 relative group">
-        <div class="flex-1 min-w-[150px]">
-          <label class="mb-1 block text-sm text-sky-100">Match Strategy</label>
-          <select name="paths[0][match_type]" class="es-input text-sm" required>
+      <div class="path-row group relative grid grid-cols-1 items-end gap-4 rounded border border-white/10 bg-[#0E131D] p-3 sm:grid-cols-2 lg:grid-cols-12">
+        <div class="space-y-1 lg:col-span-3">
+          <label class="vs-sp-label">Match Strategy</label>
+          <select name="paths[0][match_type]" class="vs-sp-input" required>
             <option value="ends_with" selected>Ends With (e.g. .env, .php)</option>
             <option value="exact">Exact Path (e.g. /wp-login.php)</option>
             <option value="contains">Contains (e.g. /admin/)</option>
           </select>
         </div>
-        <div class="flex-1 min-w-[150px]">
-          <label class="mb-1 block text-sm text-sky-100">Path / Extension</label>
-          <input type="text" name="paths[0][path_pattern]" class="es-input text-sm" placeholder="e.g. .env, /aws.env" required>
+        <div class="space-y-1 lg:col-span-4">
+          <label class="vs-sp-label">Path / Extension</label>
+          <input type="text" name="paths[0][path_pattern]" class="vs-sp-input font-mono placeholder:font-sans" placeholder="e.g. .env, /aws.env" required>
         </div>
-        <div class="flex-1 min-w-[150px]">
-          <label class="mb-1 block text-sm text-sky-100">Target Environment</label>
-          <select name="paths[0][domain_name]" class="es-input text-sm" required>
-            <option value="global" class="font-bold text-sky-200">Global (All)</option>
+        <div class="space-y-1 lg:col-span-2">
+          <label class="vs-sp-label">Target Environment</label>
+          <select name="paths[0][domain_name]" class="vs-sp-input" required>
+            <option value="global">Global (All)</option>
             @foreach($domains as $domain)
               @if(($domain['status'] ?? '') === 'active')
                 <option value="{{ $domain['domain_name'] }}">{{ $domain['domain_name'] }}</option>
@@ -31,24 +30,27 @@
             @endforeach
           </select>
         </div>
-        <div class="flex-1 min-w-[150px]">
-          <label class="mb-1 block text-sm text-sky-100">Action & Risk Level</label>
-          <select name="paths[0][action]" class="es-input text-sm" required>
+        <div class="space-y-1 lg:col-span-2">
+          <label class="vs-sp-label">Action & Risk Level</label>
+          <select name="paths[0][action]" class="vs-sp-input border-[#D47B78]/30 bg-[#D47B78]/10 text-[#FFB4AB] focus:border-[#D47B78] focus:ring-[#D47B78]/25" required>
             <option value="block" selected>Critical Risk - Block</option>
             <option value="challenge">Medium Risk - CAPTCHA</option>
           </select>
         </div>
-        <button type="button" class="remove-row-btn js-remove-row absolute top-[-10px] right-[-10px] bg-slate-800 text-rose-500 hover:text-rose-400 hover:bg-slate-700 rounded-full p-1.5 shadow-md hidden border border-slate-600">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        <button type="button" class="remove-row-btn js-remove-row hidden h-8 w-8 items-center justify-center rounded text-slate-500 transition-colors hover:bg-[#D47B78]/10 hover:text-[#D47B78] lg:col-span-1" title="Remove">
+          <img src="{{ asset('duotone/xmark.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral h-4 w-4">
         </button>
       </div>
     </div>
 
-    <div class="mt-4 flex flex-wrap gap-3 items-center">
-      <button type="submit" class="es-btn es-btn-danger px-8">Lockdown Paths</button>
-      <button type="button" class="es-btn bg-slate-800 border-[1px] border-slate-600 text-slate-300 hover:bg-slate-700 px-6 js-add-path-row">
-        <svg class="h-4 w-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-3 pt-2">
+      <button type="button" class="js-add-path-row inline-flex w-full items-center justify-center gap-2 rounded border border-white/10 bg-transparent px-3 py-2 text-sm font-medium text-[#FCB900] transition-colors hover:bg-[#1B202A] hover:text-[#FFDC9C] sm:w-auto">
+        <img src="{{ asset('duotone/plus.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
         Add More
+      </button>
+      <button type="submit" class="inline-flex w-full items-center justify-center gap-2 rounded bg-[#D47B78] px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-[#D47B78]/90 sm:w-auto">
+        <img src="{{ asset('duotone/lock.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
+        Lockdown Paths
       </button>
     </div>
   </form>

@@ -3,7 +3,7 @@
     @csrf
     <div class="vs-tuning-section-head">
       <h3 class="vs-tuning-kicker">
-        <span class="material-symbols-outlined text-[1.15rem] text-[#6366F1]">router</span>
+        <img src="{{ asset('duotone/router.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
         Origin Server & Routing
       </h3>
       <button type="submit" class="vs-tuning-button vs-tuning-button-primary vs-tuning-button-compact">Save Origin</button>

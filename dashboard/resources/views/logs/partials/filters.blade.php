@@ -4,68 +4,82 @@
   $logsClearRoute = $logsClearRoute ?? route('logs.clear');
 @endphp
 
-<div class="es-card es-animate mb-4 p-5 md:p-6">
-  <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 border-b border-sky-500/20 pb-4">
-    <div>
-      <div class="flex flex-wrap items-center gap-2">
-        <h2 class="es-title m-0">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
+<section class="vs-logs-panel vs-logs-command es-animate" aria-labelledby="logs-page-title">
+  <div class="vs-logs-command-head">
+    <div class="vs-logs-title-block">
+      <div class="vs-logs-title-row">
+        <h2 id="logs-page-title">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
         @if(!empty($edgeShieldTargetLabel))
-          <span class="rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-wide {{ ($edgeShieldMutationsAllowed ?? false) ? 'border-emerald-400/35 bg-emerald-500/15 text-emerald-100' : 'border-amber-400/35 bg-amber-500/15 text-amber-100' }}">
+          <span class="vs-logs-env-badge {{ ($edgeShieldMutationsAllowed ?? false) ? 'vs-logs-env-live' : 'vs-logs-env-locked' }}">
             {{ $edgeShieldTargetLabel }}
           </span>
         @endif
       </div>
-      <p class="mt-2 max-w-3xl text-sm text-sky-100/70">
+      <p>
         {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your account so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
       </p>
-      @if(!($edgeShieldMutationsAllowed ?? true))
-        <p class="mt-2 max-w-3xl text-xs font-medium text-amber-200/90">{{ $edgeShieldMutationBlockedMessage ?? 'Mutating actions are disabled for this edge target.' }}</p>
-      @endif
     </div>
+
     @if($canManageLogActions)
-      <form method="POST" action="{{ $logsClearRoute }}" class="mt-3 md:mt-0 flex items-center justify-end gap-2" onsubmit="return confirm('Are you sure you want to clear these logs? This cannot be undone.');">
+      <form method="POST" action="{{ $logsClearRoute }}" class="vs-logs-clear-form" onsubmit="return confirm('Are you sure you want to clear these logs? This cannot be undone.');">
         @csrf
-        <select name="period" class="es-input text-xs py-1.5 px-2 h-auto w-auto bg-gray-900 border-gray-700 text-gray-300 focus:ring-rose-500">
+        <label class="vs-logs-sr" for="logs-clear-period">Clear logs period</label>
+        <select id="logs-clear-period" name="period" class="vs-logs-input vs-logs-input-compact">
           <option value="7d">Older than 7 days</option>
           <option value="30d">Older than 30 days</option>
           <option value="all">All Logs (Reset)</option>
         </select>
-        <button type="submit" class="es-btn px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-500 border-rose-600 flex items-center gap-1.5 text-white/90">
-          <svg class="w-3.5 h-3.5 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+        <button type="submit" class="vs-logs-btn vs-logs-btn-danger">
+          <img src="{{ asset('duotone/trash.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral" aria-hidden="true">
           Clear
         </button>
       </form>
     @endif
   </div>
 
-  <form method="GET" action="{{ $logsIndexRoute }}" class="flex flex-col gap-3 md:flex-row md:items-end md:flex-wrap">
-    <div class="md:w-72">
-      <label class="mb-1 block text-sm text-sky-100">Filter by domain</label>
-      <select class="es-input" name="domain_name">
+  @if(!($edgeShieldMutationsAllowed ?? true))
+    <div class="vs-logs-alert vs-logs-alert-warning">
+      <img src="{{ asset('duotone/lock.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass" aria-hidden="true">
+      <span>{{ $edgeShieldMutationBlockedMessage ?? 'Mutating actions are disabled for this edge target.' }}</span>
+    </div>
+  @endif
+
+  <form method="GET" action="{{ $logsIndexRoute }}" class="vs-logs-filter-form">
+    <div class="vs-logs-field">
+      <label for="logs-domain-filter">Filter by domain</label>
+      <select id="logs-domain-filter" class="vs-logs-input" name="domain_name">
         <option value="">All domains</option>
         @foreach(($domainOptions ?? []) as $optionDomain)
           <option value="{{ $optionDomain }}" @selected(($domainName ?? '') === $optionDomain)>{{ $optionDomain }}</option>
         @endforeach
       </select>
     </div>
-    <div class="md:w-72">
-      <label class="mb-1 block text-sm text-sky-100">Filter by event type</label>
-      <select class="es-input" name="event_type">
+    <div class="vs-logs-field">
+      <label for="logs-event-filter">Filter by event type</label>
+      <select id="logs-event-filter" class="vs-logs-input" name="event_type">
         <option value="">All events</option>
         @foreach(($eventTypeOptions ?? []) as $optionEvent)
           <option value="{{ $optionEvent }}" @selected(($eventType ?? '') === $optionEvent)>{{ $eventLabels[$optionEvent] ?? $optionEvent }}</option>
         @endforeach
       </select>
     </div>
-    <div class="md:w-72">
-      <label class="mb-1 block text-sm text-sky-100">Filter by IP</label>
-      <input class="es-input" name="ip_address" value="{{ $ipAddress ?? '' }}" placeholder="e.g. 203.0.113.10">
+    <div class="vs-logs-field">
+      <label for="logs-ip-filter">Filter by IP</label>
+      <input id="logs-ip-filter" class="vs-logs-input" name="ip_address" value="{{ $ipAddress ?? '' }}" placeholder="e.g. 203.0.113.10">
     </div>
-    <button class="es-btn" type="submit">Filter</button>
-    <a class="es-btn es-btn-secondary" href="{{ $logsResetRoute }}">Reset</a>
+    <div class="vs-logs-filter-actions">
+      <button class="vs-logs-btn vs-logs-btn-primary" type="submit">
+        <img src="{{ asset('duotone/filter.svg') }}" alt="" class="es-duotone-icon" style="filter: brightness(0);" aria-hidden="true">
+        Filter
+      </button>
+      <a class="vs-logs-btn vs-logs-btn-secondary" href="{{ $logsResetRoute }}">Reset</a>
+    </div>
   </form>
 
   @if($error)
-    <div class="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/15 px-4 py-3 text-sm text-rose-200">{{ $error }}</div>
+    <div class="vs-logs-alert vs-logs-alert-danger">
+      <img src="{{ asset('duotone/circle-exclamation.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral" aria-hidden="true">
+      <span>{{ $error }}</span>
+    </div>
   @endif
-</div>
+</section>

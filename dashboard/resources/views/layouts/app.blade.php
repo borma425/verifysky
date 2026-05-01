@@ -61,10 +61,20 @@
 
 <body class="es-body h-screen overflow-hidden" x-data="{ isNavigating: false, navOpen: false }" x-on:beforeunload.window="isNavigating = true" x-on:pageshow.window="if ($event.persisted) isNavigating = false">
 
-  <div x-show="isNavigating" x-transition.opacity.duration.250ms style="display: none;" class="fixed inset-0 z-[9999] flex items-center justify-center bg-[#171C26]/88 backdrop-blur-md">
-    <div class="flex flex-col items-center gap-4">
-      <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-loader-logo animate-pulse">
-      <div class="text-[11px] font-bold uppercase tracking-[0.24em] text-[#D7E1F5]">Syncing Control Plane...</div>
+  <div x-show="isNavigating" x-transition.opacity.duration.250ms style="display: none; --borma-preloader-logo: url('{{ asset('borma-preloader-logo.png') }}');" class="borma-preloader">
+    <div class="borma-preloader-stack">
+      <div class="plane-animation track-preloader">
+        <div class="circle"></div>
+        <div class="circle"></div>
+        <div class="circle"></div>
+        <div class="circle"></div>
+        <div class="circle"></div>
+        <div class="circle"></div>
+      </div>
+      <div class="borma-preloader-progress" aria-hidden="true">
+        <span></span>
+      </div>
+      <div class="borma-preloader-text">Loading...</div>
     </div>
   </div>
 
@@ -147,46 +157,42 @@
 
   @php
     $navItems = [
-      ['route' => 'dashboard', 'label' => 'Overview', 'desc' => 'Telemetry', 'icon' => 'grid-horizontal.svg'],
-      ['route' => 'billing.index', 'label' => 'Billing', 'desc' => 'Subscription', 'icon' => 'circle-check.svg'],
-      ['route' => 'domains.index', 'label' => 'Domains', 'desc' => 'Onboarding', 'icon' => 'network-wired.svg'],
-      ['route' => 'firewall.index', 'label' => 'Global Firewall', 'desc' => 'Policy Layer', 'icon' => 'shield-keyhole.svg'],
+      ['route' => 'dashboard', 'label' => 'Overview', 'desc' => 'Telemetry', 'icon' => 'eye-evil.svg'],
+      ['route' => 'billing.index', 'label' => 'Billing', 'desc' => 'Subscription', 'icon' => 'sack-dollar.svg'],
+      ['route' => 'domains.index', 'label' => 'Domains', 'desc' => 'Onboarding', 'icon' => 'spider-web.svg'],
+      ['route' => 'firewall.index', 'label' => 'Global Firewall', 'desc' => 'Policy Layer', 'icon' => 'shield-virus.svg'],
       ['route' => 'sensitive_paths.index', 'label' => 'Sensitive Paths', 'desc' => 'Hard Locks', 'icon' => 'lock-keyhole.svg'],
-      ['route' => 'logs.index', 'label' => 'Security Logs', 'desc' => 'Incidents', 'icon' => 'clipboard.svg'],
-      ['route' => 'ip_farm.index', 'label' => 'IP Farm', 'desc' => 'Network Feed', 'icon' => 'signal-good.svg'],
+      ['route' => 'logs.index', 'label' => 'Security Logs', 'desc' => 'Incidents', 'icon' => 'skull-crossbones.svg'],
+      ['route' => 'ip_farm.index', 'label' => 'IP Farm', 'desc' => 'Network Feed', 'icon' => 'ban-bug.svg'],
     ];
   @endphp
 
   <div class="relative z-10 flex h-screen overflow-hidden">
     <div x-show="navOpen" x-on:click="navOpen = false" class="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm md:hidden" style="display:none;"></div>
 
-    <aside class="es-sidebar fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 md:translate-x-0" x-bind:class="navOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'">
+    <aside class="es-sidebar fixed inset-y-0 left-0 z-40 w-[min(19rem,calc(100vw-1rem))] -translate-x-full overflow-y-auto transition-transform duration-200 sm:w-64 md:translate-x-0" x-bind:class="navOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'">
       <div class="flex h-full flex-col">
-        <a href="{{ route('dashboard') }}" class="es-brand-panel">
-          <div class="es-brand-mark">
-            <span class="material-symbols-outlined text-[1.55rem]" style="font-variation-settings: 'FILL' 1;">shield</span>
-          </div>
-          <div class="min-w-0">
-            <div class="truncate text-lg font-black uppercase leading-tight tracking-tight text-[#FCB900]">VerifySky</div>
-            <div class="truncate text-xs font-medium text-[#D4C4AB]">Control Plane</div>
-          </div>
-        </a>
+        <div class="es-brand-panel justify-between">
+          <a href="{{ route('dashboard') }}" class="flex min-w-0 items-center gap-4">
+            <div class="es-brand-mark">
+              <img src="{{ asset('Logo.png') }}" alt="" class="es-brand-mark-logo">
+            </div>
+            <div class="min-w-0">
+              <div class="truncate text-lg font-black uppercase leading-tight tracking-tight text-[#FCB900]">VerifySky</div>
+              <div class="truncate text-xs font-medium text-[#D4C4AB]">Control Plane</div>
+            </div>
+          </a>
+          <button class="es-icon-btn es-btn-secondary md:hidden" x-on:click="navOpen = false" type="button" aria-label="Close navigation">
+            <img src="{{ asset('duotone/xmark.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+          </button>
+        </div>
 
         <nav class="flex-1 space-y-2 px-4 py-4">
           @foreach($navItems as $item)
             @php $active = request()->routeIs(str_replace('.index', '.*', $item['route'])) || request()->routeIs($item['route']); @endphp
             <a href="{{ route($item['route']) }}" class="es-nav-link {{ $active ? 'es-nav-link-active' : '' }}">
-              <span class="material-symbols-outlined text-xl" style="{{ $active ? "font-variation-settings: 'FILL' 1;" : '' }}">
-                @switch($item['route'])
-                  @case('dashboard') dashboard @break
-                  @case('billing.index') payments @break
-                  @case('domains.index') dns @break
-                  @case('firewall.index') verified_user @break
-                  @case('sensitive_paths.index') lock @break
-                  @case('logs.index') analytics @break
-                  @case('ip_farm.index') settings_ethernet @break
-                  @default radio_button_checked
-                @endswitch
+              <span class="es-nav-icon-wrap">
+                <img src="{{ asset('duotone/'.$item['icon']) }}" alt="" class="es-duotone-icon {{ $active ? 'es-icon-tone-brass' : 'es-icon-tone-muted' }} h-4 w-4">
               </span>
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold">{{ $item['label'] }}</span>
@@ -197,7 +203,7 @@
 
         <div class="px-4 pb-6">
           <a href="{{ route('domains.index') }}" class="es-sidebar-cta">
-            <span class="material-symbols-outlined text-lg">add</span>
+            <img src="{{ asset('duotone/plus.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
             Add New Domain
           </a>
         </div>
@@ -223,25 +229,16 @@
         <div class="flex h-full items-center justify-between px-4 py-3 sm:px-6">
           <div class="flex items-center gap-3">
             <button class="es-icon-btn es-btn-secondary md:hidden" x-on:click="navOpen = true" type="button" aria-label="Open navigation">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+              <img src="{{ asset('duotone/bars.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
             </button>
-            <div class="hidden sm:block">
-              <div class="text-xl font-bold tracking-widest text-[#FCB900]">VerifySky Ledger</div>
-              <nav class="mt-1 hidden items-center gap-6 md:flex">
-                <a href="{{ route('dashboard') }}" class="es-top-link {{ request()->routeIs('dashboard') ? 'es-top-link-active' : '' }}">Overview</a>
-                <a href="{{ route('domains.index') }}" class="es-top-link {{ request()->routeIs('domains.*') ? 'es-top-link-active' : '' }}">Domains</a>
-                <a href="{{ route('logs.index') }}" class="es-top-link {{ request()->routeIs('logs.*') ? 'es-top-link-active' : '' }}">Analytics</a>
-                <a href="{{ route('firewall.index') }}" class="es-top-link {{ request()->routeIs('firewall.*') ? 'es-top-link-active' : '' }}">Security</a>
-              </nav>
-            </div>
           </div>
           <div class="flex items-center gap-4">
             <div class="relative hidden items-center rounded-full border border-[#504532]/20 bg-[#303540] px-4 py-1.5 transition-colors focus-within:border-[#FCB900]/50 md:flex">
               <input class="h-6 w-48 border-none bg-transparent p-0 font-mono text-sm text-[#DEE2F0] placeholder:text-[#D4C4AB] focus:ring-0" placeholder="Search control plane..." type="text">
-              <span class="material-symbols-outlined text-sm text-[#D4C4AB]">search</span>
+              <img src="{{ asset('duotone/magnifying-glass.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-3.5 w-3.5">
             </div>
-            <button class="es-top-icon" type="button" aria-label="Notifications"><span class="material-symbols-outlined">notifications</span></button>
-            <a class="es-top-icon" href="{{ route('settings.index') }}" aria-label="Settings"><span class="material-symbols-outlined">settings</span></a>
+            <button class="es-top-icon" type="button" aria-label="Notifications"><img src="{{ asset('duotone/bell.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></button>
+            <a class="es-top-icon" href="{{ route('settings.index') }}" aria-label="Settings"><img src="{{ asset('duotone/gear.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></a>
             <div class="hidden rounded-full border border-white/10 bg-[#303540] px-3 py-1.5 text-[11px] text-[#D7E1F5] sm:block">
               <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#FCB900]"></span>
               <span class="ml-1.5 uppercase tracking-[0.15em]">Edge Mesh Healthy</span>

@@ -82,6 +82,59 @@ class SensitivePathsRuntimePurgeTest extends TestCase
         Queue::assertNotPushed(PurgeRuntimeBundleCache::class);
     }
 
+    public function test_sensitive_paths_index_preserves_form_and_table_controls(): void
+    {
+        $tenant = $this->tenantWithDomains();
+
+        $edge = Mockery::mock(EdgeShieldService::class);
+        $edge->shouldReceive('listTenantSensitivePaths')->once()->with((string) $tenant->id)->andReturn([
+            'ok' => true,
+            'paths' => [
+                [
+                    'id' => 11,
+                    'domain_name' => 'global',
+                    'path_pattern' => '.env',
+                    'match_type' => 'ends_with',
+                    'action' => 'block',
+                ],
+                [
+                    'id' => 12,
+                    'domain_name' => 'one.example.com',
+                    'path_pattern' => '/login',
+                    'match_type' => 'exact',
+                    'action' => 'challenge',
+                ],
+            ],
+        ]);
+        $edge->shouldReceive('listDomains')->once()->with((string) $tenant->id, false)->andReturn([
+            'ok' => true,
+            'domains' => [
+                ['domain_name' => 'one.example.com', 'status' => 'active'],
+            ],
+        ]);
+        $this->app->instance(EdgeShieldService::class, $edge);
+
+        $this->withTenantSession($tenant)->get(route('sensitive_paths.index'))
+            ->assertOk()
+            ->assertSee('Sensitive Paths Protection')
+            ->assertSee('Protect New Sensitive Path')
+            ->assertSee('name="paths[0][match_type]"', false)
+            ->assertSee('name="paths[0][path_pattern]"', false)
+            ->assertSee('name="paths[0][domain_name]"', false)
+            ->assertSee('name="paths[0][action]"', false)
+            ->assertSee('id="bulk-paths-form"', false)
+            ->assertSee('id="paths-container"', false)
+            ->assertSee('class="path-row', false)
+            ->assertSee('js-add-path-row', false)
+            ->assertSee('Hard Block')
+            ->assertSee('Forced Challenge')
+            ->assertSee('id="selectAllCritical"', false)
+            ->assertSee('id="selectAllMedium"', false)
+            ->assertSee('class="rule-cb-crit', false)
+            ->assertSee('class="rule-cb-med', false)
+            ->assertSee('id="singleUnlockForm"', false);
+    }
+
     private function tenantWithDomains(): Tenant
     {
         $tenant = Tenant::query()->create([

@@ -66,7 +66,10 @@ class IpFarmManagementTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Create IP Farm')
-            ->assertSee('All Domains (Global)')
+            ->assertSee('Target Environment')
+            ->assertSee('Global (All)')
+            ->assertDontSee('Specific domain')
+            ->assertDontSee('Remove Targets From All Farms')
             ->assertSee('Append To Farm')
             ->assertSee('Delete Farm')
             ->assertSee('203.0.113.10')
@@ -93,6 +96,26 @@ class IpFarmManagementTest extends TestCase
 
         $response->assertRedirect(route('ip_farm.index'));
         $response->assertSessionHas('status', 'IP Farm saved with 2 target(s).');
+    }
+
+    public function test_user_can_create_global_ip_farm_like_global_firewall_target_environment(): void
+    {
+        [$tenant] = $this->tenantWithDomain('cashup', 'www.cashup.cash');
+        $edge = $this->bindEdgeShieldMock();
+        $edge->shouldReceive('createIpFarmRule')
+            ->once()
+            ->with('global', 'Global Farm', ['203.0.113.10'], false, (string) $tenant->id, 'tenant')
+            ->andReturn(['ok' => true, 'added' => 1]);
+        $this->bindLimitsMock($tenant, true);
+
+        $response = $this->withTenantSession($tenant)->from(route('ip_farm.index'))->post(route('ip_farm.store'), [
+            'domain_name' => 'global',
+            'description' => 'Global Farm',
+            'ips' => '203.0.113.10',
+        ]);
+
+        $response->assertRedirect(route('ip_farm.index'));
+        $response->assertSessionHas('status', 'IP Farm saved with 1 target(s).');
     }
 
     public function test_user_cannot_create_ip_farm_after_plan_limit(): void

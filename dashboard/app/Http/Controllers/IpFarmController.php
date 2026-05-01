@@ -190,7 +190,7 @@ class IpFarmController extends Controller
     private function validateFarmPayload(Request $request): array
     {
         return $request->validate([
-            'scope' => ['required', 'in:tenant,domain'],
+            'scope' => ['nullable', 'in:tenant,domain'],
             'domain_name' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:255'],
             'ips' => ['required', 'string', 'max:50000'],
@@ -200,12 +200,12 @@ class IpFarmController extends Controller
 
     private function resolveScopeAndDomain(array $validated): array
     {
-        $scope = (string) ($validated['scope'] ?? 'domain');
-        if ($scope === 'tenant') {
+        $domainName = strtolower(trim((string) ($validated['domain_name'] ?? '')));
+        $scope = (string) ($validated['scope'] ?? ($domainName === 'global' ? 'tenant' : 'domain'));
+        if ($scope === 'tenant' || $domainName === 'global') {
             return ['tenant', 'global'];
         }
 
-        $domainName = strtolower(trim((string) ($validated['domain_name'] ?? '')));
         abort_if($domainName === '', 422, 'Domain is required for domain-scoped IP Farm rules.');
 
         $domain = TenantDomain::query()

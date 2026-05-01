@@ -18,7 +18,7 @@
       @if(!empty($firewallUsage))
         <div class="vs-fw-plan">
           <span class="vs-fw-plan-mark">
-            <img src="{{ asset('duotone/shield-keyhole.svg') }}" alt="" class="es-duotone-icon es-overview-icon h-5 w-5">
+            <img src="{{ asset('duotone/shield-virus.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral h-5 w-5">
           </span>
           <div class="min-w-0">
             <div class="vs-fw-plan-name">{{ $firewallUsage['plan_name'] ?? 'Plan' }}</div>
@@ -63,7 +63,7 @@
       <div class="vs-fw-alert-stack">
       @foreach($loadErrors as $msg)
         <div class="vs-fw-alert">
-          <span class="material-symbols-outlined text-sm">warning</span>
+          <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
           <span>{{ $msg }}</span>
         </div>
       @endforeach

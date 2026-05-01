@@ -57,7 +57,7 @@
         </div>
 
         <div class="es-managed-route mt-2 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-sm text-[#D4C4AB]">
-          <span class="material-symbols-outlined text-[16px]">public</span>
+          <img src="{{ asset('duotone/spider-web.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
           <span data-domain-status-description>{{ $statusDescription }}</span>
         </div>
       </div>
@@ -66,11 +66,11 @@
         <form method="POST" action="{{ $syncGroupUrl }}">
           @csrf
           <button class="es-icon-btn h-9 w-9" type="submit" title="Refresh">
-            <span class="material-symbols-outlined text-lg">refresh</span>
+            <img src="{{ asset('duotone/arrows-rotate.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
           </button>
         </form>
         <a href="{{ $tuningUrl }}" class="es-icon-btn h-9 w-9 {{ $isProvisioningLocked ? 'pointer-events-none opacity-50' : '' }}" title="{{ $isProvisioningLocked ? 'Available after provisioning completes' : 'Tuning' }}" data-domain-action-guard>
-          <span class="material-symbols-outlined text-lg">tune</span>
+          <img src="{{ asset('duotone/sliders.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
         </a>
         <div class="hidden h-6 w-px bg-[#303540] md:block"></div>
         <form method="POST" action="{{ $destroyGroupUrl }}" x-on:submit="confirmRemoval($event)">

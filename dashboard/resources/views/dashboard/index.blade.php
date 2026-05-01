@@ -16,22 +16,22 @@
       [
         'label' => 'Protected Domains',
         'meta' => number_format($stats['active_domains'] ?? 0) . ' active',
-        'icon' => 'globe.svg',
+        'icon' => 'spider-web.svg',
       ],
       [
         'label' => 'Threat Blocks',
         'meta' => number_format($stats['total_attacks_today'] ?? 0) . ' today',
-        'icon' => 'shield-keyhole.svg',
+        'icon' => 'skull-crossbones.svg',
       ],
       [
         'label' => 'Target Focus',
         'meta' => preg_replace('/^www\./i', '', $stats['top_domains'][0]['domain_name'] ?? 'No target'),
-        'icon' => 'network-wired.svg',
+        'icon' => 'bullseye-arrow.svg',
       ],
       [
         'label' => 'Session Trust',
         'meta' => $sessionTrustCount . ' verified',
-        'icon' => 'circle-check.svg',
+        'icon' => 'user-shield.svg',
       ],
     ];
 
@@ -40,21 +40,21 @@
         'label' => 'Traffic',
         'value' => number_format($stats['total_visitors_today'] ?? 0),
         'meta' => !empty($stats['top_countries']) ? strtoupper($stats['top_countries'][0]['country'] ?? '') . ' active' : 'Live telemetry',
-        'icon' => 'signal-good.svg',
+        'icon' => 'radar.svg',
         'points' => '0,28 16,20 30,24 44,12 58,18 72,8 86,14 100,4',
       ],
       [
         'label' => 'Domains',
         'value' => number_format($stats['active_domains'] ?? 0),
         'meta' => number_format(count($stats['top_domains'] ?? [])) . ' high focus',
-        'icon' => 'globe.svg',
+        'icon' => 'spider-web.svg',
         'points' => '0,24 16,26 32,22 48,19 64,17 80,19 92,22 100,28',
       ],
       [
         'label' => 'Blocks',
         'value' => number_format($stats['total_attacks_today'] ?? 0),
         'meta' => !empty($stats['recent_critical']) ? 'Critical events detected' : 'No critical activity',
-        'icon' => 'shield-keyhole.svg',
+        'icon' => 'shield-virus.svg',
         'points' => '0,30 16,24 32,18 48,22 64,10 80,18 100,14',
         'danger' => !empty($stats['recent_critical']),
       ],
@@ -62,7 +62,7 @@
         'label' => 'Uptime',
         'value' => '99.99%',
         'meta' => 'Enterprise SLA compliant',
-        'icon' => 'circle-check.svg',
+        'icon' => 'shield-check.svg',
         'points' => '0,22 20,22 40,22 60,22 80,22 100,22',
       ],
     ];
@@ -143,7 +143,7 @@
               <div class="es-topology-eye-aura"></div>
               <div class="es-topology-eye">
                 <div class="es-topology-iris">
-                  <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="h-14 w-14 object-contain">
+                  <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-topology-logo">
                 </div>
               </div>
               <div class="es-topology-eye-label">Signal Correlation Core</div>
@@ -235,7 +235,7 @@
   <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 es-animate es-animate-delay">
     <div class="es-card p-5">
       <h3 class="mb-4 flex items-center gap-2 text-sm font-bold text-[#FFFFFF]">
-        <img src="{{ asset('duotone/globe.svg') }}" alt="countries" class="es-duotone-icon es-overview-icon h-4 w-4">
+        <img src="{{ asset('duotone/skull-crossbones.svg') }}" alt="countries" class="es-duotone-icon es-icon-tone-coral h-4 w-4">
         Top Attacking Countries
       </h3>
       <div class="flex flex-col gap-3">
@@ -255,7 +255,7 @@
 
     <div class="es-card p-5">
       <h3 class="mb-4 flex items-center gap-2 text-sm font-bold text-[#FFFFFF]">
-        <img src="{{ asset('duotone/network-wired.svg') }}" alt="domains" class="es-duotone-icon es-overview-icon h-4 w-4">
+        <img src="{{ asset('duotone/spider-web.svg') }}" alt="domains" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
         Top Targeted Domains
       </h3>
       <div class="flex flex-col gap-3">
@@ -274,7 +274,7 @@
   <div class="es-card es-animate es-animate-delay-2 mt-6 p-5 md:p-6">
     <div class="mb-4 flex items-center justify-between gap-3">
       <h3 class="flex items-center gap-2 text-lg font-bold text-[#FFFFFF]">
-        <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="critical" class="es-duotone-icon es-icon-tone-coral h-4 w-4">
+        <img src="{{ asset('duotone/skull-crossbones.svg') }}" alt="critical" class="es-duotone-icon es-icon-tone-coral h-4 w-4">
         Recent Critical Blocks
       </h3>
       <a href="{{ route('logs.index') }}" class="es-btn es-btn-secondary es-btn-compact">View All Logs</a>

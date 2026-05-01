@@ -1,7 +1,7 @@
 <div class="vs-tuning-card vs-tuning-card-pad">
   <div class="vs-tuning-section-head">
     <h3 class="vs-tuning-kicker">
-      <span class="material-symbols-outlined text-[1.15rem] text-[#10B981]">analytics</span>
+      <img src="{{ asset('duotone/chart-line.svg') }}" alt="" class="es-duotone-icon es-icon-tone-success h-4 w-4">
       Live Domain Analyzer
     </h3>
     <button type="button" x-on:click="startAnalysis()" class="vs-tuning-button vs-tuning-button-compact" x-bind:disabled="isAnalyzing">

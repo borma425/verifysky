@@ -291,9 +291,8 @@
       gap: 0.5rem;
     }
 
-    .vs-billing-owner-note .material-symbols-outlined {
-      color: var(--vs-primary);
-      font-size: 1rem;
+    .vs-billing-owner-note .es-duotone-icon {
+      flex: 0 0 auto;
       margin-top: 0.1rem;
     }
 
@@ -707,13 +706,13 @@
 
     @if(! $billingStorageReady)
       <div class="vs-billing-alert vs-billing-alert-danger">
-        <span class="material-symbols-outlined">warning</span>
+        <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral h-5 w-5">
         <div class="vs-billing-alert-text">Billing tables are not available yet. Run the latest billing migrations before enabling customer payments.</div>
       </div>
     @else
       @if($activeGrant)
         <div class="vs-billing-alert vs-billing-alert-info">
-          <span class="material-symbols-outlined">info</span>
+          <img src="{{ asset('duotone/circle-info.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-5 w-5">
           <div class="vs-billing-alert-text">
             Bonus {{ strtoupper((string) $activeGrant->granted_plan_key) }} Allowance Active, temporary extra capacity until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
             @if($activeGrant->reason)
@@ -791,7 +790,7 @@
           @if(! $canManageBilling)
             <div class="vs-billing-owner-note">
               <div class="vs-billing-owner-note-inner">
-                <span class="material-symbols-outlined">lock</span>
+                <img src="{{ asset('duotone/lock.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
                 <span>You can view billing status, but only the account owner can start checkout or cancel the subscription.</span>
               </div>
             </div>
