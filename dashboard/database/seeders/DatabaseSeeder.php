@@ -5,9 +5,11 @@ namespace Database\Seeders;
 use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Support\TenantLoginPath;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class DatabaseSeeder extends Seeder
 {
@@ -24,6 +26,7 @@ class DatabaseSeeder extends Seeder
             ['slug' => 'default'],
             ['name' => 'Default Tenant', 'plan' => 'enterprise', 'status' => 'active']
         );
+        $this->ensureLoginPath($tenant);
 
         $admin = $this->seedUser(
             'admin@verifysky.test',
@@ -76,5 +79,16 @@ class DatabaseSeeder extends Seeder
         $user->save();
 
         return $user;
+    }
+
+    private function ensureLoginPath(Tenant $tenant): void
+    {
+        if (! Schema::hasColumn('tenants', 'login_path') || trim((string) $tenant->login_path) !== '') {
+            return;
+        }
+
+        $tenant->forceFill([
+            'login_path' => TenantLoginPath::defaultForTenant((int) $tenant->getKey(), (string) $tenant->slug),
+        ])->save();
     }
 }

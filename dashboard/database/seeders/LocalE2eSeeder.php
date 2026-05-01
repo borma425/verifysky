@@ -6,6 +6,7 @@ use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Support\TenantLoginPath;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Schema;
 
@@ -33,14 +34,19 @@ class LocalE2eSeeder extends Seeder
                 ->first();
 
             if ($domain instanceof TenantDomain && $domain->tenant instanceof Tenant) {
+                $this->ensureLoginPath($domain->tenant);
+
                 return $domain->tenant;
             }
         }
 
-        return Tenant::query()->firstOrCreate(
+        $tenant = Tenant::query()->firstOrCreate(
             ['slug' => 'default'],
             ['name' => 'Default Tenant', 'plan' => 'enterprise', 'status' => 'active']
         );
+        $this->ensureLoginPath($tenant);
+
+        return $tenant;
     }
 
     private function ensureMembership(Tenant $tenant, string $email, string $role): void
@@ -88,5 +94,16 @@ class LocalE2eSeeder extends Seeder
                 'verified_at' => now(),
             ]
         );
+    }
+
+    private function ensureLoginPath(Tenant $tenant): void
+    {
+        if (! Schema::hasColumn('tenants', 'login_path') || trim((string) $tenant->login_path) !== '') {
+            return;
+        }
+
+        $tenant->forceFill([
+            'login_path' => TenantLoginPath::defaultForTenant((int) $tenant->getKey(), (string) $tenant->slug),
+        ])->save();
     }
 }

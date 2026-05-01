@@ -2,12 +2,8 @@
 
 namespace App\Services\EdgeShield;
 
-use App\Models\DashboardSetting;
-
 class WorkerSecretSyncService
 {
-    private ?array $settingsCache = null;
-
     public function __construct(
         private readonly EdgeShieldConfig $config,
         private readonly WranglerProcessRunner $runner,
@@ -35,7 +31,7 @@ class WorkerSecretSyncService
                 return [
                     'ok' => false,
                     'logs' => [],
-                    'errors' => [$requiredSecret.' is required in Dashboard settings before sync.'],
+                    'errors' => [$requiredSecret.' is required in environment configuration before sync.'],
                     'deploy' => null,
                 ];
             }
@@ -163,24 +159,27 @@ class WorkerSecretSyncService
 
     private function setting(string $key): ?string
     {
-        if ($this->settingsCache === null) {
-            $this->settingsCache = DashboardSetting::query()
-                ->get()
-                ->mapWithKeys(static fn (DashboardSetting $setting): array => [$setting->key => $setting->value])
-                ->all();
-        }
+        $value = match ($key) {
+            'CF_API_TOKEN' => $this->config->cloudflareApiToken(),
+            'OPENROUTER_API_KEY' => config('edgeshield.runtime.openrouter_api_key'),
+            'JWT_SECRET' => config('edgeshield.runtime.jwt_secret'),
+            'METER_SECRET' => config('edgeshield.runtime.meter_secret'),
+            'ES_ADMIN_TOKEN' => config('edgeshield.runtime.es_admin_token'),
+            'OPENROUTER_MODEL' => config('edgeshield.runtime.openrouter_model'),
+            'OPENROUTER_FALLBACK_MODELS' => config('edgeshield.runtime.openrouter_fallback_models'),
+            'ES_DISABLE_WAF_AUTODEPLOY' => config('edgeshield.runtime.es_disable_waf_autodeploy'),
+            'ES_ALLOW_UA_CRAWLER_ALLOWLIST' => config('edgeshield.runtime.es_allow_ua_crawler_allowlist'),
+            'ES_TURNSTILE_STRICT' => config('edgeshield.runtime.es_turnstile_strict'),
+            'ES_STRICT_CONTEXT_BINDING' => config('edgeshield.runtime.es_strict_context_binding'),
+            'ES_ADMIN_ALLOWED_IPS' => config('edgeshield.runtime.es_admin_allowed_ips'),
+            'ES_ADMIN_RATE_LIMIT_PER_MIN' => config('edgeshield.runtime.es_admin_rate_limit_per_min'),
+            'ES_BLOCK_REDIRECT_URL' => config('edgeshield.runtime.es_block_redirect_url'),
+            default => null,
+        };
 
-        $value = trim((string) ($this->settingsCache[$this->normalizeDashboardKey($key)] ?? ''));
-        if ($value === '') {
-            $value = trim((string) ($this->settingsCache[$key] ?? ''));
-        }
+        $value = trim((string) ($value ?? ''));
 
         return $value !== '' ? $value : null;
-    }
-
-    private function normalizeDashboardKey(string $key): string
-    {
-        return strtolower($key);
     }
 
     private function compactErrorMessage(string $error): string

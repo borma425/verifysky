@@ -10,6 +10,7 @@ use App\Services\EdgeShield\WorkerRouteService;
 use App\Services\EdgeShield\WorkerSecretSyncService;
 use App\Services\EdgeShield\WranglerProcessRunner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Mockery;
 use Tests\TestCase;
 
@@ -27,12 +28,15 @@ class WorkerSecretSyncTest extends TestCase
     {
         DashboardSetting::query()->create(['key' => 'cf_api_token', 'value' => 'cf-token']);
         DashboardSetting::query()->create(['key' => 'es_admin_token', 'value' => 'admin-token']);
+        Config::set('edgeshield.runtime.es_admin_token', 'admin-token-from-env');
 
         $runner = Mockery::mock(WranglerProcessRunner::class);
         $runner->shouldReceive('runInProject')->never();
+        $config = Mockery::mock(EdgeShieldConfig::class);
+        $config->shouldReceive('cloudflareApiToken')->andReturn('cf-token-from-env');
 
         $sync = new WorkerSecretSyncService(
-            Mockery::mock(EdgeShieldConfig::class),
+            $config,
             $runner,
             Mockery::mock(DomainConfigService::class),
             Mockery::mock(WorkerRouteService::class),
@@ -42,7 +46,7 @@ class WorkerSecretSyncTest extends TestCase
         $result = $sync->syncFromDashboardSettings();
 
         $this->assertFalse($result['ok']);
-        $this->assertSame(['JWT_SECRET is required in Dashboard settings before sync.'], $result['errors']);
+        $this->assertSame(['JWT_SECRET is required in environment configuration before sync.'], $result['errors']);
     }
 
     public function test_worker_secret_sync_deploys_to_default_production_script_without_env_override(): void
@@ -50,9 +54,12 @@ class WorkerSecretSyncTest extends TestCase
         DashboardSetting::query()->create(['key' => 'cf_api_token', 'value' => 'cf-token']);
         DashboardSetting::query()->create(['key' => 'jwt_secret', 'value' => str_repeat('a', 32)]);
         DashboardSetting::query()->create(['key' => 'es_admin_token', 'value' => 'admin-token']);
+        Config::set('edgeshield.runtime.jwt_secret', str_repeat('b', 32));
+        Config::set('edgeshield.runtime.es_admin_token', 'admin-token-from-env');
 
         $config = Mockery::mock(EdgeShieldConfig::class);
         $config->shouldReceive('wranglerBin')->andReturn('npx wrangler');
+        $config->shouldReceive('cloudflareApiToken')->andReturn('cf-token-from-env');
 
         $runner = Mockery::mock(WranglerProcessRunner::class);
         $runner->shouldReceive('runInProject')

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Support\TenantLoginPath;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -30,6 +31,12 @@ class TenantContextService
             ]
         );
 
+        if (Schema::hasColumn('tenants', 'login_path') && trim((string) $tenant->login_path) === '') {
+            $tenant->forceFill([
+                'login_path' => $this->uniqueLoginPathForTenant($tenant),
+            ])->save();
+        }
+
         TenantMembership::query()->firstOrCreate(
             ['tenant_id' => $tenant->id, 'user_id' => $user->id],
             ['role' => 'owner']
@@ -48,5 +55,22 @@ class TenantContextService
         $name = trim((string) $user->name);
 
         return $name !== '' ? $name.' Tenant' : 'User '.$user->id.' Tenant';
+    }
+
+    private function uniqueLoginPathForTenant(Tenant $tenant): string
+    {
+        $candidate = TenantLoginPath::defaultForTenant((int) $tenant->getKey(), (string) $tenant->slug);
+        $path = $candidate;
+        $suffix = 1;
+
+        while (Tenant::query()
+            ->where('login_path', $path)
+            ->whereKeyNot($tenant->getKey())
+            ->exists()) {
+            $path = $candidate.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $path;
     }
 }

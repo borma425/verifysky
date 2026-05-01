@@ -14,12 +14,12 @@
 </head>
 <body class="min-h-full bg-[#171C26] text-[#D7E1F5]">
   <main class="mx-auto grid min-h-screen max-w-6xl place-items-center px-4">
-    <form class="w-full max-w-md rounded-lg border border-white/10 bg-[#202632] p-7 shadow-2xl backdrop-blur" method="POST" action="{{ route('login.submit') }}">
+    <form class="w-full max-w-md rounded-lg border border-white/10 bg-[#202632] p-7 shadow-2xl backdrop-blur" method="POST" action="{{ $loginAction ?? url()->current() }}">
     @csrf
       <div class="mb-5">
         <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="mb-5 h-auto w-24 object-contain">
-        <p class="text-xs uppercase tracking-[0.2em] text-[#FCB900]">Control Panel</p>
-        <h1 class="mt-2 text-2xl font-bold text-[#FFFFFF]">VerifySky Dashboard</h1>
+        <p class="text-xs uppercase tracking-[0.2em] text-[#FCB900]">{{ ($loginContext ?? 'admin') === 'tenant' ? 'Account Portal' : 'Control Panel' }}</p>
+        <h1 class="mt-2 text-2xl font-bold text-[#FFFFFF]">{{ ($loginContext ?? 'admin') === 'tenant' && isset($tenant) ? $tenant->name : 'VerifySky Dashboard' }}</h1>
       </div>
       <label class="mb-1 block text-sm text-[#D7E1F5]">Username</label>
       <input class="es-input mb-4" name="username" value="{{ old('username') }}" required>

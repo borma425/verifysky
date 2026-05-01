@@ -68,7 +68,7 @@ class EdgeShieldConfigTest extends TestCase
         $this->assertFalse($config->canRunD1Query('DELETE FROM security_logs'));
     }
 
-    public function test_cloudflare_credentials_fall_back_to_dashboard_settings(): void
+    public function test_cloudflare_credentials_do_not_fall_back_to_dashboard_settings(): void
     {
         Config::set('edgeshield.cloudflare_api_token', '');
         Config::set('edgeshield.cloudflare_account_id', '');
@@ -78,11 +78,11 @@ class EdgeShieldConfigTest extends TestCase
 
         $config = new EdgeShieldConfig;
 
-        $this->assertSame('token-from-settings', $config->cloudflareApiToken());
-        $this->assertSame('account-from-settings', $config->cloudflareAccountId());
+        $this->assertNull($config->cloudflareApiToken());
+        $this->assertNull($config->cloudflareAccountId());
     }
 
-    public function test_saas_zone_id_falls_back_to_dashboard_settings(): void
+    public function test_saas_zone_id_does_not_fall_back_to_dashboard_settings(): void
     {
         Config::set('edgeshield.saas_zone_id', '');
 
@@ -90,7 +90,7 @@ class EdgeShieldConfigTest extends TestCase
 
         $config = new EdgeShieldConfig;
 
-        $this->assertSame('zone-from-settings', $config->saasZoneId());
+        $this->assertNull($config->saasZoneId());
     }
 
     public function test_local_d1_database_name_falls_back_to_matching_worker_environment_database(): void

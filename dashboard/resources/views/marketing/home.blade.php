@@ -18,7 +18,7 @@
       <a href="/" class="flex items-center gap-3">
         <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="h-auto w-20 object-contain">
       </a>
-      <a href="{{ route('login') }}" class="es-btn">Admin Login</a>
+      <a href="{{ route('admin.login') }}" class="es-btn">Admin Login</a>
     </header>
 
     <section class="grid flex-1 items-center gap-10 py-14 lg:grid-cols-[1.1fr_0.9fr]">
@@ -29,7 +29,7 @@
           VerifySky lets customers point their hostname to your platform while managed SSL, edge routing, and high-speed bot defense work behind the scenes.
         </p>
         <div class="mt-8 flex flex-wrap gap-3">
-          <a href="{{ route('login') }}" class="es-btn">Open Control Plane</a>
+          <a href="{{ route('admin.login') }}" class="es-btn">Open Control Plane</a>
           <a href="#flow" class="es-btn es-btn-secondary">View Domain Flow</a>
         </div>
       </div>

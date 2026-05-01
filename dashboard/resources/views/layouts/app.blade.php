@@ -156,7 +156,7 @@
   @endif
 
   @php
-    $navItems = [
+  $navItems = [
       ['route' => 'dashboard', 'label' => 'Overview', 'desc' => 'Telemetry', 'icon' => 'eye-evil.svg'],
       ['route' => 'billing.index', 'label' => 'Billing', 'desc' => 'Subscription', 'icon' => 'sack-dollar.svg'],
       ['route' => 'domains.index', 'label' => 'Domains', 'desc' => 'Onboarding', 'icon' => 'spider-web.svg'],
@@ -165,6 +165,9 @@
       ['route' => 'logs.index', 'label' => 'Security Logs', 'desc' => 'Incidents', 'icon' => 'skull-crossbones.svg'],
       ['route' => 'ip_farm.index', 'label' => 'IP Farm', 'desc' => 'Network Feed', 'icon' => 'ban-bug.svg'],
     ];
+    $sessionAvatarPath = session('user_avatar_path');
+    $sessionAvatarPath = is_string($sessionAvatarPath) ? trim($sessionAvatarPath) : '';
+    $sessionAvatarUrl = $sessionAvatarPath !== '' ? asset('storage/'.ltrim($sessionAvatarPath, '/')) : null;
   @endphp
 
   <div class="relative z-10 flex h-screen overflow-hidden">
@@ -209,12 +212,21 @@
         </div>
 
         <div class="border-t border-white/8 px-4 py-4">
-          <div class="rounded-lg border border-white/10 bg-[#252A34] px-3 py-2.5 text-[11px]">
-            <div class="flex items-center gap-2">
-              <img src="{{ asset('duotone/shield-check.svg') }}" alt="role" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
-              <span class="font-semibold text-[#FFFFFF]">{{ session('user_name', session('admin_user', 'User')) }}</span>
+          <div class="rounded-lg border border-[#303540] bg-[#252A34] px-3 py-3">
+            <div class="flex items-center gap-3">
+              @if($sessionAvatarUrl)
+                <img src="{{ $sessionAvatarUrl }}" alt="" class="h-10 w-10 shrink-0 rounded-full border border-[#303540] object-cover">
+              @else
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#303540] bg-[#1B202A] text-xs font-black text-[#FCB900]">
+                  {{ strtoupper(substr((string) session('user_name', session('admin_user', 'U')), 0, 1)) }}
+                </div>
+              @endif
+              <div class="min-w-0">
+                <div class="truncate text-sm font-bold text-[#FFFFFF]">{{ session('user_name', session('admin_user', 'User')) }}</div>
+                <div class="mt-0.5 truncate text-[11px] text-[#AEB9CC]">{{ session('user_email', session('admin_user', '')) }}</div>
+              </div>
             </div>
-            <div class="mt-1 uppercase tracking-[0.18em] text-[10px] text-[#76859C]">{{ ucfirst((string) session('user_role', session('is_admin') ? 'admin' : 'user')) }}</div>
+            <div class="mt-3 inline-flex rounded-md border border-[#303540] bg-[#1B202A] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#FCB900]">{{ ucfirst((string) session('user_role', session('is_admin') ? 'admin' : 'user')) }}</div>
           </div>
           <form method="POST" action="{{ route('logout') }}" class="mt-3">
             @csrf
@@ -225,26 +237,52 @@
     </aside>
 
     <div class="flex min-w-0 flex-1 flex-col md:pl-64">
-      <header class="es-topbar z-20 h-16 shrink-0">
-        <div class="flex h-full items-center justify-between px-4 py-3 sm:px-6">
-          <div class="flex items-center gap-3">
+      <header class="z-20 h-16 shrink-0 border-b border-[#303540]/70 bg-[#0E131D]/95 backdrop-blur">
+        <div class="flex h-full items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div class="flex min-w-0 flex-1 items-center gap-3">
             <button class="es-icon-btn es-btn-secondary md:hidden" x-on:click="navOpen = true" type="button" aria-label="Open navigation">
               <img src="{{ asset('duotone/bars.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
             </button>
+            <div class="vs-owl-stage" aria-hidden="true">
+              <div class="vs-owl-skyline"></div>
+              <div class="vs-owl-sentinel">
+                <div class="vs-owl-glow"></div>
+                <svg class="vs-owl-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 384" fill="currentColor">
+                  <g>
+                    <path class="vs-owl-crown" d="M187.65 122.03c1.95 1.95 5.14 1.95 7.1 0l37.3-37.3c1.95-1.95 1.95-5.14 0-7.1l-37.3-37.3c-1.95-1.95-5.14-1.95-7.1 0l-37.3 37.3c-1.95 1.95-1.95 5.14 0 7.1l37.3 37.3z"/>
+                    <path class="vs-owl-wing vs-owl-wing-right" d="M337.04 159.25c-10.22 1.48-19.64 4.8-28.3 10.56-3.73 2.5-4.88 3.98-1.73 8.47 9.26 13.2 7.43 30.32-3.5 41.14-10.91 10.81-27.83 12.39-41.13 3.3-3.8-2.62-5.54-2.17-8.4 0.83-6.4 6.83-12.91 13.63-19.89 19.84-4.33 3.84-3.37 6.06 0.58 9.02 23.51 17.91 49.07 22.17 76.18 9.96 27.81-12.57 41.01-35.36 42.51-65.35-0.13-11.7-2.83-22.43-7.57-32.66-1.9-4.1-4.25-5.55-8.65-4.96z"/>
+                    <path class="vs-owl-wing vs-owl-wing-left" d="M148.38 243.24c-7-6.21-13.5-13.01-19.91-19.83-2.86-3-4.64-3.45-8.42-0.83-13.3 9.14-30.23 7.49-41.15-3.3-10.93-10.82-12.76-27.94-3.52-41.14 3.14-4.49 2-5.96-1.72-8.46-8.65-5.76-18.09-9.08-28.33-10.57-4.41-0.58-6.77 0.87-8.66 4.96-4.73 10.22-7.43 20.96-7.56 32.66 1.5 29.99 14.69 52.78 42.5 65.35 27.11 12.21 52.67 7.95 76.18-9.96 3.96-2.96 4.91-5.18 0.6-9.01z"/>
+                    <path class="vs-owl-core" d="M208.87 260c-4.73-3.68-4.07-5.72-.16-9.59 28.4-28.07 133.35-133 158.24-157.8-26.67-17.18-61.18-14.47-86.98 13.39-27.1 29.29-56.28 56.67-84.33 85.12-1.71 1.73-3.1 2.83-4.45 3.24-1.34-.41-2.73-1.51-4.44-3.24-28.05-28.45-57.23-55.83-84.33-85.12-25.8-27.86-60.31-30.57-86.98-13.39 24.89 24.8 129.85 129.73 158.24 157.8 3.91 3.87 4.57 5.91-.16 9.59-5.63 4.37-14.7 8.03-15.17 14.26-.42 5.55 19.73 35.23 27.81 47.79h.02v-.01h.01v.01c8.06-12.55 28.2-42.24 27.79-47.78-.45-6.24-9.51-9.89-15.15-14.27z"/>
+                    <circle class="vs-owl-eye vs-owl-eye-left" cx="164" cy="174" r="9"/>
+                    <circle class="vs-owl-eye vs-owl-eye-right" cx="220" cy="174" r="9"/>
+                    <path class="vs-owl-beak" d="M192 194l-20 24h40l-20-24z"/>
+                  </g>
+                </svg>
+              </div>
+              <div class="vs-threat-packet">
+                <span class="vs-threat-dot"></span>
+                <span class="vs-threat-ip">203.0.113.7</span>
+              </div>
+              <div class="vs-capture-flash"></div>
+            </div>
           </div>
-          <div class="flex items-center gap-4">
-            <div class="relative hidden items-center rounded-full border border-[#504532]/20 bg-[#303540] px-4 py-1.5 transition-colors focus-within:border-[#FCB900]/50 md:flex">
-              <input class="h-6 w-48 border-none bg-transparent p-0 font-mono text-sm text-[#DEE2F0] placeholder:text-[#D4C4AB] focus:ring-0" placeholder="Search control plane..." type="text">
-              <img src="{{ asset('duotone/magnifying-glass.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-3.5 w-3.5">
+          <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+            <button class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#303540] bg-[#1B202A] text-[#AEB9CC] transition-colors hover:border-[#FCB900]/50 hover:text-[#FCB900]" type="button" aria-label="Notifications"><img src="{{ asset('duotone/bell.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></button>
+            <a class="hidden h-10 items-center gap-2 rounded-lg border border-[#303540] bg-[#1B202A] px-3 text-sm font-semibold text-[#D7E1F5] transition-colors hover:border-[#FCB900]/50 hover:text-[#FCB900] sm:inline-flex" href="{{ route('settings.index') }}" aria-label="Settings">
+              <img src="{{ asset('duotone/gear.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+              Settings
+            </a>
+            <a class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#303540] bg-[#1B202A] text-[#AEB9CC] transition-colors hover:border-[#FCB900]/50 hover:text-[#FCB900] sm:hidden" href="{{ route('settings.index') }}" aria-label="Settings"><img src="{{ asset('duotone/gear.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></a>
+            <div class="vs-motivation-pill hidden md:inline-flex">
+              <span class="vs-motivation-spark"></span>
+              <span class="whitespace-nowrap">togther we can do it better</span>
             </div>
-            <button class="es-top-icon" type="button" aria-label="Notifications"><img src="{{ asset('duotone/bell.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></button>
-            <a class="es-top-icon" href="{{ route('settings.index') }}" aria-label="Settings"><img src="{{ asset('duotone/gear.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></a>
-            <div class="hidden rounded-full border border-white/10 bg-[#303540] px-3 py-1.5 text-[11px] text-[#D7E1F5] sm:block">
-              <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#FCB900]"></span>
-              <span class="ml-1.5 uppercase tracking-[0.15em]">Edge Mesh Healthy</span>
-            </div>
-            <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-[#504532]/20 bg-[#343944] text-xs font-bold text-[#FCB900]">
-              {{ strtoupper(substr((string) session('user_name', session('admin_user', 'U')), 0, 1)) }}
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#303540] bg-[#252A34] text-xs font-bold text-[#FCB900]">
+              @if($sessionAvatarUrl)
+                <img src="{{ $sessionAvatarUrl }}" alt="" class="h-full w-full object-cover">
+              @else
+                {{ strtoupper(substr((string) session('user_name', session('admin_user', 'U')), 0, 1)) }}
+              @endif
             </div>
           </div>
         </div>

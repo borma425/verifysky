@@ -2,115 +2,145 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\DashboardSetting;
+use App\Models\Tenant;
+use App\Models\User;
 use App\Services\EdgeShieldService;
+use App\Support\TenantLoginPath;
+use App\Support\UserFacingErrorSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\MessageBag;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class SettingsController extends Controller
 {
-    private const DEFAULT_WORKER_SCRIPT_NAME = 'verifysky-edge';
-
-    private const SENSITIVE_SETTING_KEYS = [
-        'cf_api_token',
-        'openrouter_api_key',
-        'jwt_secret',
-        'meter_secret',
-        'es_admin_token',
-    ];
-
     public function __construct(private readonly EdgeShieldService $edgeShield) {}
 
     public function index(): View
     {
-        $settings = DashboardSetting::query()
-            ->get()
-            ->mapWithKeys(fn (DashboardSetting $setting): array => [$setting->key => $setting->value])
-            ->all();
-
-        $sensitiveConfigured = [];
-        foreach (self::SENSITIVE_SETTING_KEYS as $key) {
-            $sensitiveConfigured[$key] = trim((string) ($settings[$key] ?? '')) !== '';
-            unset($settings[$key]);
+        if (request()->routeIs('admin.*')) {
+            return view('settings.platform', [
+                'layout' => 'layouts.admin',
+                'settingsUpdateRoute' => 'admin.settings.update',
+                'platformSettings' => $this->platformSettings(),
+            ]);
         }
 
-        $settings['worker_script_name'] = $this->normalizeWorkerScriptName((string) ($settings['worker_script_name'] ?? ''));
+        $tenant = $this->currentTenantOrFail();
+        $user = $this->currentUserOrFail();
 
-        return view('settings.index', [
-            'settings' => $settings,
-            'sensitiveConfigured' => $sensitiveConfigured,
-            'currentLoginPath' => $this->resolveAdminLoginPath($settings),
-            'layout' => request()->routeIs('admin.*') ? 'layouts.admin' : 'layouts.app',
-            'settingsUpdateRoute' => request()->routeIs('admin.*') ? 'admin.settings.update' : 'settings.update',
+        return view('settings.account', [
+            'layout' => 'layouts.app',
+            'tenant' => $tenant,
+            'user' => $user,
+            'settingsUpdateRoute' => 'settings.update',
+            'currentLoginSlug' => TenantLoginPath::slugFromPath((string) $tenant->login_path),
+            'loginUrlPrefix' => rtrim(url('/'.TenantLoginPath::ACCOUNT_PREFIX), '/').'/',
+            'currentLoginUrl' => url('/'.((string) $tenant->login_path)),
+            'avatarUrl' => $this->publicStorageUrl($user->avatar_path),
         ]);
     }
 
     public function update(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'openrouter_model' => ['nullable', 'string', 'max:255'],
-            'openrouter_fallback_models' => ['nullable', 'string', 'max:1000'],
-            'notes' => ['nullable', 'string', 'max:5000'],
-            'cf_api_token' => ['nullable', 'string', 'max:500'],
-            'cf_account_id' => ['nullable', 'string', 'max:128'],
-            'cf_zone_id' => ['nullable', 'string', 'max:128'],
-            'openrouter_api_key' => ['nullable', 'string', 'max:500'],
-            'jwt_secret' => ['nullable', 'string', 'max:500'],
-            'meter_secret' => ['nullable', 'string', 'max:500'],
-            'worker_script_name' => ['nullable', 'string', 'max:128'],
-            'es_admin_token' => ['nullable', 'string', 'max:500'],
-            'es_admin_rate_limit_per_min' => ['nullable', 'integer', 'min:10', 'max:600'],
-            'es_disable_waf_autodeploy' => ['nullable', 'in:on,off'],
-            'es_allow_ua_crawler_allowlist' => ['nullable', 'in:on,off'],
-            'es_turnstile_strict' => ['nullable', 'in:on,off'],
-            'es_strict_context_binding' => ['nullable', 'in:on,off'],
-            'admin_login_path' => ['nullable', 'string', 'max:120', 'regex:/^[a-zA-Z0-9_\/-]+$/'],
-        ]);
-
-        // Normalize toggle fields to explicit "on"/"off"
-        $validated['es_disable_waf_autodeploy'] = ($request->input('es_disable_waf_autodeploy') === 'on') ? 'on' : 'off';
-        $validated['es_allow_ua_crawler_allowlist'] = ($request->input('es_allow_ua_crawler_allowlist') === 'on') ? 'on' : 'off';
-        $validated['es_turnstile_strict'] = ($request->input('es_turnstile_strict', 'on') === 'off') ? 'off' : 'on';
-        $validated['es_strict_context_binding'] = ($request->input('es_strict_context_binding') === 'on') ? 'on' : 'off';
-
-        $existingSensitive = DashboardSetting::query()
-            ->whereIn('key', self::SENSITIVE_SETTING_KEYS)
-            ->get()
-            ->keyBy('key');
-
-        foreach ($validated as $key => $value) {
-            if ($key === 'admin_login_path') {
-                $value = $this->normalizeLoginPath((string) $value);
-            }
-            if ($key === 'worker_script_name') {
-                $value = $this->normalizeWorkerScriptName((string) $value);
-            }
-            if (in_array($key, self::SENSITIVE_SETTING_KEYS, true) && trim((string) ($value ?? '')) === '') {
-                $existing = $existingSensitive->get($key);
-                if ($existing instanceof DashboardSetting && trim((string) $existing->value) !== '') {
-                    continue;
-                }
-            }
-            DashboardSetting::query()->updateOrCreate(
-                ['key' => $key],
-                ['value' => (string) ($value ?? '')]
-            );
+        if ($request->routeIs('admin.*')) {
+            return $this->syncPlatformSettings();
         }
 
+        $tenant = $this->currentTenantOrFail();
+        $user = $this->currentUserOrFail();
+        $validated = $request->validate([
+            'email' => ['required', 'email:rfc', 'max:190', Rule::unique('users', 'email')->ignore($user->getKey())],
+            'avatar' => ['nullable', 'image', 'max:2048'],
+            'remove_avatar' => ['nullable', 'boolean'],
+            'current_password' => ['nullable', 'string'],
+            'password' => ['nullable', 'string', 'min:8', 'confirmed'],
+            'name' => ['required', 'string', 'max:190'],
+            'login_slug' => ['required', 'string', 'max:80'],
+        ]);
+
+        $newEmail = trim(strtolower((string) $validated['email']));
+        $emailChanged = $newEmail !== trim(strtolower((string) $user->email));
+        $passwordChanged = trim((string) ($validated['password'] ?? '')) !== '';
+        if (($emailChanged || $passwordChanged) && ! Hash::check((string) ($validated['current_password'] ?? ''), (string) $user->password)) {
+            $errors = new MessageBag;
+            $errors->add('current_password', 'The current password is required to change your email or password.');
+
+            return back()->withErrors($errors)->withInput($request->except(['current_password', 'password', 'password_confirmation']));
+        }
+
+        $loginSlug = TenantLoginPath::normalizeSlug((string) $validated['login_slug']);
+        $loginPath = TenantLoginPath::forSlug($loginSlug);
+        $errors = new MessageBag;
+        if (TenantLoginPath::isReservedSlug($loginSlug)) {
+            $errors->add('login_slug', 'This login slug is reserved.');
+        }
+        if ($loginPath === TenantLoginPath::normalize((string) config('dashboard.login_path', 'wow/login'))) {
+            $errors->add('login_slug', 'This login slug is reserved for platform administration.');
+        }
+        if (Tenant::query()
+            ->where('login_path', $loginPath)
+            ->whereKeyNot($tenant->getKey())
+            ->exists()) {
+            $errors->add('login_slug', 'This login slug is already in use.');
+        }
+
+        if ($errors->any()) {
+            return back()->withErrors($errors)->withInput();
+        }
+
+        $avatarPath = $user->avatar_path;
+        if ($request->boolean('remove_avatar')) {
+            if ($avatarPath) {
+                Storage::disk('public')->delete((string) $avatarPath);
+            }
+            $avatarPath = null;
+        }
+        if ($request->hasFile('avatar')) {
+            if ($avatarPath) {
+                Storage::disk('public')->delete((string) $avatarPath);
+            }
+            $avatarPath = $request->file('avatar')->store('avatars', 'public');
+        }
+
+        $user->forceFill([
+            'email' => $newEmail,
+            'avatar_path' => $avatarPath,
+        ]);
+        if ($passwordChanged) {
+            $user->password = (string) $validated['password'];
+        }
+        $user->save();
+
+        $tenant->forceFill([
+            'name' => trim((string) $validated['name']),
+            'login_path' => $loginPath,
+        ])->save();
+
+        session()->put('user_email', $user->email);
+        session()->put('user_avatar_path', $user->avatar_path);
+
+        return back()->with('status', 'Account settings saved.');
+    }
+
+    private function syncPlatformSettings(): RedirectResponse
+    {
         $sync = $this->edgeShield->syncCloudflareFromDashboardSettings();
         if (! $sync['ok']) {
             $errorCount = count($sync['errors'] ?? []);
-            $firstError = \App\Support\UserFacingErrorSanitizer::sanitize(
+            $firstError = UserFacingErrorSanitizer::sanitize(
                 $this->stripAnsi((string) ($sync['errors'][0] ?? 'Edge sync failed.')),
-                'Edge service sync failed. Please review platform settings and try again.'
+                'Edge service sync failed. Please review environment configuration and try again.'
             );
-            $message = "Settings saved, but edge service sync failed ({$errorCount} issue(s)). First issue: {$firstError}";
+            $message = "Environment settings were read, but edge service sync failed ({$errorCount} issue(s)). First issue: {$firstError}";
 
             return back()->with('error', $message);
         }
 
-        $message = 'Settings saved and synced to edge services successfully.';
+        $message = 'Environment settings synced to edge services successfully.';
         if ($this->hasAlreadySyncedRoutes($sync)) {
             $message .= ' Routes are already up to date.';
         }
@@ -118,27 +148,61 @@ class SettingsController extends Controller
         return back()->with('status', $message);
     }
 
-    private function normalizeLoginPath(string $path): string
+    private function currentTenantOrFail(): Tenant
     {
-        $candidate = trim(strtolower($path));
-        $candidate = ltrim($candidate, '/');
-        $candidate = preg_replace('/[^a-z0-9\/_-]/', '', $candidate) ?? '';
-        $candidate = preg_replace('#/+#', '/', $candidate) ?? '';
-        $candidate = trim($candidate, '/');
+        $tenantId = trim((string) session('current_tenant_id', ''));
+        abort_if($tenantId === '', 404);
 
-        $reserved = ['', 'login', 'logout', 'dashboard', 'domains', 'logs', 'settings', 'actions', 'api'];
-        if (in_array($candidate, $reserved, true)) {
-            return 'wow/login';
-        }
+        $tenant = Tenant::query()->find($tenantId);
+        abort_unless($tenant instanceof Tenant, 404);
 
-        return $candidate;
+        return $tenant;
     }
 
-    private function resolveAdminLoginPath(array $settings): string
+    private function currentUserOrFail(): User
     {
-        $candidate = (string) ($settings['admin_login_path'] ?? config('dashboard.login_path', 'wow/login'));
+        $userId = trim((string) session('user_id', ''));
+        abort_if($userId === '', 404);
 
-        return $this->normalizeLoginPath($candidate);
+        $user = User::query()->find($userId);
+        abort_unless($user instanceof User, 404);
+
+        return $user;
+    }
+
+    private function publicStorageUrl(?string $path): ?string
+    {
+        $path = trim((string) $path);
+        if ($path === '') {
+            return null;
+        }
+
+        return asset('storage/'.ltrim($path, '/'));
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function platformSettings(): array
+    {
+        $runtime = (array) config('edgeshield.runtime', []);
+
+        return [
+            ['label' => 'Admin Login Path', 'value' => TenantLoginPath::normalize((string) config('dashboard.login_path', 'wow/login')), 'secret' => false],
+            ['label' => 'Worker Script Name', 'value' => (string) config('edgeshield.worker_name', 'verifysky-edge'), 'secret' => false],
+            ['label' => 'Cloudflare Account ID', 'value' => (string) config('edgeshield.cloudflare_account_id', ''), 'secret' => false],
+            ['label' => 'Cloudflare Zone ID', 'value' => (string) config('edgeshield.saas_zone_id', ''), 'secret' => false],
+            ['label' => 'OpenRouter Model', 'value' => (string) ($runtime['openrouter_model'] ?? ''), 'secret' => false],
+            ['label' => 'OpenRouter Fallback Models', 'value' => (string) ($runtime['openrouter_fallback_models'] ?? ''), 'secret' => false],
+            ['label' => 'Cloudflare API Token', 'configured' => trim((string) config('edgeshield.cloudflare_api_token', '')) !== '', 'secret' => true],
+            ['label' => 'OpenRouter API Key', 'configured' => trim((string) ($runtime['openrouter_api_key'] ?? '')) !== '', 'secret' => true],
+            ['label' => 'JWT Secret', 'configured' => trim((string) ($runtime['jwt_secret'] ?? '')) !== '', 'secret' => true],
+            ['label' => 'Meter Secret', 'configured' => trim((string) ($runtime['meter_secret'] ?? '')) !== '', 'secret' => true],
+            ['label' => 'ES Admin Token', 'configured' => trim((string) ($runtime['es_admin_token'] ?? '')) !== '', 'secret' => true],
+            ['label' => 'Turnstile Strict', 'value' => (string) ($runtime['es_turnstile_strict'] ?? 'on'), 'secret' => false],
+            ['label' => 'Strict Context Binding', 'value' => (string) ($runtime['es_strict_context_binding'] ?? 'off'), 'secret' => false],
+            ['label' => 'ES Admin Rate Limit / min', 'value' => (string) ($runtime['es_admin_rate_limit_per_min'] ?? ''), 'secret' => false],
+        ];
     }
 
     private function stripAnsi(string $text): string
@@ -146,16 +210,6 @@ class SettingsController extends Controller
         $plain = preg_replace('/\e\[[0-9;]*[A-Za-z]/', '', $text) ?? $text;
 
         return trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
-    }
-
-    private function normalizeWorkerScriptName(string $value): string
-    {
-        $candidate = trim($value);
-
-        return match ($candidate) {
-            '', 'verifysky-edge-staging', 'verifysky-edge-production' => self::DEFAULT_WORKER_SCRIPT_NAME,
-            default => $candidate,
-        };
     }
 
     private function hasAlreadySyncedRoutes(array $sync): bool

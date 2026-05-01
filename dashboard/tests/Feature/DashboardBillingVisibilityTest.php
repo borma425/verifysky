@@ -20,8 +20,10 @@ use App\Repositories\DomainConfigRepository;
 use App\Services\EdgeShield\D1DatabaseClient;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
@@ -31,8 +33,18 @@ class DashboardBillingVisibilityTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Carbon::setTestNow(Carbon::parse('2026-04-15 12:00:00', 'UTC'));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-15 12:00:00', 'UTC'));
+    }
+
     protected function tearDown(): void
     {
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
         Mockery::close();
         parent::tearDown();
     }

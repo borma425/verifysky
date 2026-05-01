@@ -15,6 +15,7 @@ class Tenant extends Model
         'slug',
         'plan',
         'status',
+        'login_path',
         'billing_start_at',
         'settings',
     ];

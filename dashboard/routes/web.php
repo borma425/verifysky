@@ -20,6 +20,7 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Middleware\AdminAuth;
 use App\Http\Middleware\LogAdminCustomerMirrorAccess;
 use App\Http\Middleware\NoIndexSensitivePages;
+use App\Support\TenantLoginPath;
 use Illuminate\Support\Facades\Route;
 
 if (! function_exists('resolveAdminLoginPath')) {
@@ -27,24 +28,9 @@ if (! function_exists('resolveAdminLoginPath')) {
     {
         $candidate = trim((string) config('dashboard.login_path', 'wow/login'));
 
-        $candidate = trim(strtolower($candidate));
-        $candidate = ltrim($candidate, '/');
-        $candidate = preg_replace('/[^a-z0-9\/_-]/', '', $candidate) ?? '';
-        $candidate = preg_replace('#/+#', '/', $candidate) ?? '';
-        $candidate = trim($candidate, '/');
+        $candidate = TenantLoginPath::normalize($candidate);
 
-        $reserved = [
-            '',
-            'login',
-            'logout',
-            'dashboard',
-            'domains',
-            'logs',
-            'settings',
-            'actions',
-            'api',
-        ];
-        if (in_array($candidate, $reserved, true)) {
+        if (TenantLoginPath::isReserved($candidate)) {
             return 'wow/login';
         }
 
@@ -58,11 +44,11 @@ Route::get('/', [MarketingController::class, 'index'])->name('home');
 
 Route::get('/'.$adminLoginPath, [AuthController::class, 'show'])
     ->middleware(NoIndexSensitivePages::class)
-    ->name('login');
+    ->name('admin.login');
 Route::post('/'.$adminLoginPath, [AuthController::class, 'login'])
     ->middleware(NoIndexSensitivePages::class)
     ->middleware('throttle:10,1')
-    ->name('login.submit');
+    ->name('admin.login.submit');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 Route::post('/webhooks/payments/paypal', [PaymentWebhookController::class, 'paypal'])->name('webhooks.payments.paypal');
 
@@ -185,3 +171,13 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
         Route::get('/admin/logs/platform', [AdminSystemLogsController::class, 'platform'])->name('admin.logs.platform');
     });
 });
+
+Route::get('/{tenantLoginPath}', [AuthController::class, 'showTenantLogin'])
+    ->where('tenantLoginPath', '.+')
+    ->middleware(NoIndexSensitivePages::class)
+    ->name('tenant.login');
+Route::post('/{tenantLoginPath}', [AuthController::class, 'loginTenant'])
+    ->where('tenantLoginPath', '.+')
+    ->middleware(NoIndexSensitivePages::class)
+    ->middleware('throttle:10,1')
+    ->name('tenant.login.submit');
