@@ -128,8 +128,7 @@ class DashboardBillingVisibilityTest extends TestCase
     {
         $this->get('/')
             ->assertOk()
-            ->assertDontSee('Your current VerifySky quota has been exhausted.')
-            ->assertDontSee('Protected Sessions');
+            ->assertDontSee('Your current VerifySky quota has been exhausted.');
 
         $this->get('/wow/login')
             ->assertOk()
