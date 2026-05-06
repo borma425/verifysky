@@ -143,6 +143,7 @@ class AuthAccessTest extends TestCase
             'email' => $slug.'@example.test',
             'password' => Hash::make('User123!'),
             'role' => 'user',
+            'email_verified_at' => now(),
         ]);
         TenantMembership::query()->create([
             'tenant_id' => $tenant->getKey(),

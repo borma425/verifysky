@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\AdminSystemLogsController;
 use App\Http\Controllers\Admin\AdminTenantConsoleController;
 use App\Http\Controllers\Admin\AdminTenantDomainsController;
 use App\Http\Controllers\Admin\AdminTenantsController;
+use App\Http\Controllers\AccountActivationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\IpFarmController;
 use App\Http\Controllers\LogsController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\PaymentWebhookController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\SensitivePathsController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Middleware\AdminAuth;
@@ -41,6 +43,14 @@ if (! function_exists('resolveAdminLoginPath')) {
 $adminLoginPath = resolveAdminLoginPath();
 
 Route::get('/', [MarketingController::class, 'index'])->name('home');
+Route::get('/register', [RegistrationController::class, 'create'])->name('register');
+Route::post('/register', [RegistrationController::class, 'store'])
+    ->middleware('throttle:10,1')
+    ->name('register.store');
+Route::get('/register/check-email', [RegistrationController::class, 'pending'])->name('register.pending');
+Route::get('/account/activate/{user}/{hash}', AccountActivationController::class)
+    ->middleware([NoIndexSensitivePages::class, 'signed', 'throttle:6,1'])
+    ->name('account.activate');
 
 Route::get('/'.$adminLoginPath, [AuthController::class, 'show'])
     ->middleware(NoIndexSensitivePages::class)

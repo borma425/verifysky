@@ -132,6 +132,12 @@ class AuthController extends Controller
             return $this->invalidLogin($request, $rateLimitKey);
         }
 
+        if ($user->email_verified_at === null) {
+            return back()
+                ->withErrors(['credentials' => 'Please activate your account from the email we sent before signing in.'])
+                ->onlyInput('username');
+        }
+
         RateLimiter::clear($rateLimitKey);
         session()->put('is_authenticated', true);
         session()->put('is_admin', false);
