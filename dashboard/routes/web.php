@@ -49,7 +49,7 @@ Route::post('/register', [RegistrationController::class, 'store'])
     ->name('register.store');
 Route::get('/register/check-email', [RegistrationController::class, 'pending'])->name('register.pending');
 Route::get('/account/activate/{user}/{hash}', AccountActivationController::class)
-    ->middleware([NoIndexSensitivePages::class, 'signed', 'throttle:6,1'])
+    ->middleware([NoIndexSensitivePages::class, 'signed:relative', 'throttle:6,1'])
     ->name('account.activate');
 
 Route::get('/'.$adminLoginPath, [AuthController::class, 'show'])

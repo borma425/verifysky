@@ -38,20 +38,21 @@ class SendAccountActivationMailJob implements ShouldQueue
             return;
         }
 
-        $activationUrl = URL::temporarySignedRoute(
+        $activationPath = URL::temporarySignedRoute(
             'account.activate',
             now()->addDays(7),
             [
                 'user' => $user->getKey(),
                 'hash' => sha1((string) $user->email),
-            ]
+            ],
+            absolute: false,
         );
 
         Mail::to((string) $user->email)->send(new AccountActivationMail(
             user: $user,
             loginUrl: url('/'.$tenant->login_path),
             loginPath: '/'.$tenant->login_path,
-            activationUrl: $activationUrl,
+            activationUrl: url($activationPath),
         ));
     }
 }

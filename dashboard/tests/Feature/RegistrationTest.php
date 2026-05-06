@@ -90,10 +90,7 @@ class RegistrationTest extends TestCase
     public function test_activation_link_marks_user_active_and_redirects_to_tenant_login_path(): void
     {
         [$tenant, $user] = $this->pendingTenantUser();
-        $url = URL::temporarySignedRoute('account.activate', now()->addDays(7), [
-            'user' => $user->getKey(),
-            'hash' => sha1((string) $user->email),
-        ]);
+        $url = $this->activationUrl($user);
 
         $response = $this->get($url);
 
@@ -105,10 +102,7 @@ class RegistrationTest extends TestCase
     public function test_activation_link_can_be_opened_more_than_once(): void
     {
         [$tenant, $user] = $this->pendingTenantUser();
-        $url = URL::temporarySignedRoute('account.activate', now()->addDays(7), [
-            'user' => $user->getKey(),
-            'hash' => sha1((string) $user->email),
-        ]);
+        $url = $this->activationUrl($user);
 
         $this->get($url)->assertRedirect(url('/'.$tenant->login_path));
         $firstActivatedAt = $user->fresh()->email_verified_at;
@@ -120,10 +114,7 @@ class RegistrationTest extends TestCase
     public function test_activation_link_rejects_invalid_hash(): void
     {
         [, $user] = $this->pendingTenantUser();
-        $url = URL::temporarySignedRoute('account.activate', now()->addDays(7), [
-            'user' => $user->getKey(),
-            'hash' => 'invalid-hash',
-        ]);
+        $url = $this->activationUrl($user, hash: 'invalid-hash');
 
         $this->get($url)->assertForbidden();
         $this->assertNull($user->fresh()->email_verified_at);
@@ -132,10 +123,7 @@ class RegistrationTest extends TestCase
     public function test_activation_link_rejects_expired_signature(): void
     {
         [, $user] = $this->pendingTenantUser();
-        $url = URL::temporarySignedRoute('account.activate', now()->subMinute(), [
-            'user' => $user->getKey(),
-            'hash' => sha1((string) $user->email),
-        ]);
+        $url = $this->activationUrl($user, expiresAt: now()->subMinute());
 
         $this->get($url)->assertForbidden();
         $this->assertNull($user->fresh()->email_verified_at);
@@ -151,16 +139,36 @@ class RegistrationTest extends TestCase
         ])->assertSessionHasErrors('credentials');
         $this->assertFalse((bool) session('is_authenticated'));
 
-        $this->get(URL::temporarySignedRoute('account.activate', now()->addDays(7), [
-            'user' => $user->getKey(),
-            'hash' => sha1((string) $user->email),
-        ]))->assertRedirect(url('/'.$tenant->login_path));
+        $this->get($this->activationUrl($user))->assertRedirect(url('/'.$tenant->login_path));
 
         $this->post('/'.$tenant->login_path, [
             'username' => $user->email,
             'password' => 'SecurePass123',
         ])->assertRedirect('/dashboard');
         $this->assertTrue((bool) session('is_authenticated'));
+    }
+
+    public function test_activation_link_uses_relative_signature_for_proxy_safe_email_urls(): void
+    {
+        [$tenant, $user] = $this->pendingTenantUser();
+        $path = URL::temporarySignedRoute('account.activate', now()->addDays(7), [
+            'user' => $user->getKey(),
+            'hash' => sha1((string) $user->email),
+        ], absolute: false);
+
+        $this->assertStringStartsWith('/account/activate/', $path);
+        $this->assertStringStartsNotWith('http', $path);
+
+        $this->get('https://verifysky.com'.$path)
+            ->assertRedirect(url('/'.$tenant->login_path));
+    }
+
+    private function activationUrl(User $user, ?string $hash = null, mixed $expiresAt = null): string
+    {
+        return URL::temporarySignedRoute('account.activate', $expiresAt ?? now()->addDays(7), [
+            'user' => $user->getKey(),
+            'hash' => $hash ?? sha1((string) $user->email),
+        ], absolute: false);
     }
 
     private function pendingTenantUser(): array
