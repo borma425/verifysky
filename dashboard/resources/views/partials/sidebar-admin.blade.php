@@ -11,7 +11,7 @@
   <div class="flex h-full flex-col">
     <a href="{{ route('admin.overview') }}" class="es-brand-panel">
       <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-brand-logo">
-      <div class="sr-only">VerifySky Admin Command Center</div>
+      <div class="sr-only">VerifySky Admin Dashboard</div>
     </a>
 
     <nav class="flex-1 space-y-1 px-3 py-4">

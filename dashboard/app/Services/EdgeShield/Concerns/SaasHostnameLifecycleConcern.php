@@ -26,7 +26,7 @@ trait SaasHostnameLifecycleConcern
 
         $customHostname = is_array($existing['result']) ? $existing['result'] : null;
         if (! $customHostname) {
-            return ['ok' => false, 'error' => 'Protected hostname was not found in edge services.'];
+            return ['ok' => false, 'error' => 'Protected domain was not found.'];
         }
 
         $dnsRoute = $this->verifySaasDnsRouteSet($domain);
@@ -67,7 +67,7 @@ trait SaasHostnameLifecycleConcern
 
         return [
             'ok' => $result['ok'],
-            'error' => $result['ok'] ? null : ($result['error'] ?: 'Failed to update D1 hostname status.'),
+            'error' => $result['ok'] ? null : ($result['error'] ?: 'We could not update the domain status.'),
             'custom_hostname' => $customHostname,
             'dns_route' => $dnsRoute,
         ];

@@ -8,7 +8,7 @@
   <div class="vs-logs-command-head">
     <div class="vs-logs-title-block">
       <div class="vs-logs-title-row">
-        <h2 id="logs-page-title">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
+        <h2 id="logs-page-title">{{ $isTenantScoped ? 'Security Activity' : 'Security Logs' }}</h2>
         @if(!empty($edgeShieldTargetLabel))
           <span class="vs-logs-env-badge {{ ($edgeShieldMutationsAllowed ?? false) ? 'vs-logs-env-live' : 'vs-logs-env-locked' }}">
             {{ $edgeShieldTargetLabel }}
@@ -16,7 +16,7 @@
         @endif
       </div>
       <p>
-        {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your account so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
+        {{ $isTenantScoped ? 'See blocked traffic and real visitors for your domains.' : 'See recent security events, filter by domain or IP, and manage actions.' }}
       </p>
     </div>
 
@@ -40,7 +40,7 @@
   @if(!($edgeShieldMutationsAllowed ?? true))
     <div class="vs-logs-alert vs-logs-alert-warning">
       <img src="{{ asset('duotone/lock.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass" aria-hidden="true">
-      <span>{{ $edgeShieldMutationBlockedMessage ?? 'Mutating actions are disabled for this edge target.' }}</span>
+      <span>{{ $edgeShieldMutationBlockedMessage ?? 'Changes are disabled for this target.' }}</span>
     </div>
   @endif
 

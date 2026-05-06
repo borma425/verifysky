@@ -15,7 +15,7 @@ class UpdateDomainOriginAction
         $originServer = trim($originServer);
         $tenantScope = $this->tenantScopeSql($isAdmin, $tenantId);
         if ($tenantScope === null) {
-            return ['ok' => false, 'error' => 'Tenant context is required to update this domain.'];
+            return ['ok' => false, 'error' => 'Please sign in again before changing this domain.'];
         }
 
         $tenantDomain = TenantDomain::where('hostname', $normalizedDomain);
@@ -36,7 +36,7 @@ class UpdateDomainOriginAction
         if (! ($originValidation['ok'] ?? false)) {
             return [
                 'ok' => false,
-                'error' => $originValidation['error'] ?? 'We could not reach this backend for the selected domain. Enter a valid hosting IP or backend hostname before continuing.',
+                'error' => $originValidation['error'] ?? 'We could not reach the server for this domain. Enter a valid server IP or domain before continuing.',
             ];
         }
 
@@ -55,7 +55,7 @@ class UpdateDomainOriginAction
         );
         $result = $this->edgeShield->queryD1($sql);
         if (! ($result['ok'] ?? false)) {
-            return ['ok' => false, 'error' => 'Edge origin updated, but VerifySky failed to save the new origin.'];
+            return ['ok' => false, 'error' => 'Server updated, but VerifySky could not save the new server.'];
         }
 
         if ($tenantDomain) {
@@ -68,7 +68,7 @@ class UpdateDomainOriginAction
         if (! ($refresh['ok'] ?? false)) {
             return [
                 'ok' => true,
-                'warning' => 'Origin updated, but VerifySky could not refresh the DNS status immediately. Use Refresh status in a few minutes.',
+                'warning' => 'Server updated, but VerifySky could not refresh the DNS status immediately. Use Refresh status in a few minutes.',
             ];
         }
 

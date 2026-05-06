@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Account - VerifySky</title>
-    <meta name="description" content="Create your protected workspace with VerifySky. Tenant-isolated onboarding for secure traffic management.">
+    <meta name="description" content="Create your protected account with VerifySky. Simple setup for secure traffic management.">
     <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
     <link rel="apple-touch-icon" sizes="180x180" href="{{ asset('apple-touch-icon.png') }}">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32x32.png') }}">

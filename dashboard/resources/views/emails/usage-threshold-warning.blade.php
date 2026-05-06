@@ -4,7 +4,7 @@
 
 @section('content')
   <p style="margin:0 0 16px;font-size:15px;line-height:1.7;">
-    {{ $tenant->name }} is approaching the current billing-cycle limit. This warning is sent once per cycle after usage reaches 80% of either tracked quota.
+    {{ $tenant->name }} is getting close to the current billing limit. This warning is sent once per cycle after usage reaches 80%.
   </p>
 
   <div style="margin:0 0 18px;padding:16px;border-radius:16px;background:#0f1723;border:1px solid rgba(255,255,255,0.08);">

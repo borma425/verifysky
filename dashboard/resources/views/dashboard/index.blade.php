@@ -6,9 +6,9 @@
     $sessionTrustCount = number_format($stats['total_visitors_today'] ?? 0);
 
     $leftSignals = [
-      ['label' => 'Traffic Ingress', 'value' => number_format($stats['total_visitors_today'] ?? 0)],
+      ['label' => 'Traffic', 'value' => number_format($stats['total_visitors_today'] ?? 0)],
       ['label' => 'Bot Signals', 'value' => number_format($stats['total_attacks_today'] ?? 0)],
-      ['label' => 'Policy Checks', 'value' => !empty($stats['recent_critical']) ? 'Live' : 'Idle'],
+      ['label' => 'Security Checks', 'value' => !empty($stats['recent_critical']) ? 'Live' : 'Idle'],
       ['label' => 'Session Trust', 'value' => $sessionTrustCount],
     ];
 
@@ -39,14 +39,14 @@
       [
         'label' => 'Traffic',
         'value' => number_format($stats['total_visitors_today'] ?? 0),
-        'meta' => !empty($stats['top_countries']) ? strtoupper($stats['top_countries'][0]['country'] ?? '') . ' active' : 'Live telemetry',
+        'meta' => !empty($stats['top_countries']) ? strtoupper($stats['top_countries'][0]['country'] ?? '') . ' active' : 'Live data',
         'icon' => 'radar.svg',
         'points' => '0,28 16,20 30,24 44,12 58,18 72,8 86,14 100,4',
       ],
       [
         'label' => 'Domains',
         'value' => number_format($stats['active_domains'] ?? 0),
-        'meta' => number_format(count($stats['top_domains'] ?? [])) . ' high focus',
+        'meta' => number_format(count($stats['top_domains'] ?? [])) . ' active',
         'icon' => 'spider-web.svg',
         'points' => '0,24 16,26 32,22 48,19 64,17 80,19 92,22 100,28',
       ],
@@ -61,7 +61,7 @@
       [
         'label' => 'Uptime',
         'value' => '99.99%',
-        'meta' => 'Enterprise SLA compliant',
+        'meta' => 'Healthy',
         'icon' => 'shield-check.svg',
         'points' => '0,22 20,22 40,22 60,22 80,22 100,22',
       ],
@@ -80,9 +80,9 @@
 
       <div class="es-overview-header">
         <div>
-          <p class="es-overview-kicker">VerifySky Operations</p>
-          <h1 class="es-overview-title">Control Plane</h1>
-          <p class="es-overview-subtitle">Unified visibility. Intelligent routing. Assured delivery.</p>
+          <p class="es-overview-kicker">VerifySky</p>
+          <h1 class="es-overview-title">Overview</h1>
+          <p class="es-overview-subtitle">Your traffic, domains, and protection in one place.</p>
         </div>
 
         <div class="es-overview-live-pill">
@@ -95,7 +95,7 @@
         <div class="es-topology-grid"></div>
         <div class="es-topology-status">
           <span class="es-overview-live-dot"></span>
-          <span>Edge Mesh Healthy</span>
+          <span>System healthy</span>
         </div>
         <svg class="es-topology-lines" viewBox="0 0 1000 520" role="img" aria-label="VerifySky neural eye topology">
           <path class="es-topology-eye-line" d="M118 260 C270 86 730 86 882 260" />
@@ -146,7 +146,7 @@
                   <img src="{{ asset('Logo.png') }}" alt="VerifySky" class="es-topology-logo">
                 </div>
               </div>
-              <div class="es-topology-eye-label">Signal Correlation Core</div>
+              <div class="es-topology-eye-label">Security engine</div>
             </div>
           </div>
 
@@ -173,13 +173,13 @@
                 'title' => 'Protected Sessions',
                 'metric' => $billingStatus['protected_sessions'],
                 'limit_key' => 'protected_sessions',
-                'meta' => 'Current cycle protection volume',
+                'meta' => 'Current billing cycle',
               ],
               [
                 'title' => 'Bot Requests Rejected',
                 'metric' => $billingStatus['bot_requests'],
                 'limit_key' => 'bot_fair_use',
-                'meta' => 'Fair-use blocked or challenged traffic',
+                'meta' => 'Blocked or checked traffic',
               ],
             ] as $usageCard)
               @php

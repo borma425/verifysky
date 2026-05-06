@@ -49,7 +49,7 @@
     <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div>
         <h2 class="text-2xl font-black leading-tight text-[#D7E1F5]">Account Settings</h2>
-        <p class="mt-1 text-sm text-[#AEB9CC]">Manage your user profile and tenant login details.</p>
+        <p class="mt-1 text-sm text-[#AEB9CC]">Manage your profile and account login details.</p>
       </div>
 
       <div class="inline-flex w-full items-center gap-3 rounded-lg border border-[#303540] bg-[#1B202A] px-4 py-3 md:w-auto">
@@ -173,7 +173,7 @@
 
         <section class="p-5 md:p-6">
           <div class="mb-4 flex items-center justify-between gap-3 border-b border-[#303540]/70 pb-3">
-            <h3 class="text-base font-bold text-[#D7E1F5]">Tenant Access</h3>
+            <h3 class="text-base font-bold text-[#D7E1F5]">Account Access</h3>
           </div>
 
           <div class="grid gap-4 md:grid-cols-2">

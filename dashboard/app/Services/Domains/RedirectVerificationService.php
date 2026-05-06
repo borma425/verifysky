@@ -16,7 +16,7 @@ class RedirectVerificationService
         $root = $this->normalizeDomain($rootDomain);
         $canonical = $this->normalizeDomain($canonicalHostname);
         if ($root === '' || $canonical === '' || $root === $canonical) {
-            return $this->result(false, TenantDomain::REDIRECT_STATUS_ACTION_REQUIRED, null, null, null, 'Root and canonical hostnames must be different.');
+            return $this->result(false, TenantDomain::REDIRECT_STATUS_ACTION_REQUIRED, null, null, null, 'The root domain and protected domain must be different.');
         }
 
         foreach (['https', 'http'] as $scheme) {
@@ -35,7 +35,7 @@ class RedirectVerificationService
 
             $targetHost = $this->normalizeDomain($this->locationHost($location, $scheme, $root));
             if ($targetHost !== $canonical) {
-                return $this->result(false, TenantDomain::REDIRECT_STATUS_FAILED, $code, $url, $location, 'Root domain redirects to the wrong hostname.');
+                return $this->result(false, TenantDomain::REDIRECT_STATUS_FAILED, $code, $url, $location, 'Root domain redirects to the wrong domain.');
             }
 
             if (in_array($code, [301, 308], true)) {
@@ -45,7 +45,7 @@ class RedirectVerificationService
             return $this->result(false, TenantDomain::REDIRECT_STATUS_WARNING, $code, $url, $location, 'Temporary redirect detected. Use 301 or 308 for the root domain.');
         }
 
-        return $this->result(false, TenantDomain::REDIRECT_STATUS_ACTION_REQUIRED, null, null, null, 'Root domain is not redirecting to the protected hostname.');
+        return $this->result(false, TenantDomain::REDIRECT_STATUS_ACTION_REQUIRED, null, null, null, 'Root domain is not redirecting to the protected domain.');
     }
 
     /**

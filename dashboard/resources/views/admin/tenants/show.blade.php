@@ -21,9 +21,9 @@
       <p class="es-subtitle mt-2">User #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
     </div>
     <div class="flex flex-wrap items-center gap-3">
-      <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Global Firewall</a>
-      <a href="{{ route('admin.tenants.sensitive_paths.index', $tenant) }}" class="es-btn es-btn-secondary">Sensitive Paths</a>
-      <a href="{{ route('admin.tenants.ip_farm.index', $tenant) }}" class="es-btn es-btn-secondary">IP Farm</a>
+      <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Firewall</a>
+      <a href="{{ route('admin.tenants.sensitive_paths.index', $tenant) }}" class="es-btn es-btn-secondary">Protected Paths</a>
+      <a href="{{ route('admin.tenants.ip_farm.index', $tenant) }}" class="es-btn es-btn-secondary">Blocked IPs</a>
       <form method="POST" action="{{ route('admin.tenants.force_cycle_reset', $tenant) }}">
         @csrf
         <button class="es-btn" type="submit">Force Cycle Reset</button>
@@ -33,7 +33,7 @@
 
   @unless($billingAvailable)
     <div class="mb-4 rounded-lg border border-amber-400/35 bg-amber-500/15 px-4 py-3 text-sm text-amber-100">
-      Billing tables are not available yet. Run billing migrations before plan operations.
+      Billing is not ready yet. Run billing migrations before changing plans.
     </div>
   @endunless
 
@@ -41,7 +41,7 @@
     <div class="es-card p-5">
       <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Plan</div>
       <div class="mt-3 text-xl font-bold text-white">{{ $row['effective_plan']['name'] ?? 'Starter' }}</div>
-      <div class="mt-1 text-sm text-sky-100/70">Limit Basis: {{ $billingTerms->sourceLabel($row['effective_plan']['source'] ?? 'baseline') }}</div>
+      <div class="mt-1 text-sm text-sky-100/70">Current access: {{ $billingTerms->sourceLabel($row['effective_plan']['source'] ?? 'baseline') }}</div>
       <div class="mt-1 text-sm text-sky-100/70">Plan Limit: {{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</div>
       <div class="mt-3 text-sm text-sky-100/80">Domains: {{ $domainUsageLabel }}</div>
       @include('partials.billing-limit-equation', ['equation' => $domainLimitEquation])
@@ -84,7 +84,7 @@
       </div>
       @if($grant)
         <div class="mb-4 rounded-lg border border-cyan-300/25 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-100">
-          Active {{ strtoupper($grant['granted_plan_key']) }} bonus allowance until {{ $grant['ends_at']?->format('Y-m-d H:i') }} UTC.
+          Active {{ strtoupper($grant['granted_plan_key']) }} bonus until {{ $grant['ends_at']?->format('Y-m-d H:i') }} UTC.
         </div>
       @endif
       @if($billingAvailable)
@@ -105,7 +105,7 @@
     </div>
 
     <div class="es-card p-5">
-      <h2 class="mb-4 text-lg font-bold text-white">Memberships</h2>
+      <h2 class="mb-4 text-lg font-bold text-white">Members</h2>
       <div class="space-y-2">
         @forelse($tenant->memberships as $membership)
           <div class="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
@@ -116,7 +116,7 @@
             <span class="text-xs font-bold uppercase tracking-[0.14em] text-cyan-200">{{ $membership->role }}</span>
           </div>
         @empty
-          <div class="text-sm text-sky-100/70">No memberships.</div>
+          <div class="text-sm text-sky-100/70">No members.</div>
         @endforelse
       </div>
     </div>
@@ -158,7 +158,7 @@
       <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h2 class="text-lg font-bold text-white">Domains</h2>
-          <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules for this user.</p>
+          <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage server routing, cache, settings, and firewall rules for this user.</p>
         </div>
         <div class="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-sky-100/80">
           {{ $domainUsageLabel }} domains used
@@ -174,7 +174,7 @@
           <input name="domain_name" class="es-input" value="{{ old('domain_name') }}" placeholder="example.com" @disabled(! $canAddDomain)>
         </label>
         <label class="xl:col-span-2">
-          <span class="mb-1 block text-sm text-sky-100">Server IP or hostname</span>
+          <span class="mb-1 block text-sm text-sky-100">Server IP or domain</span>
           <input name="origin_server" class="es-input" value="{{ old('origin_server') }}" placeholder="192.0.2.10" @disabled(! $canAddDomain)>
         </label>
         <label>
@@ -190,7 +190,7 @@
             <div class="text-sm text-sky-100/65">Adding a domain starts VerifySky protection setup for this user.</div>
             <button class="es-btn" type="submit">Add Domain</button>
           @else
-            <div class="text-sm text-amber-100">عفواً، لقد وصل هذا المستخدم للحد الأقصى لخطته. يرجى ترقية الخطة أو إضافة مساحة إضافية أولاً</div>
+            <div class="text-sm text-amber-100">This user has reached the domain limit. Upgrade the plan or add extra space first.</div>
             <button class="es-btn opacity-60" type="button" disabled>Add Domain</button>
           @endif
         </div>
@@ -200,10 +200,10 @@
       <table class="es-table min-w-[900px]">
         <thead>
         <tr>
-          <th>Hostname</th>
+          <th>Domain</th>
           <th>Status</th>
           <th>Security</th>
-          <th>Origin</th>
+          <th>Server</th>
           <th>Actions</th>
         </tr>
         </thead>

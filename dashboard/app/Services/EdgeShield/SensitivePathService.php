@@ -29,7 +29,7 @@ class SensitivePathService
     {
         $result = $this->d1->query('SELECT * FROM sensitive_paths ORDER BY action ASC, id DESC');
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load sensitive paths.', 'paths' => []];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load protected paths.', 'paths' => []];
         }
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
@@ -56,7 +56,7 @@ class SensitivePathService
             str_replace("'", "''", $tenantId)
         ));
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load sensitive paths.', 'paths' => []];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load protected paths.', 'paths' => []];
         }
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
@@ -84,7 +84,7 @@ class SensitivePathService
         );
         $result = $this->d1->query($sql);
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to create sensitive path.'];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to create protected path.'];
         }
 
         if ($autoPurge) {
@@ -120,7 +120,7 @@ class SensitivePathService
         $domainsToPurge = $this->domainsForPathIds([$id]);
         $result = $this->d1->query(sprintf('DELETE FROM sensitive_paths WHERE id = %d', $id));
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete sensitive path.'];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete protected path.'];
         }
 
         foreach ($domainsToPurge as $domain) {
@@ -140,7 +140,7 @@ class SensitivePathService
         $domainsToPurge = $this->domainsForPathIds($safeIds);
         $result = $this->d1->query(sprintf('DELETE FROM sensitive_paths WHERE id IN (%s)', implode(',', $safeIds)));
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete selected sensitive paths.'];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to delete selected protected paths.'];
         }
 
         foreach ($domainsToPurge as $domain) {

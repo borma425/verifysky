@@ -12,7 +12,7 @@ class ToggleDomainForceCaptchaAction
     {
         $tenantScope = $this->tenantScopeSql($isAdmin, $tenantId);
         if ($tenantScope === null) {
-            return ['ok' => false, 'error' => 'Tenant context is required to update this domain.'];
+            return ['ok' => false, 'error' => 'Please sign in again before changing this domain.'];
         }
 
         $sql = sprintf(

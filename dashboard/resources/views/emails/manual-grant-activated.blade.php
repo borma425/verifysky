@@ -1,10 +1,10 @@
-@php($headline = 'Manual grant activated')
-@php($subject = sprintf('Manual %s grant activated for %s', strtoupper((string) $grant->granted_plan_key), $tenant->name))
+@php($headline = 'Bonus activated')
+@php($subject = sprintf('%s bonus activated for %s', strtoupper((string) $grant->granted_plan_key), $tenant->name))
 @extends('emails.layouts.branded')
 
 @section('content')
   <p style="margin:0 0 16px;font-size:15px;line-height:1.7;">
-    A manual <strong>{{ strtoupper((string) $grant->granted_plan_key) }}</strong> grant is now active for <strong>{{ $tenant->name }}</strong>.
+    A <strong>{{ strtoupper((string) $grant->granted_plan_key) }}</strong> bonus is now active for <strong>{{ $tenant->name }}</strong>.
   </p>
 
   <div style="margin:0 0 18px;padding:16px;border-radius:16px;background:#0f1723;border:1px solid rgba(255,255,255,0.08);">
@@ -14,6 +14,6 @@
   </div>
 
   <p style="margin:0;font-size:14px;line-height:1.7;color:#cbd5e1;">
-    VerifySky will keep plan and billing-cycle changes visible to account owners through queued billing notifications.
+    VerifySky will keep plan and billing changes visible to account owners.
   </p>
 @endsection

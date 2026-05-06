@@ -4,12 +4,12 @@
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div>
       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
-      <h1 class="es-title mt-2">Global Firewall</h1>
-      <p class="es-subtitle mt-2">Manage rules for all domains (Global) or a single selected domain.</p>
+      <h1 class="es-title mt-2">Firewall</h1>
+      <p class="es-subtitle mt-2">Manage rules for all domains or one selected domain.</p>
     </div>
     <div class="flex flex-wrap gap-2">
-      <a href="{{ route('admin.tenants.sensitive_paths.index', $tenant) }}" class="es-btn es-btn-secondary">Sensitive Paths</a>
-      <a href="{{ route('admin.tenants.ip_farm.index', $tenant) }}" class="es-btn es-btn-secondary">IP Farm</a>
+      <a href="{{ route('admin.tenants.sensitive_paths.index', $tenant) }}" class="es-btn es-btn-secondary">Protected Paths</a>
+      <a href="{{ route('admin.tenants.ip_farm.index', $tenant) }}" class="es-btn es-btn-secondary">Blocked IPs</a>
     </div>
   </div>
 
@@ -29,7 +29,7 @@
           @csrf
           <label class="block text-sm text-sky-100">Scope
             <select class="es-input mt-1" name="scope">
-              <option value="tenant">All Domains (Global)</option>
+              <option value="tenant">All domains</option>
               <option value="domain" @selected($selectedDomain !== '')>Specific domain</option>
             </select>
           </label>
@@ -80,7 +80,7 @@
       <div class="es-card p-5 text-sm text-sky-100/70">
         <div class="font-semibold text-white">{{ $firewallUsage['plan_name'] ?? 'Plan' }}</div>
         <div class="mt-1">{{ $firewallUsage['used'] ?? 0 }} / {{ $firewallUsage['limit'] ?? 0 }} customer rules used.</div>
-        <div class="mt-2 text-xs text-emerald-200">Admin can exceed firewall rule limits when managing this client.</div>
+        <div class="mt-2 text-xs text-emerald-200">Admins can exceed firewall rule limits for this user.</div>
       </div>
     </div>
 
@@ -123,8 +123,8 @@
             @endphp
             <tr class="align-top">
               <td>#{{ $rule['id'] }}</td>
-              <td><span class="es-chip">{{ $scope === 'tenant' ? 'Global' : 'Specific domain' }}</span></td>
-              <td>{{ $scope === 'tenant' ? 'All Domains (Global)' : $rule['domain_name'] }}</td>
+              <td><span class="es-chip">{{ $scope === 'tenant' ? 'All domains' : 'Specific domain' }}</span></td>
+              <td>{{ $scope === 'tenant' ? 'All domains' : $rule['domain_name'] }}</td>
               <td>{{ $rule['description'] }}</td>
               <td>{{ $rule['action'] }}</td>
               <td>

@@ -28,7 +28,7 @@
               <div class="vs-sp-path-cell">
                 <div class="min-w-0">
                   @if($path['domain_name'] === 'global')
-                    <span class="vs-sp-domain-badge uppercase">Global</span>
+                    <span class="vs-sp-domain-badge uppercase">All domains</span>
                   @else
                     <span class="vs-sp-domain-badge">{{ $path['domain_name'] }}</span>
                   @endif

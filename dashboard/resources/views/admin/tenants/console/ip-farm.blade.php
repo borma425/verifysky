@@ -6,7 +6,7 @@
       <a href="{{ route('admin.tenants.show', $tenant) }}" class="vs-farm-back">Back to {{ $tenant->name }}</a>
       <div class="vs-farm-admin-links">
         <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Firewall</a>
-        <a href="{{ route('admin.tenants.sensitive_paths.index', $tenant) }}" class="es-btn es-btn-secondary">Sensitive Paths</a>
+        <a href="{{ route('admin.tenants.sensitive_paths.index', $tenant) }}" class="es-btn es-btn-secondary">Protected Paths</a>
         <a href="{{ route('admin.tenants.customer.logs.index', $tenant) }}" class="es-btn es-btn-secondary">Logs</a>
       </div>
     </div>
@@ -17,9 +17,9 @@
           <img src="{{ asset('duotone/ban-bug.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral">
         </span>
         <div>
-          <p class="vs-farm-eyebrow">Tenant Ban Network</p>
-          <h1>Global IP Farm</h1>
-          <p>Permanent IP/CIDR bans for a target environment: Global (All) or one tenant domain. Admin actions bypass plan limits.</p>
+          <p class="vs-farm-eyebrow">Blocked IPs</p>
+          <h1>Blocked IP List</h1>
+          <p>Permanent IP/CIDR blocks for all domains or one domain. Admin actions can exceed plan limits.</p>
         </div>
       </div>
     </div>
@@ -44,7 +44,7 @@
         <span class="vs-farm-stat-icon" aria-hidden="true"><img src="{{ asset('duotone/spider-web.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass"></span>
         <div>
           <strong>{{ $stats['totalRules'] ?? count($farmRules) }}</strong>
-          <span>Farm Rules</span>
+          <span>Block rules</span>
         </div>
       </div>
       <div class="vs-farm-stat vs-farm-stat-success">
@@ -60,8 +60,8 @@
       <aside class="vs-farm-create">
         <div class="vs-farm-card-head">
           <div>
-            <p class="vs-farm-eyebrow">Admin Seed</p>
-            <h2>Create Global Farm</h2>
+            <p class="vs-farm-eyebrow">New block list</p>
+            <h2>Create block list</h2>
           </div>
           <img src="{{ asset('duotone/circle-plus.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-4 w-4" aria-hidden="true">
         </div>
@@ -69,17 +69,17 @@
         <form method="POST" action="{{ route('admin.tenants.ip_farm.store', $tenant) }}" class="vs-farm-form">
           @csrf
           <label>
-            <span>Target Environment</span>
+            <span>Apply to</span>
             <select class="vs-farm-input" name="domain_name" required>
-              <option value="global">Global (All)</option>
+              <option value="global">All domains</option>
               @foreach($domainRecords as $domain)
                 <option value="{{ $domain->hostname }}">{{ $domain->hostname }}</option>
               @endforeach
             </select>
           </label>
           <label>
-            <span>Farm name</span>
-            <input class="vs-farm-input" name="description" value="{{ old('description', 'Admin Manual Farm') }}" placeholder="Farm name">
+            <span>List name</span>
+            <input class="vs-farm-input" name="description" value="{{ old('description', 'Manual list') }}" placeholder="List name">
           </label>
           <label>
             <span>IPs / CIDRs</span>
@@ -89,7 +89,7 @@
             <input type="checkbox" name="paused" value="1">
             <span>Create as paused</span>
           </label>
-          <button class="vs-farm-button vs-farm-button-primary" type="submit">Create Farm</button>
+          <button class="vs-farm-button vs-farm-button-primary" type="submit">Create list</button>
         </form>
       </aside>
 
@@ -109,7 +109,7 @@
                 <span class="vs-farm-node-icon" aria-hidden="true"><img src="{{ asset('duotone/bug-slash.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral"></span>
                 <div>
                   <h3>{{ $cleanDescription }}</h3>
-                  <p>#{{ $rule['id'] }} · {{ $scope === 'tenant' ? 'Global (All)' : $rule['domain_name'] }} · Permanent / No expiry</p>
+                  <p>#{{ $rule['id'] }} - {{ $scope === 'tenant' ? 'All domains' : $rule['domain_name'] }} - Permanent / No expiry</p>
                 </div>
               </div>
               <div class="vs-farm-actions">
@@ -122,7 +122,7 @@
                     <img src="{{ asset('duotone/'.($rule['paused'] ? 'play.svg' : 'pause.svg')) }}" alt="" class="es-duotone-icon es-icon-tone-muted" aria-hidden="true">
                   </button>
                 </form>
-                <form method="POST" action="{{ route('admin.tenants.ip_farm.destroy', [$tenant, $rule['id']]) }}" onsubmit="return confirm('Delete this IP Farm rule?')">
+                <form method="POST" action="{{ route('admin.tenants.ip_farm.destroy', [$tenant, $rule['id']]) }}" onsubmit="return confirm('Delete this blocked IP rule?')">
                   @csrf
                   @method('DELETE')
                   <button class="vs-farm-icon-button vs-farm-icon-danger" type="submit" title="Delete Farm" aria-label="Delete Farm">
@@ -144,7 +144,7 @@
               <details class="vs-farm-editor">
                 <summary>
                   <img src="{{ asset('duotone/pen-to-square.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass" aria-hidden="true">
-                  Edit Farm
+                  Edit list
                 </summary>
 
                 <div class="vs-farm-editor-grid">
@@ -152,16 +152,16 @@
                     @csrf
                     @method('PUT')
                     <label>
-                      <span>Target Environment</span>
+                      <span>Apply to</span>
                       <select class="vs-farm-input" name="domain_name" required>
-                        <option value="global" @selected($scope === 'tenant')>Global (All)</option>
+                        <option value="global" @selected($scope === 'tenant')>All domains</option>
                         @foreach($domainRecords as $domain)
                           <option value="{{ $domain->hostname }}" @selected($scope === 'domain' && ($rule['domain_name'] ?? '') === $domain->hostname)>{{ $domain->hostname }}</option>
                         @endforeach
                       </select>
                     </label>
                     <label>
-                      <span>Farm name</span>
+                      <span>List name</span>
                       <input class="vs-farm-input" name="description" value="{{ $cleanDescription }}">
                     </label>
                     <label>
@@ -172,7 +172,7 @@
                       <input type="checkbox" name="paused" value="1" @checked($rule['paused'])>
                       <span>Paused</span>
                     </label>
-                    <button class="vs-farm-button vs-farm-button-primary" type="submit">Save Farm</button>
+                    <button class="vs-farm-button vs-farm-button-primary" type="submit">Save list</button>
                   </form>
 
                   <div class="vs-farm-side-tools">
@@ -182,13 +182,13 @@
                         <span>Append IPs / CIDRs</span>
                         <textarea class="vs-farm-input vs-farm-textarea-small" name="ips" placeholder="203.0.113.25&#10;2001:db8::/64" required></textarea>
                       </label>
-                      <button class="vs-farm-button vs-farm-button-secondary" type="submit">Append To Farm</button>
+                      <button class="vs-farm-button vs-farm-button-secondary" type="submit">Add to list</button>
                     </form>
 
                     <form method="POST" action="{{ route('admin.tenants.ip_farm.remove_ips', [$tenant, $rule['id']]) }}" class="vs-farm-form">
                       @csrf
                       <label>
-                        <span>Remove IPs / CIDRs From This Farm</span>
+                        <span>Remove IPs / CIDRs from this list</span>
                         <textarea class="vs-farm-input vs-farm-textarea-small" name="ips" placeholder="203.0.113.10" required></textarea>
                       </label>
                       <button class="vs-farm-button vs-farm-button-danger" type="submit">Remove Targets</button>
@@ -201,7 +201,7 @@
         @empty
           <div class="vs-farm-empty">
             <img src="{{ asset('duotone/spider-web.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted" aria-hidden="true">
-            <h3>This Global IP Farm is empty.</h3>
+            <h3>This blocked IP list is empty.</h3>
           </div>
         @endforelse
       </div>

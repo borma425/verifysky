@@ -95,7 +95,7 @@ class AdminTenantDomainsController extends Controller
             false
         );
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Origin updated and runtime cache purged.' : ($result['error'] ?? 'Failed to update origin.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Server updated and cache cleared.' : ($result['error'] ?? 'Failed to update server.'));
     }
 
     public function updateSecurityMode(UpdateDomainSecurityModeRequest $request, Tenant $tenant, string $domain): RedirectResponse

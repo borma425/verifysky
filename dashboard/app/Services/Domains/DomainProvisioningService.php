@@ -33,19 +33,19 @@ class DomainProvisioningService
         if ($origin === '') {
             $detected = $this->edgeShield->detectOriginServerForInput($requestedDomain);
             if (! ($detected['ok'] ?? false)) {
-                throw new RuntimeException((string) ($detected['error'] ?? 'We could not detect the backend origin for this domain.'));
+                throw new RuntimeException((string) ($detected['error'] ?? 'We could not find the server for this domain.'));
             }
 
             $origin = trim((string) ($detected['origin_server'] ?? ''));
         }
 
         if ($origin === '') {
-            throw new RuntimeException('Backend origin is required before domain provisioning can continue.');
+            throw new RuntimeException('Server is required before domain setup can continue.');
         }
 
         $validation = $this->edgeShield->validateOriginServerForHostname((string) $domain->hostname, $origin);
         if (! ($validation['ok'] ?? false)) {
-            throw new RuntimeException((string) ($validation['error'] ?? 'We could not validate the backend origin for this domain.'));
+            throw new RuntimeException((string) ($validation['error'] ?? 'We could not check the server for this domain.'));
         }
 
         $domain->forceFill(['origin_server' => $origin])->save();
@@ -101,7 +101,7 @@ class DomainProvisioningService
         $domain = $this->domain($tenantDomainId);
         $payload = is_array($domain->provisioning_payload) ? $domain->provisioning_payload : [];
         if ($payload === []) {
-            throw new RuntimeException('Domain provisioning payload is missing.');
+            throw new RuntimeException('Domain setup data is missing.');
         }
 
         $sql = sprintf(
@@ -178,7 +178,7 @@ class DomainProvisioningService
                 'provisioning_status' => TenantDomain::PROVISIONING_FAILED,
                 'provisioning_error' => UserFacingErrorSanitizer::sanitize(
                     $message,
-                    'Domain provisioning failed. Please retry or contact support.'
+                    'Domain setup failed. Please try again or contact support.'
                 ),
                 'provisioning_finished_at' => now(),
                 'updated_at' => now(),

@@ -29,13 +29,13 @@
             <div class="text-lg font-bold text-white">{{ $group['display_domain'] }}</div>
             <div class="mt-1 text-sm text-sky-100/70">{{ ucfirst((string) $group['overall_status']) }} / {{ ucfirst((string) $group['mode']) }}</div>
           </div>
-          <a href="{{ route('admin.tenants.customer.domains.tuning', [$tenant, $group['primary_domain']]) }}" class="es-btn es-btn-secondary">Open Tuning</a>
+          <a href="{{ route('admin.tenants.customer.domains.tuning', [$tenant, $group['primary_domain']]) }}" class="es-btn es-btn-secondary">Open settings</a>
         </div>
         <div class="mt-4 grid gap-3 md:grid-cols-3">
           @foreach($group['health_rows'] as $row)
             <div class="rounded-xl border border-white/10 bg-[#202632] p-4">
               <div class="font-semibold text-white">{{ $row['domain_name'] }}</div>
-              <div class="mt-2 text-xs text-sky-100/70">Hostname: {{ $row['hostname_status_normalized'] }}</div>
+              <div class="mt-2 text-xs text-sky-100/70">DNS: {{ $row['hostname_status_normalized'] }}</div>
               <div class="mt-1 text-xs text-sky-100/70">SSL: {{ $row['ssl_status_label'] }}</div>
             </div>
           @endforeach

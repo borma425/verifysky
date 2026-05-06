@@ -132,7 +132,7 @@ class AdminTenantConsoleController extends Controller
             'tenant' => $tenant,
             'domainRecords' => $tenant->domains()->orderBy('hostname')->get(),
             'paths' => $paths,
-            'loadErrors' => ($pathsRes['ok'] ?? false) ? [] : [($pathsRes['error'] ?? 'Failed to load sensitive paths.')],
+            'loadErrors' => ($pathsRes['ok'] ?? false) ? [] : [($pathsRes['error'] ?? 'Failed to load protected paths.')],
         ]);
     }
 
@@ -161,7 +161,7 @@ class AdminTenantConsoleController extends Controller
         );
         $this->purgeTenantScope($tenant, $scope, (string) $domainName);
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Sensitive path saved.' : ($result['error'] ?? 'Failed to save sensitive path.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Protected path saved.' : ($result['error'] ?? 'Failed to save protected path.'));
     }
 
     public function destroySensitivePath(Tenant $tenant, int $pathId): RedirectResponse
@@ -170,7 +170,7 @@ class AdminTenantConsoleController extends Controller
         $result = $this->edgeShield->deleteSensitivePath($pathId);
         $this->purgeTenantScope($tenant, $this->ruleScope($path), (string) ($path['domain_name'] ?? 'global'));
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Sensitive path deleted.' : ($result['error'] ?? 'Failed to delete sensitive path.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Protected path deleted.' : ($result['error'] ?? 'Failed to delete protected path.'));
     }
 
     public function ipFarm(Tenant $tenant): View
@@ -183,7 +183,7 @@ class AdminTenantConsoleController extends Controller
             'domainRecords' => $tenant->domains()->orderBy('hostname')->get(),
             'farmRules' => $this->parseFarmRules($farmRules),
             'stats' => $this->edgeShield->getIpFarmStats((string) $tenant->getKey()),
-            'loadErrors' => ($farmResult['ok'] ?? false) ? [] : [($farmResult['error'] ?? 'Failed to load IP Farm rules.')],
+            'loadErrors' => ($farmResult['ok'] ?? false) ? [] : [($farmResult['error'] ?? 'We could not load blocked IP rules.')],
         ]);
     }
 
@@ -203,7 +203,7 @@ class AdminTenantConsoleController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'IP Farm saved with '.(int) ($result['added'] ?? 0).' target(s).' : ($result['error'] ?? 'Failed to create IP Farm.')
+            $result['ok'] ? 'Blocked IP list saved with '.(int) ($result['added'] ?? 0).' IP(s).' : ($result['error'] ?? 'We could not create the blocked IP list.')
         );
     }
 
@@ -215,7 +215,7 @@ class AdminTenantConsoleController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Added '.(int) ($result['added'] ?? 0).' target(s) to IP Farm.' : ($result['error'] ?? 'Failed to update IP Farm.')
+            $result['ok'] ? 'Added '.(int) ($result['added'] ?? 0).' IP(s) to the blocked list.' : ($result['error'] ?? 'We could not update the blocked list.')
         );
     }
 
@@ -234,7 +234,7 @@ class AdminTenantConsoleController extends Controller
         );
         $this->purgeTenantScope($tenant, $scope, $domainName);
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'IP Farm rule updated.' : ($result['error'] ?? 'Failed to update IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Blocked IP rule updated.' : ($result['error'] ?? 'We could not update the blocked list.'));
     }
 
     public function toggleIpFarm(Request $request, Tenant $tenant, int $ruleId): RedirectResponse
@@ -243,7 +243,7 @@ class AdminTenantConsoleController extends Controller
         $result = $this->edgeShield->toggleIpFarmRule($ruleId, ((int) $validated['paused']) === 1, (string) $tenant->getKey());
         $this->purgeTenantScope($tenant, 'tenant', 'global');
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'IP Farm status updated.' : ($result['error'] ?? 'Failed to update IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Blocked IP rule status updated.' : ($result['error'] ?? 'We could not update the blocked list.'));
     }
 
     public function removeIpFarmIps(Request $request, Tenant $tenant): RedirectResponse
@@ -255,7 +255,7 @@ class AdminTenantConsoleController extends Controller
         $result = $this->edgeShield->removeIpsFromFarm($ips, (string) $tenant->getKey());
         $this->purgeTenantScope($tenant, 'tenant', 'global');
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Removed '.(int) ($result['removed'] ?? 0).' IP(s) from this tenant IP Farm.' : ($result['error'] ?? 'Failed to update IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Removed '.(int) ($result['removed'] ?? 0).' IP(s) from this user blocked list.' : ($result['error'] ?? 'We could not update the blocked list.'));
     }
 
     public function removeIpFarmIpsFromRule(Request $request, Tenant $tenant, int $ruleId): RedirectResponse
@@ -266,7 +266,7 @@ class AdminTenantConsoleController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Removed '.(int) ($result['removed'] ?? 0).' target(s) from IP Farm.' : ($result['error'] ?? 'Failed to update IP Farm.')
+            $result['ok'] ? 'Removed '.(int) ($result['removed'] ?? 0).' IP(s) from the blocked list.' : ($result['error'] ?? 'We could not update the blocked list.')
         );
     }
 
@@ -275,7 +275,7 @@ class AdminTenantConsoleController extends Controller
         $result = $this->edgeShield->deleteIpFarmRule($ruleId, (string) $tenant->getKey());
         $this->purgeTenantScope($tenant, 'tenant', 'global');
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'IP Farm rule deleted.' : ($result['error'] ?? 'Failed to delete IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Blocked IP rule deleted.' : ($result['error'] ?? 'We could not delete the blocked IP rule.'));
     }
 
     public function bulkDestroyIpFarm(Request $request, Tenant $tenant): RedirectResponse
@@ -287,7 +287,7 @@ class AdminTenantConsoleController extends Controller
         $result = $this->edgeShield->deleteBulkIpFarmRules($validated['rule_ids'], (string) $tenant->getKey());
         $this->purgeTenantScope($tenant, 'tenant', 'global');
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Selected IP Farm rules deleted.' : ($result['error'] ?? 'Failed to delete IP Farm rules.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Selected blocked IP rules deleted.' : ($result['error'] ?? 'We could not delete blocked IP rules.'));
     }
 
     public function suspend(Tenant $tenant): RedirectResponse
@@ -299,7 +299,7 @@ class AdminTenantConsoleController extends Controller
         ));
         $this->purgeTenantScope($tenant, 'tenant', 'global');
 
-        return back()->with('status', 'Tenant account suspended.');
+        return back()->with('status', 'User account suspended.');
     }
 
     public function resume(Tenant $tenant): RedirectResponse
@@ -311,7 +311,7 @@ class AdminTenantConsoleController extends Controller
         ));
         $this->purgeTenantScope($tenant, 'tenant', 'global');
 
-        return back()->with('status', 'Tenant account resumed.');
+        return back()->with('status', 'User account resumed.');
     }
 
     public function delete(Request $request, Tenant $tenant): RedirectResponse
@@ -320,7 +320,7 @@ class AdminTenantConsoleController extends Controller
             'confirm_tenant' => ['required', 'string'],
         ]);
         if ((string) $validated['confirm_tenant'] !== (string) $tenant->slug) {
-            return back()->with('error', 'Type the tenant slug exactly before deleting the account.');
+            return back()->with('error', 'Type the user slug exactly before deleting the account.');
         }
 
         $tenantId = (string) $tenant->getKey();
@@ -336,7 +336,7 @@ class AdminTenantConsoleController extends Controller
             $tenant->delete();
         });
 
-        return redirect()->route('admin.tenants.index')->with('status', 'Tenant account deleted.');
+        return redirect()->route('admin.tenants.index')->with('status', 'User account deleted.');
     }
 
     private function validateFirewallRule(Request $request, bool $creating): array
@@ -460,7 +460,7 @@ class AdminTenantConsoleController extends Controller
 
     private function scopeLabel(string $scope, string $domainName): string
     {
-        return $scope === 'tenant' ? 'all tenant domains' : $domainName;
+        return $scope === 'tenant' ? 'all domains' : $domainName;
     }
 
     /**

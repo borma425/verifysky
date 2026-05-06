@@ -20,7 +20,7 @@
       <input type="number" x-ref="challengeSolve" value="{{ $challengeProfiles['balanced']['solve'] }}" min="50" max="1000" class="vs-tuning-input" required x-on:input="detectChallengeMode()">
     </div>
     <div>
-      <label class="vs-tuning-label">Min Telemetry Points</label>
+      <label class="vs-tuning-label">Minimum checks</label>
       <input type="number" x-ref="challengePoints" value="{{ $challengeProfiles['balanced']['points'] }}" min="2" max="20" class="vs-tuning-input" required x-on:input="detectChallengeMode()">
     </div>
     <div>

@@ -20,9 +20,9 @@
           </span>
           <div class="min-w-0">
             <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
-            <p class="mt-3 text-[10px] font-bold uppercase tracking-[0.24em] text-[#FCB900]">Admin User Domains</p>
-            <h2 class="es-page-title mt-1 font-black tracking-[-0.03em] text-[#FFFFFF]">Domain Management</h2>
-            <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Use the same onboarding, DNS guidance, and health cards the customer sees, but from the admin writeable context.</p>
+            <p class="mt-3 text-[10px] font-bold uppercase tracking-[0.24em] text-[#FCB900]">User domains</p>
+            <h2 class="es-page-title mt-1 font-black tracking-[-0.03em] text-[#FFFFFF]">Domains</h2>
+            <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Use the same setup, DNS guide, and status cards the customer sees.</p>
           </div>
         </div>
 
@@ -36,14 +36,14 @@
             <div class="text-[10px] uppercase tracking-[0.2em] text-[#959BA7]">Domains</div>
             <div class="mt-1 font-mono text-lg font-semibold leading-none text-[#FFFFFF]">{{ $totalDomains }}</div>
           </div>
-          <a href="{{ route('admin.tenants.customer.domains.index', $tenant) }}" class="es-btn es-btn-secondary">Open Read-Only Mirror</a>
+          <a href="{{ route('admin.tenants.customer.domains.index', $tenant) }}" class="es-btn es-btn-secondary">Open read-only view</a>
           <button
             @if($can_add_domain) x-on:click="openWizard" @endif
             class="es-btn es-header-cta flex items-center gap-2 px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
             @disabled(! $can_add_domain)
           >
             <img src="{{ asset('duotone/panel-ews.svg') }}" alt="Add domain" class="h-4 w-4 opacity-75" style="filter: brightness(0);">
-            Add New Domain
+            Add domain
           </button>
         </div>
       </div>

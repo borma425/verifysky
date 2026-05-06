@@ -37,7 +37,7 @@ class FirewallIndexViewData
             'canManageFirewallRules' => $this->canManageFirewallRules,
             'canAddFirewallRule' => (bool) ($this->firewallUsage['can_add'] ?? false),
             'showGlobalFirewallOption' => $this->isAdmin || $this->domains !== [],
-            'globalFirewallLabel' => 'All Domains (Global)',
+            'globalFirewallLabel' => 'All domains',
         ];
     }
 

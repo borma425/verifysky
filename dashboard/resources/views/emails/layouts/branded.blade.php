@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ $subject ?? 'VerifySky Notification' }}</title>
+  <title>{{ $subject ?? 'VerifySky Message' }}</title>
 </head>
 <body style="margin:0;background:#0f1723;color:#d7e1f5;font-family:Arial,sans-serif;">
   <div style="max-width:640px;margin:0 auto;padding:32px 20px;">
@@ -17,7 +17,7 @@
       </div>
     </div>
     <div style="padding:14px 8px 0;color:#94a3b8;font-size:12px;line-height:1.7;">
-      Sent by VerifySky Control Plane. This message was queued through the platform mail pipeline.
+      Sent by VerifySky.
     </div>
   </div>
 </body>

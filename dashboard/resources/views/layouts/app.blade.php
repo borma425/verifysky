@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-  <title>{{ $title ?? 'VerifySky Control Plane' }}</title>
+  <title>{{ $title ?? 'VerifySky Dashboard' }}</title>
   @vite(['resources/css/app.css', 'resources/js/app.js'])
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
@@ -25,35 +25,35 @@
   if (session('status')) {
       $flashModal = [
           'type' => 'success',
-          'title' => 'Operation Completed',
+          'title' => 'Done',
           'message' => session('status'),
           'icon' => 'circle-check.svg',
-          'action_label' => 'Understood',
-          'helper_text' => 'This message came from the current request result.',
+          'action_label' => 'OK',
+          'helper_text' => null,
           'action_event' => null,
       ];
   } elseif ($safeSessionError !== null) {
       $flashModal = [
           'type' => session('domain_origin_detection_failed') ? 'warning' : 'error',
-          'title' => session('domain_origin_detection_failed') ? 'Enter The Server IP' : 'Action Could Not Complete',
+          'title' => session('domain_origin_detection_failed') ? 'Enter the server IP' : 'We could not complete this',
           'message' => session('domain_origin_detection_failed')
-              ? 'We could not detect the real server automatically because this domain already sits behind an edge or DNS proxy. Enter the real server IP to continue setup.'
+              ? 'We could not find your server automatically. Enter the server IP to continue setup.'
               : $safeSessionError,
           'icon' => session('domain_origin_detection_failed') ? 'shield-keyhole.svg' : 'triangle-exclamation.svg',
-          'action_label' => session('domain_origin_detection_failed') ? 'Add Server IP' : 'Understood',
+          'action_label' => session('domain_origin_detection_failed') ? 'Add server IP' : 'OK',
           'helper_text' => session('domain_origin_detection_failed')
-              ? 'Your domain stays filled in. We will reopen the same step and show the server IP field automatically.'
-              : 'This message came from the current request result.',
+              ? 'Your domain stays filled in. We will reopen the setup form.'
+              : null,
           'action_event' => session('domain_origin_detection_failed') ? 'verifysky-open-server-ip' : null,
       ];
   } elseif ($errors->any()) {
       $flashModal = [
           'type' => 'error',
-          'title' => 'Please Review The Form',
+          'title' => 'Please check the form',
           'message' => implode("\n", $errors->all()),
           'icon' => 'triangle-exclamation.svg',
-          'action_label' => 'Understood',
-          'helper_text' => 'This message came from the current request result.',
+          'action_label' => 'OK',
+          'helper_text' => null,
           'action_event' => null,
       ];
   }
@@ -103,7 +103,7 @@
         class="es-flash-tulip w-full max-w-xl"
         x-bind:class="'es-flash-tulip-' + @js($flashModal['type'])"
       >
-        <button type="button" x-on:click="open = false" class="es-flash-close" aria-label="Close notification">
+        <button type="button" x-on:click="open = false" class="es-flash-close" aria-label="Close message">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
 
@@ -117,9 +117,9 @@
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
               <span class="es-flash-pill">
-                {{ $flashModal['type'] === 'success' ? 'Success' : ($flashModal['type'] === 'warning' ? 'Needs Attention' : 'Error') }}
+                {{ $flashModal['type'] === 'success' ? 'Success' : ($flashModal['type'] === 'warning' ? 'Check this' : 'Error') }}
               </span>
-              <span class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">VerifySky Notification</span>
+              <span class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">VerifySky</span>
             </div>
 
             <h3 class="mt-3 text-xl font-extrabold tracking-[-0.02em] text-[#FFFFFF]">{{ $flashModal['title'] }}</h3>
@@ -147,7 +147,9 @@
                 <img src="{{ asset('duotone/circle-check.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
                 {{ $flashModal['action_label'] }}
               </button>
-              <div class="text-xs text-[#AEB9CC]">{{ $flashModal['helper_text'] }}</div>
+              @if(!empty($flashModal['helper_text']))
+                <div class="text-xs text-[#AEB9CC]">{{ $flashModal['helper_text'] }}</div>
+              @endif
             </div>
           </div>
         </div>
@@ -157,13 +159,13 @@
 
   @php
   $navItems = [
-      ['route' => 'dashboard', 'label' => 'Overview', 'desc' => 'Telemetry', 'icon' => 'eye-evil.svg'],
+      ['route' => 'dashboard', 'label' => 'Overview', 'desc' => 'Summary', 'icon' => 'eye-evil.svg'],
       ['route' => 'billing.index', 'label' => 'Billing', 'desc' => 'Subscription', 'icon' => 'sack-dollar.svg'],
-      ['route' => 'domains.index', 'label' => 'Domains', 'desc' => 'Onboarding', 'icon' => 'spider-web.svg'],
-      ['route' => 'firewall.index', 'label' => 'Global Firewall', 'desc' => 'Policy Layer', 'icon' => 'shield-virus.svg'],
-      ['route' => 'sensitive_paths.index', 'label' => 'Sensitive Paths', 'desc' => 'Hard Locks', 'icon' => 'lock-keyhole.svg'],
+      ['route' => 'domains.index', 'label' => 'Domains', 'desc' => 'Setup', 'icon' => 'spider-web.svg'],
+      ['route' => 'firewall.index', 'label' => 'Firewall', 'desc' => 'Rules', 'icon' => 'shield-virus.svg'],
+      ['route' => 'sensitive_paths.index', 'label' => 'Protected Paths', 'desc' => 'Important URLs', 'icon' => 'lock-keyhole.svg'],
       ['route' => 'logs.index', 'label' => 'Security Logs', 'desc' => 'Incidents', 'icon' => 'skull-crossbones.svg'],
-      ['route' => 'ip_farm.index', 'label' => 'IP Farm', 'desc' => 'Network Feed', 'icon' => 'ban-bug.svg'],
+      ['route' => 'ip_farm.index', 'label' => 'Blocked IPs', 'desc' => 'Block list', 'icon' => 'ban-bug.svg'],
     ];
     $sessionAvatarPath = session('user_avatar_path');
     $sessionAvatarPath = is_string($sessionAvatarPath) ? trim($sessionAvatarPath) : '';
@@ -182,7 +184,7 @@
             </div>
             <div class="min-w-0">
               <div class="truncate text-lg font-black uppercase leading-tight tracking-tight text-[#FCB900]">VerifySky</div>
-              <div class="truncate text-xs font-medium text-[#D4C4AB]">Control Plane</div>
+              <div class="truncate text-xs font-medium text-[#D4C4AB]">Dashboard</div>
             </div>
           </a>
           <button class="es-icon-btn es-btn-secondary md:hidden" x-on:click="navOpen = false" type="button" aria-label="Close navigation">
@@ -207,7 +209,7 @@
         <div class="px-4 pb-6">
           <a href="{{ route('domains.index') }}" class="es-sidebar-cta">
             <img src="{{ asset('duotone/plus.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
-            Add New Domain
+            Add domain
           </a>
         </div>
 

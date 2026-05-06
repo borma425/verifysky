@@ -2,7 +2,7 @@
 
 @section('content')
   <div class="mb-4 flex items-center justify-between">
-    <h1 class="es-title text-2xl">Global Firewall</h1>
+    <h1 class="es-title text-2xl">Firewall</h1>
     @if(!empty($firewallUsage))
       <div class="rounded-lg border border-sky-400/25 bg-slate-900/55 px-3 py-2 text-right text-xs text-sky-100">
         <div class="font-semibold">{{ $firewallUsage['plan_name'] ?? 'Plan' }}</div>
@@ -21,8 +21,8 @@
 
   <div class="es-card p-0">
     <div class="border-b border-white/10 p-5">
-      <h2 class="text-lg font-bold text-white">Global Rule Set</h2>
-      <p class="mt-1 text-sm text-sky-100/65">All rules below are rendered in read-only mode for the selected user context.</p>
+      <h2 class="text-lg font-bold text-white">Rules for all domains</h2>
+      <p class="mt-1 text-sm text-sky-100/65">These rules are shown in read-only mode for the selected user.</p>
     </div>
     <div class="overflow-x-auto">
       <table class="es-table min-w-[1100px]">

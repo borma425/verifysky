@@ -81,7 +81,7 @@ class AdminCommandCenterTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Users Billing Operations')
+            ->assertSee('Manage users, domains, billing, bonuses, and usage.')
             ->assertSee('Acme Ops')
             ->assertSee('Manage User')
             ->assertSee('pass through')
@@ -117,7 +117,7 @@ class AdminCommandCenterTest extends TestCase
         $response->assertOk()
             ->assertSee('Drill Tenant')
             ->assertSee('Bonus Allowance')
-            ->assertSee('Memberships')
+            ->assertSee('Members')
             ->assertSee('drill.example.com')
             ->assertSee('Manage Domain');
     }
@@ -187,7 +187,7 @@ class AdminCommandCenterTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('ok', true)
             ->assertJsonPath('polling', true)
-            ->assertJsonPath('groups.0.live_status.label', 'QUEUED');
+            ->assertJsonPath('groups.0.live_status.label', 'STARTING');
     }
 
     public function test_admin_firewall_create_is_scoped_to_route_tenant_domain(): void

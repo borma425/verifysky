@@ -14,9 +14,9 @@
   <section class="vs-billing es-animate">
     <div class="vs-billing-header">
       <div>
-        <p class="vs-billing-meta">Customer Billing</p>
-        <h1 class="vs-billing-title">Subscription Control</h1>
-        <p class="vs-billing-copy">Manage your VerifySky plan, checkout new subscriptions, and monitor whether your protection is active or scheduled to downgrade.</p>
+        <p class="vs-billing-meta">Billing</p>
+        <h1 class="vs-billing-title">Subscription</h1>
+        <p class="vs-billing-copy">Manage your VerifySky plan, start checkout, and see whether your protection is active.</p>
       </div>
 
       <div class="vs-billing-summary">
@@ -25,7 +25,7 @@
           <span class="vs-billing-value">{{ $currentPlanName }} Plan</span>
         </div>
         <div>
-          <span class="vs-billing-label">Limit Basis</span>
+          <span class="vs-billing-label">Current access</span>
           <span class="vs-billing-value-muted">{{ $effectivePlanSource }}</span>
         </div>
         @if($periodEndsAt)
@@ -46,14 +46,14 @@
     @if(! $billingStorageReady)
       <div class="vs-billing-alert vs-billing-alert-danger">
         <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="" class="es-duotone-icon es-icon-tone-coral h-5 w-5">
-        <div class="vs-billing-alert-text">Billing tables are not available yet. Run the latest billing migrations before enabling customer payments.</div>
+        <div class="vs-billing-alert-text">Billing is not ready yet. Run the latest billing migrations before enabling payments.</div>
       </div>
     @else
       @if($activeGrant)
         <div class="vs-billing-alert vs-billing-alert-info">
           <img src="{{ asset('duotone/circle-info.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-5 w-5">
           <div class="vs-billing-alert-text">
-            Bonus {{ strtoupper((string) $activeGrant->granted_plan_key) }} Allowance Active, temporary extra capacity until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
+            Bonus {{ strtoupper((string) $activeGrant->granted_plan_key) }} is active until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
             @if($activeGrant->reason)
               Reason: {{ $activeGrant->reason }}
             @endif
@@ -66,7 +66,7 @@
           <div class="vs-billing-panel-head">
             <div>
               <h2 class="vs-billing-h2">Current Subscription</h2>
-              <p class="vs-billing-subcopy">This panel reflects the last known PayPal subscription state for your account.</p>
+              <p class="vs-billing-subcopy">This shows your latest PayPal subscription status.</p>
             </div>
             <span class="vs-billing-status">{{ $grantEndsAt ? 'Bonus Active' : $subscriptionStatus }}</span>
           </div>
@@ -78,9 +78,9 @@
               <span class="vs-billing-price">${{ number_format((int) ($currentPlan['price_monthly'] ?? 0)) }}/month</span>
             </div>
             <div class="vs-billing-metric">
-              <span class="vs-billing-label">Renewal Window</span>
+              <span class="vs-billing-label">Renewal date</span>
               <span class="vs-billing-metric-value font-mono">{{ $periodEndsAt ? $periodEndsAt->format('Y-m-d') : 'Not scheduled' }}</span>
-              <span class="vs-billing-subcopy">{{ $subscription?->cancel_at_period_end ? 'Cancellation is queued for period end.' : 'Subscription remains active until PayPal changes state.' }}</span>
+              <span class="vs-billing-subcopy">{{ $subscription?->cancel_at_period_end ? 'Cancellation is scheduled for the end of this period.' : 'Subscription stays active until PayPal changes it.' }}</span>
             </div>
             <div class="vs-billing-metric {{ $subscription?->cancel_at_period_end ? 'vs-billing-metric-warning' : '' }}">
               <span class="vs-billing-label">Status</span>
@@ -139,7 +139,7 @@
         <div class="vs-billing-plan-panel">
           <div class="vs-billing-plan-head">
             <div>
-              <h2 class="vs-billing-h2">Upgrade Or Change Plan</h2>
+              <h2 class="vs-billing-h2">Upgrade or change plan</h2>
               <p class="vs-billing-subcopy">Paid plans are billed monthly through PayPal recurring subscriptions.</p>
             </div>
           </div>
@@ -165,7 +165,7 @@
                     <form method="POST" action="{{ route('billing.checkout', $plan['key']) }}">
                       @csrf
                       <button type="submit" class="vs-billing-checkout {{ $isCurrent ? 'vs-billing-checkout-current' : '' }}">
-                        {{ $isCurrent ? 'Re-subscribe' : 'Checkout' }}
+                      {{ $isCurrent ? 'Subscribe again' : 'Checkout' }}
                       </button>
                     </form>
                   @endif

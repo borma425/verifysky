@@ -11,37 +11,37 @@
     <div>
       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
       <h1 class="es-title mt-2">{{ $domainRecord->hostname }}</h1>
-      <p class="es-subtitle mt-2">Admin-scoped domain management for user #{{ $tenant->id }}.</p>
+      <p class="es-subtitle mt-2">Manage this domain for user #{{ $tenant->id }}.</p>
     </div>
     <div class="flex flex-wrap gap-2">
       <form method="POST" action="{{ route('admin.tenants.domains.sync_route', [$tenant, $domainRecord->hostname]) }}">
         @csrf
-        <button class="es-btn es-btn-secondary" type="submit">Sync Route</button>
+        <button class="es-btn es-btn-secondary" type="submit">Refresh status</button>
       </form>
       <form method="POST" action="{{ route('admin.tenants.domains.runtime_cache.purge', [$tenant, $domainRecord->hostname]) }}">
         @csrf
-        <button class="es-btn" type="submit">Purge Runtime Cache</button>
+        <button class="es-btn" type="submit">Clear cache</button>
       </form>
     </div>
   </div>
 
   <div class="grid gap-4 xl:grid-cols-3">
     <div class="es-card p-5">
-      <h2 class="mb-4 text-lg font-bold text-white">Routing</h2>
+      <h2 class="mb-4 text-lg font-bold text-white">Server</h2>
       <form method="POST" action="{{ route('admin.tenants.domains.origin.update', [$tenant, $domainRecord->hostname]) }}" class="space-y-3">
         @csrf
-        <label class="block text-sm text-sky-100">Origin server</label>
+        <label class="block text-sm text-sky-100">Server IP or domain</label>
         <input class="es-input" name="origin_server" value="{{ old('origin_server', $originServer ?: $domainRecord->origin_server) }}" placeholder="203.0.113.10">
-        <button class="es-btn" type="submit">Update Origin</button>
+        <button class="es-btn" type="submit">Update server</button>
       </form>
       <div class="mt-4 text-sm text-sky-100/70">
-        Hostname: {{ $domainRecord->hostname_status ?: ($config['hostname_status'] ?? 'pending') }}<br>
+        DNS: {{ $domainRecord->hostname_status ?: ($config['hostname_status'] ?? 'pending') }}<br>
         SSL: {{ $domainRecord->ssl_status ?: ($config['ssl_status'] ?? 'pending') }}
       </div>
     </div>
 
     <div class="es-card p-5">
-      <h2 class="mb-4 text-lg font-bold text-white">Security Mode</h2>
+      <h2 class="mb-4 text-lg font-bold text-white">Protection level</h2>
       <form method="POST" action="{{ route('admin.tenants.domains.security_mode.update', [$tenant, $domainRecord->hostname]) }}" class="space-y-3">
         @csrf
         <select name="security_mode" class="es-input">
@@ -49,7 +49,7 @@
             <option value="{{ $value }}" @selected(old('security_mode', $config['security_mode'] ?? $domainRecord->security_mode ?? 'balanced') === $value)>{{ $label }}</option>
           @endforeach
         </select>
-        <button class="es-btn" type="submit">Update Mode</button>
+        <button class="es-btn" type="submit">Update level</button>
       </form>
 
       <form method="POST" action="{{ route('admin.tenants.domains.force_captcha.update', [$tenant, $domainRecord->hostname]) }}" class="mt-4 space-y-3">
@@ -64,12 +64,12 @@
 
     <div class="es-card p-5">
       <h2 class="mb-4 text-lg font-bold text-white">Cache</h2>
-      <div class="text-sm text-sky-100/70">Runtime bundle cache purges are queued through the same path used by customer domain updates.</div>
+      <div class="text-sm text-sky-100/70">Cache clear jobs use the same path as customer domain updates.</div>
       <form method="POST" action="{{ route('admin.tenants.domains.runtime_cache.purge', [$tenant, $domainRecord->hostname]) }}" class="mt-4">
         @csrf
-        <button class="es-btn" type="submit">Queue PurgeRuntimeBundleCache</button>
+        <button class="es-btn" type="submit">Clear cache</button>
       </form>
-      <div class="mt-4 text-xs text-sky-100/55">Protected hostname ID: {{ $config['custom_hostname_id'] ?? $domainRecord->cloudflare_custom_hostname_id ?? 'not available' }}</div>
+      <div class="mt-4 text-xs text-sky-100/55">Protected domain ID: {{ $config['custom_hostname_id'] ?? $domainRecord->cloudflare_custom_hostname_id ?? 'not available' }}</div>
     </div>
   </div>
 
@@ -79,7 +79,7 @@
         <h2 class="text-lg font-bold text-white">Firewall</h2>
         <p class="mt-1 text-sm text-sky-100/65">{{ count($rules) }} custom rule(s) loaded for this domain.</p>
       </div>
-      <a href="{{ route('admin.tenants.domains.firewall.index', [$tenant, $domainRecord->hostname]) }}" class="es-btn es-btn-secondary">Open Unified Firewall</a>
+      <a href="{{ route('admin.tenants.domains.firewall.index', [$tenant, $domainRecord->hostname]) }}" class="es-btn es-btn-secondary">Open firewall</a>
     </div>
     <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
       @forelse(array_slice($rules, 0, 6) as $rule)
@@ -94,10 +94,10 @@
   </div>
 
   <div class="es-card mt-5 p-5">
-    <h2 class="mb-4 text-lg font-bold text-white">Tuning</h2>
+    <h2 class="mb-4 text-lg font-bold text-white">Security settings</h2>
     <form method="POST" action="{{ route('admin.tenants.domains.tuning.update', [$tenant, $domainRecord->hostname]) }}" class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       @csrf
-      <label class="text-sm text-sky-100">Visit CAPTCHA threshold<input class="es-input mt-1" type="number" name="visit_captcha_threshold" value="{{ old('visit_captcha_threshold', $threshold('visit_captcha_threshold', 20)) }}"></label>
+      <label class="text-sm text-sky-100">CAPTCHA after visits<input class="es-input mt-1" type="number" name="visit_captcha_threshold" value="{{ old('visit_captcha_threshold', $threshold('visit_captcha_threshold', 20)) }}"></label>
       <label class="text-sm text-sky-100">Daily visit limit<input class="es-input mt-1" type="number" name="daily_visit_limit" value="{{ old('daily_visit_limit', $threshold('daily_visit_limit', 5000)) }}"></label>
       <label class="text-sm text-sky-100">ASN hourly limit<input class="es-input mt-1" type="number" name="asn_hourly_visit_limit" value="{{ old('asn_hourly_visit_limit', $threshold('asn_hourly_visit_limit', 1000)) }}"></label>
       <label class="text-sm text-sky-100">IP hard ban rate<input class="es-input mt-1" type="number" name="ip_hard_ban_rate" value="{{ old('ip_hard_ban_rate', $threshold('ip_hard_ban_rate', 200)) }}"></label>
@@ -106,9 +106,9 @@
       <label class="text-sm text-sky-100">Sustained challenge<input class="es-input mt-1" type="number" name="flood_sustained_challenge" value="{{ old('flood_sustained_challenge', $threshold('flood_sustained_challenge', 180)) }}"></label>
       <label class="text-sm text-sky-100">Sustained block<input class="es-input mt-1" type="number" name="flood_sustained_block" value="{{ old('flood_sustained_block', $threshold('flood_sustained_block', 360)) }}"></label>
       <label class="text-sm text-sky-100">Max challenge failures<input class="es-input mt-1" type="number" name="max_challenge_failures" value="{{ old('max_challenge_failures', $threshold('max_challenge_failures', 5)) }}"></label>
-      <label class="text-sm text-sky-100">Temp ban TTL hours<input class="es-input mt-1" type="number" step="0.01" name="temp_ban_ttl_hours" value="{{ old('temp_ban_ttl_hours', $threshold('temp_ban_ttl_hours', 24)) }}"></label>
-      <label class="text-sm text-sky-100">AI rule TTL days<input class="es-input mt-1" type="number" step="0.1" name="ai_rule_ttl_days" value="{{ old('ai_rule_ttl_days', $threshold('ai_rule_ttl_days', 7)) }}"></label>
-      <label class="text-sm text-sky-100">Session TTL hours<input class="es-input mt-1" type="number" step="0.01" name="session_ttl_hours" value="{{ old('session_ttl_hours', $threshold('session_ttl_hours', 24)) }}"></label>
+      <label class="text-sm text-sky-100">Temporary block hours<input class="es-input mt-1" type="number" step="0.01" name="temp_ban_ttl_hours" value="{{ old('temp_ban_ttl_hours', $threshold('temp_ban_ttl_hours', 24)) }}"></label>
+      <label class="text-sm text-sky-100">Auto rule days<input class="es-input mt-1" type="number" step="0.1" name="ai_rule_ttl_days" value="{{ old('ai_rule_ttl_days', $threshold('ai_rule_ttl_days', 7)) }}"></label>
+      <label class="text-sm text-sky-100">Session hours<input class="es-input mt-1" type="number" step="0.01" name="session_ttl_hours" value="{{ old('session_ttl_hours', $threshold('session_ttl_hours', 24)) }}"></label>
       <label class="text-sm text-sky-100">Pressure minutes<input class="es-input mt-1" type="number" step="0.1" name="auto_aggr_pressure_minutes" value="{{ old('auto_aggr_pressure_minutes', $threshold('auto_aggr_pressure_minutes', 5)) }}"></label>
       <label class="text-sm text-sky-100">Active minutes<input class="es-input mt-1" type="number" step="0.1" name="auto_aggr_active_minutes" value="{{ old('auto_aggr_active_minutes', $threshold('auto_aggr_active_minutes', 30)) }}"></label>
       <label class="text-sm text-sky-100">Trigger subnets<input class="es-input mt-1" type="number" name="auto_aggr_trigger_subnets" value="{{ old('auto_aggr_trigger_subnets', $threshold('auto_aggr_trigger_subnets', 4)) }}"></label>
@@ -121,10 +121,10 @@
       <input type="hidden" name="challenge_x_tolerance_aggressive" value="{{ old('challenge_x_tolerance_aggressive', $aggressive['tolerance']) }}">
       <label class="flex items-center gap-2 text-sm text-sky-100 md:col-span-2">
         <input type="checkbox" name="ad_traffic_strict_mode" value="1" @checked((bool) $threshold('ad_traffic_strict_mode', false))>
-        Ad traffic strict mode
+        Strict ad traffic checks
       </label>
       <div class="md:col-span-2 xl:col-span-4">
-        <button class="es-btn" type="submit">Save Tuning</button>
+        <button class="es-btn" type="submit">Save security settings</button>
       </div>
     </form>
   </div>

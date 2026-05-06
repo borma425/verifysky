@@ -20,8 +20,8 @@
           <div>
             <div class="flex items-center justify-between border-b border-white/8 bg-gradient-to-r from-[#202633] to-[#1B202A] px-5 py-4 sm:px-6 sm:py-5">
               <div>
-                <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-[#FCB900]">VerifySky Onboarding</div>
-                <h3 class="mt-1 text-lg font-extrabold tracking-tight text-[#FFFFFF]" id="modal-title">Add New Domain</h3>
+                <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-[#FCB900]">Domain setup</div>
+                <h3 class="mt-1 text-lg font-extrabold tracking-tight text-[#FFFFFF]" id="modal-title">Add domain</h3>
               </div>
               <button x-on:click="showWizard = false" class="rounded-lg p-1.5 text-[#959BA7] transition hover:bg-white/8 hover:text-[#FFFFFF]">
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -60,7 +60,7 @@
                 <div class="es-step-connector"></div>
                 <div class="es-step-chip" :class="step >= 3 ? 'es-step-chip-active' : ''">
                   <span class="es-step-badge" :class="step >= 3 ? 'es-step-badge-active' : ''">3</span>
-                  <span class="es-step-label" :class="step >= 3 ? 'text-[#FFFFFF]' : 'text-[#959BA7]'">Verify</span>
+                  <span class="es-step-label" :class="step >= 3 ? 'text-[#FFFFFF]' : 'text-[#959BA7]'">Finish</span>
                 </div>
               </div>
 
@@ -72,8 +72,8 @@
                         <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="attention" class="es-duotone-icon es-icon-tone-brass h-4 w-4">
                       </span>
                       <div>
-                        <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#171C26]">Backend Detection Needs Help</div>
-                        <p class="mt-2 text-sm leading-relaxed text-[#FFFFFF]">VerifySky could not find the real server automatically because this domain is already routed through another edge or proxy. Enter the <strong>server IP</strong> directly so setup can continue.</p>
+                        <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#171C26]">Server IP needed</div>
+                        <p class="mt-2 text-sm leading-relaxed text-[#FFFFFF]">VerifySky could not find your server automatically. Enter the <strong>server IP</strong> so setup can continue.</p>
                       </div>
                     </div>
                   </div>
@@ -88,14 +88,14 @@
                          placeholder="example.com"
                          required
                          @disabled(! $can_add_domain)>
-                  <p class="mt-2 text-[11px] leading-snug text-[#D7E1F5]">Enter the customer domain you want VerifySky to protect. If you enter an apex domain, VerifySky will prepare the `www` route first to keep onboarding predictable and safe.</p>
+                  <p class="mt-2 text-[11px] leading-snug text-[#D7E1F5]">Enter the domain you want VerifySky to protect. If you enter example.com, we will set up www.example.com first.</p>
                 </div>
 
                 <div class="space-y-3 rounded-lg border border-white/10 bg-[#171C26] p-4">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <label class="block text-sm font-bold text-[#FFFFFF]">How should VerifySky find your server?</label>
-                      <p class="mt-1 text-[11px] leading-snug text-[#D7E1F5]">Automatic mode tries to detect the real server from DNS. If that server is hidden behind another proxy, enter the server IP manually.</p>
+                      <p class="mt-1 text-[11px] leading-snug text-[#D7E1F5]">Automatic setup tries to find your server from DNS. If that does not work, enter the server IP.</p>
                     </div>
                     <button type="button" x-on:click="useAutomaticOrigin = !useAutomaticOrigin" class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60" x-bind:class="useAutomaticOrigin ? 'border-[#FCB900]/34 bg-[#FCB900]/12 text-[#FFFFFF]' : 'border-[#FCB900]/34 bg-[#FCB900]/12 text-[#FFFFFF]'" @disabled(! $can_add_domain)>
                       <span x-text="useAutomaticOrigin ? 'Detect Automatically' : 'Enter Server IP'"></span>
@@ -103,21 +103,21 @@
                   </div>
 
                   <div x-show="useAutomaticOrigin" x-transition.opacity class="rounded-lg border border-[#FCB900]/24 bg-[#FCB900]/12 px-4 py-3 text-sm text-[#FFFFFF]">
-                    VerifySky will inspect DNS and try to detect the real server automatically after you continue.
+                    VerifySky will check DNS and try to find your server after you continue.
                   </div>
 
                   <div x-show="!useAutomaticOrigin" x-transition.opacity class="space-y-2" style="display: none;" x-on:verifysky-focus-server-ip.window="step = 1; useAutomaticOrigin = false; showWizard = true; $nextTick(() => $refs.serverIpInput && $refs.serverIpInput.focus())">
                     <label class="mb-2 block text-sm font-bold text-[#FFFFFF]">Server IP</label>
                     <input x-ref="serverIpInput" class="es-input h-10 w-full text-sm font-mono" name="origin_server" x-model="manualOrigin" x-bind:disabled="useAutomaticOrigin" x-bind:required="!useAutomaticOrigin" placeholder="198.51.100.23" @disabled(! $can_add_domain)>
-                    <p class="text-[11px] text-[#D7E1F5]"><strong class="text-[#FCB900]">SSL note:</strong> this server must accept HTTPS on port 443 with a valid TLS certificate.</p>
+                    <p class="text-[11px] text-[#D7E1F5]"><strong class="text-[#FCB900]">SSL note:</strong> this server must support HTTPS on port 443.</p>
                     @if(session('domain_origin_detection_failed'))
-                      <p class="rounded-lg border border-[#FCB900]/22 bg-[#FCB900]/10 px-3 py-2 text-[11px] text-[#FFFFFF]">Server IP is required for this domain before verification can begin.</p>
+                      <p class="rounded-lg border border-[#FCB900]/22 bg-[#FCB900]/10 px-3 py-2 text-[11px] text-[#FFFFFF]">Enter the server IP before setup can continue.</p>
                     @endif
                   </div>
                 </div>
 
                 <div>
-                  <label class="mb-2 block text-sm font-bold text-[#FFFFFF]">Initial Security Policy</label>
+                  <label class="mb-2 block text-sm font-bold text-[#FFFFFF]">Protection level</label>
                   @if($isAdmin)
                     <select class="es-input text-sm" name="security_mode" @disabled(! $can_add_domain)>
                       <option value="balanced" selected>Balanced (Recommended)</option>
@@ -126,16 +126,16 @@
                     </select>
                   @else
                     <input type="hidden" name="security_mode" value="balanced">
-                    <div class="rounded-lg border border-[#FCB900]/24 bg-[#FCB900]/12 px-4 py-2.5 text-sm font-medium text-[#FFFFFF]">Balanced is applied automatically for the operator role.</div>
+                    <div class="rounded-lg border border-[#FCB900]/24 bg-[#FCB900]/12 px-4 py-2.5 text-sm font-medium text-[#FFFFFF]">Balanced is applied automatically.</div>
                   @endif
                 </div>
               </div>
 
               <div x-show="step === 2" x-cloak class="space-y-5">
                 <div>
-                  <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#FCB900]">DNS Setup</div>
+                  <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#FCB900]">DNS</div>
                   <h4 class="mt-2 text-lg font-bold text-[#FFFFFF]">Add this DNS record first</h4>
-                  <p class="mt-2 text-sm leading-relaxed text-[#D7E1F5]">Create the record below at your registrar or DNS provider. Once saved, VerifySky can start monitoring propagation and verification for the protected route.</p>
+                  <p class="mt-2 text-sm leading-relaxed text-[#D7E1F5]">Add this CNAME record in your DNS provider. Then come back and continue.</p>
                 </div>
 
                 <div class="grid gap-3 rounded-lg border border-white/10 bg-[#171C26] p-4 md:grid-cols-[0.8fr_0.95fr_1.65fr]">
@@ -168,32 +168,32 @@
                 </div>
 
                 <div class="rounded-lg border border-white/10 bg-[#171C26] p-4">
-                  <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected Route</div>
+                  <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected domain</div>
                   <div class="mt-2 font-mono text-sm text-[#FFFFFF]" x-text="protectedHostname() || '--'"></div>
-                  <p class="mt-3 text-[12px] leading-relaxed text-[#D7E1F5]">If you entered an apex domain, VerifySky starts with the `www` route first. This keeps onboarding straightforward, avoids ambiguous DNS behavior, and gives operators a clean verification path.</p>
+                  <p class="mt-3 text-[12px] leading-relaxed text-[#D7E1F5]">If you entered example.com, VerifySky starts with www.example.com first.</p>
                 </div>
               </div>
 
               <div x-show="step === 3" x-cloak class="space-y-5">
                 <div>
-                  <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#FCB900]">Verification</div>
-                  <h4 class="mt-2 text-lg font-bold text-[#FFFFFF]">Start monitoring and verification</h4>
-                  <p class="mt-2 text-sm leading-relaxed text-[#D7E1F5]">After you continue, VerifySky will create the protected route, watch DNS propagation, and begin certificate verification for the hostname below.</p>
+                  <div class="text-[10px] font-bold uppercase tracking-[0.18em] text-[#FCB900]">Finish</div>
+                  <h4 class="mt-2 text-lg font-bold text-[#FFFFFF]">Start setup</h4>
+                  <p class="mt-2 text-sm leading-relaxed text-[#D7E1F5]">After you continue, VerifySky will set up protection and check the domain below.</p>
                 </div>
 
                 <div class="grid gap-3 sm:grid-cols-2">
                   <div class="es-domain-subpanel px-4 py-3.5">
-                    <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Entered Domain</div>
+                    <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Entered domain</div>
                     <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="normalizeDomain(domainName) || '--'"></div>
                   </div>
                   <div class="es-domain-subpanel px-4 py-3.5">
-                    <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected Route</div>
+                    <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#959BA7]">Protected domain</div>
                     <div class="mt-2 font-mono text-sm font-semibold text-[#FFFFFF]" x-text="protectedHostname() || '--'"></div>
                   </div>
                 </div>
 
                 <div class="rounded-lg border border-[#FCB900]/18 bg-[#FCB900]/8 p-4 text-sm text-[#FFFFFF]">
-                  Continue only after the DNS record is saved. Verification may remain pending until propagation completes.
+                  Continue only after the DNS record is saved. DNS checks can take a few minutes.
                 </div>
               </div>
 
@@ -221,7 +221,7 @@
                   <button type="submit" x-show="step === 3" x-cloak class="es-btn es-modal-action-btn w-full px-8 sm:w-auto" x-bind:disabled="@js(! $can_add_domain) || validating" x-bind:class="{ 'cursor-wait opacity-75': validating }">
                     <span x-show="!validating" class="inline-flex items-center gap-2">
                       <img src="{{ asset('duotone/circle-check.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
-                      <span>Start Verification</span>
+                      <span>Start setup</span>
                     </span>
                     <span x-show="validating" class="inline-flex items-center gap-2">
                       <img src="{{ asset('duotone/arrows-rotate.svg') }}" alt="" class="es-duotone-icon h-4 w-4" style="filter: brightness(0);">
@@ -234,15 +234,15 @@
           </div>
 
           <aside class="border-t border-white/8 bg-[#1B202A] p-5 sm:p-6 lg:border-l lg:border-t-0">
-            <h4 class="inline-flex rounded-md border border-[#FCB900]/32 bg-[#FCB900]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#FFFFFF]">Onboarding Flow</h4>
+            <h4 class="inline-flex rounded-md border border-[#FCB900]/32 bg-[#FCB900]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#FFFFFF]">Setup steps</h4>
             <ul class="mt-5 space-y-4 text-sm text-[#D7E1F5]">
-              <li class="border-l border-[#FCB900]/36 pl-3">Define the customer hostname and choose how VerifySky should find the real server.</li>
-              <li class="border-l border-[#FCB900]/36 pl-3">Add the DNS record shown in the next step before starting verification.</li>
-              <li class="border-l border-[#FCB900]/36 pl-3">VerifySky then monitors DNS propagation, ownership checks, and certificate readiness.</li>
-              <li class="border-l border-white/20 pl-3">The setup card remains available on the page immediately after the route is created.</li>
+              <li class="border-l border-[#FCB900]/36 pl-3">Enter the domain and choose how VerifySky should find your server.</li>
+              <li class="border-l border-[#FCB900]/36 pl-3">Add the DNS record shown in the next step.</li>
+              <li class="border-l border-[#FCB900]/36 pl-3">VerifySky checks DNS and SSL for you.</li>
+              <li class="border-l border-white/20 pl-3">The DNS card stays visible after setup starts.</li>
             </ul>
             <div class="mt-6 rounded-lg border border-white/5 bg-[#202632]/50 p-4 text-xs text-[#D7E1F5] shadow-inner">
-              Keep the entered hostname exact. The DNS record name is generated from that value and should be copied as shown.
+              Keep the domain exact. Copy the DNS values as shown.
             </div>
           </aside>
         </div>

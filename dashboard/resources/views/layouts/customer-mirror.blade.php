@@ -11,10 +11,10 @@
 </head>
 @php
   $navItems = [
-      ['route' => 'admin.tenants.customer.overview', 'label' => 'Overview', 'desc' => 'Telemetry', 'icon' => 'grid-horizontal.svg'],
+      ['route' => 'admin.tenants.customer.overview', 'label' => 'Overview', 'desc' => 'Summary', 'icon' => 'grid-horizontal.svg'],
       ['route' => 'admin.tenants.customer.billing.index', 'label' => 'Billing', 'desc' => 'Subscription', 'icon' => 'circle-check.svg'],
-      ['route' => 'admin.tenants.customer.domains.index', 'label' => 'Domains', 'desc' => 'Onboarding', 'icon' => 'network-wired.svg'],
-      ['route' => 'admin.tenants.customer.firewall.index', 'label' => 'Global Firewall', 'desc' => 'Policy Layer', 'icon' => 'shield-keyhole.svg'],
+      ['route' => 'admin.tenants.customer.domains.index', 'label' => 'Domains', 'desc' => 'Setup', 'icon' => 'network-wired.svg'],
+      ['route' => 'admin.tenants.customer.firewall.index', 'label' => 'Firewall', 'desc' => 'Rules', 'icon' => 'shield-keyhole.svg'],
       ['route' => 'admin.tenants.customer.logs.index', 'label' => 'Security Logs', 'desc' => 'Incidents', 'icon' => 'clipboard.svg'],
   ];
 @endphp
@@ -76,7 +76,7 @@
         <div class="mx-auto w-full max-w-[1280px]">
           <div class="mb-6 rounded-2xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
             <span class="font-bold text-[#FFFFFF]">Viewing as customer: {{ $tenant->name }}</span>
-            <span class="ml-2">This mirror is admin-scoped and blocks all write operations.</span>
+            <span class="ml-2">This view is read-only.</span>
           </div>
 
           @yield('content')

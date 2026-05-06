@@ -37,14 +37,14 @@
           <div class="inline-flex items-center rounded-full border border-[#FCB900]/32 bg-[#FCB900]/14 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-[#FFFFFF]">
             DNS Setup
           </div>
-          <h3 class="mt-3 text-lg font-black tracking-tight text-[#FFFFFF]">Add this DNS record at your registrar</h3>
-          <p class="mt-1.5 text-sm leading-relaxed text-[#D7E1F5]">This setup card is shown immediately after route creation so operators can copy the exact DNS value and confirm propagation without list clutter.</p>
+          <h3 class="mt-3 text-lg font-black tracking-tight text-[#FFFFFF]">Add this DNS record</h3>
+          <p class="mt-1.5 text-sm leading-relaxed text-[#D7E1F5]">Copy these DNS values into your DNS provider. Keep this card open until setup finishes.</p>
         </div>
         <div class="rounded-lg border border-white/10 bg-[#202632] px-4 py-3 text-xs text-[#D7E1F5]">
           <div class="font-bold uppercase tracking-widest text-[#959BA7]">DNS Target</div>
           <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupTarget }}</div>
           @if($setupOrigin !== '')
-            <div class="mt-3 font-bold uppercase tracking-widest text-[#959BA7]">Origin</div>
+            <div class="mt-3 font-bold uppercase tracking-widest text-[#959BA7]">Server</div>
             <div class="mt-1 font-mono text-[#FFFFFF]">{{ $setupOrigin }}</div>
           @endif
         </div>
@@ -75,15 +75,15 @@
                 <div class="mt-1 font-mono text-sm text-white">{{ $recordName }}</div>
               </div>
               <div>
-                <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">Content</div>
+                <div class="text-[11px] font-bold uppercase tracking-widest text-[#959BA7]">Value</div>
                 <div class="mt-1 font-mono text-sm text-[#FFFFFF] break-all">{{ $setupTarget }}</div>
               </div>
               <div class="flex gap-2 md:justify-end">
                 <button type="button" x-on:click="copy('CNAME', 'setup-type-{{ $loop->index }}')" class="es-btn es-btn-secondary es-btn-compact">Copy Type</button>
-                <button type="button" x-on:click="copy(@js($setupTarget), 'setup-target-{{ $loop->index }}')" class="es-btn es-btn-compact">Copy Target</button>
+                <button type="button" x-on:click="copy(@js($setupTarget), 'setup-target-{{ $loop->index }}')" class="es-btn es-btn-compact">Copy Value</button>
               </div>
             </div>
-            <div class="mt-3 text-xs text-[#959BA7]">Hostname: <span class="font-mono text-[#D7E1F5]">{{ $domainName }}</span></div>
+            <div class="mt-3 text-xs text-[#959BA7]">Domain: <span class="font-mono text-[#D7E1F5]">{{ $domainName }}</span></div>
           </div>
         @endforeach
       </div>

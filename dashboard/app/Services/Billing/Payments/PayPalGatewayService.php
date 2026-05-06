@@ -223,7 +223,7 @@ class PayPalGatewayService implements PaymentGatewayInterface
         $previousPeriodStartAt = $this->dateValue($subscription?->getAttribute('current_period_starts_at'));
 
         if ($subscription === null && $parsedCustomId === null) {
-            throw new \RuntimeException('Unable to map the webhook to a VerifySky tenant.');
+            throw new \RuntimeException('Unable to map the webhook to a VerifySky user.');
         }
 
         $tenant = $subscription?->tenant;
@@ -231,7 +231,7 @@ class PayPalGatewayService implements PaymentGatewayInterface
             $tenant = Tenant::query()->find($parsedCustomId['tenant_id']);
         }
         if (! $tenant instanceof Tenant) {
-            throw new \RuntimeException('The webhook referenced a tenant that does not exist.');
+            throw new \RuntimeException('The webhook referenced a user that does not exist.');
         }
 
         if ($subscription instanceof TenantSubscription) {
@@ -239,7 +239,7 @@ class PayPalGatewayService implements PaymentGatewayInterface
         } elseif ($parsedCustomId !== null) {
             $planKey = $parsedCustomId['plan_key'];
         } else {
-            throw new \RuntimeException('Unable to map the webhook to a VerifySky tenant.');
+            throw new \RuntimeException('Unable to map the webhook to a VerifySky user.');
         }
 
         if ($this->planCatalog->plan($planKey) === null) {

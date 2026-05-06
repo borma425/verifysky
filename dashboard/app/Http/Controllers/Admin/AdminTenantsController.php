@@ -106,7 +106,7 @@ class AdminTenantsController extends Controller
             return $response;
         }
 
-        $message = (string) ($result['message'] ?? ('Domain setup started for '.implode(', ', $result['created']).'. VerifySky is now activating protection for this client.'));
+        $message = (string) ($result['message'] ?? ('Domain setup started for '.implode(', ', $result['created']).'. VerifySky is turning on protection for this user.'));
 
         $response = back()->with('status', $message);
         if (is_array($result['domain_setup'] ?? null)) {
@@ -119,7 +119,7 @@ class AdminTenantsController extends Controller
     public function forceCycleReset(Tenant $tenant): RedirectResponse
     {
         if ($this->tenantBillingStatus->forTenant($tenant) === null) {
-            return back()->with('error', 'Billing migrations are pending. Run the billing migrations before forcing a cycle reset.');
+            return back()->with('error', 'Billing setup is pending. Run billing migrations before resetting a billing cycle.');
         }
 
         $result = $this->forceResetTenantBillingCycle->execute($tenant);
@@ -127,7 +127,7 @@ class AdminTenantsController extends Controller
         return back()->with(
             'status',
             sprintf(
-                'Billing cycle reset for %s. New active cycle started at %s UTC.',
+                'Billing cycle reset for %s. New cycle started at %s UTC.',
                 $result['tenant']->name,
                 $result['reset_at']->format('Y-m-d H:i:s')
             )
@@ -137,7 +137,7 @@ class AdminTenantsController extends Controller
     public function grantPlan(Request $request, Tenant $tenant): RedirectResponse
     {
         if ($this->tenantBillingStatus->forTenant($tenant) === null) {
-            return back()->with('error', 'Billing migrations are pending. Run the billing migrations before granting a plan.');
+            return back()->with('error', 'Billing setup is pending. Run billing migrations before adding a bonus.');
         }
 
         $validated = $request->validate([
@@ -159,7 +159,7 @@ class AdminTenantsController extends Controller
         return back()->with(
             'status',
             sprintf(
-                'Manual %s grant activated for %s until %s UTC%s',
+                '%s bonus activated for %s until %s UTC%s',
                 strtoupper((string) $grant->granted_plan_key),
                 $tenant->name,
                 CarbonImmutable::parse((string) $grant->ends_at, 'UTC')->utc()->format('Y-m-d H:i:s'),
@@ -175,7 +175,7 @@ class AdminTenantsController extends Controller
         }
 
         if ($grant->status !== TenantPlanGrant::STATUS_ACTIVE) {
-            return back()->with('error', 'Only active plan grants can be revoked.');
+            return back()->with('error', 'Only active bonuses can be removed.');
         }
 
         $result = $this->revokeTenantPlanGrant->execute($grant, $this->adminUserFromSession());
@@ -183,7 +183,7 @@ class AdminTenantsController extends Controller
         return back()->with(
             'status',
             sprintf(
-                'Manual %s grant revoked for %s%s',
+                '%s bonus removed for %s%s',
                 strtoupper((string) $grant->granted_plan_key),
                 $tenant->name,
                 $result['reset_performed'] ? '. Billing cycle was reset.' : '.'

@@ -24,7 +24,7 @@ class RevokeTenantPlanGrantAction
     {
         $tenant = $grant->tenant;
         if (! $tenant instanceof Tenant) {
-            throw new \RuntimeException('Tenant plan grant is not attached to a tenant.');
+            throw new \RuntimeException('Plan bonus is not attached to a user.');
         }
         $timestamp = $revokedAt
             ? CarbonImmutable::instance($revokedAt)->utc()

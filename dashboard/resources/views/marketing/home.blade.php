@@ -341,7 +341,7 @@
                 </h1>
                 <p class="max-w-2xl mx-auto text-base sm:text-lg text-slate-400 mb-8 leading-relaxed">
                     Enterprise-grade ad protection and edge security powered by Cloudflare Workers.
-                    Score hostile traffic, trap proxy swarms, and keep fake clicks away from your protected origin in under 15ms.
+                    Score risky traffic, catch proxy swarms, and keep fake clicks away from your server in under 15ms.
                 </p>
                 <div class="flex flex-col sm:flex-row gap-4 justify-center">
                     <a href="{{ route('register') }}" class="px-8 py-4 bg-gold-500 hover:bg-gold-400 text-obsidian font-bold rounded-lg transition-all hover:shadow-xl hover:shadow-gold-500/20 text-lg">
@@ -396,12 +396,12 @@
                             <text x="0" y="73" text-anchor="middle" fill="#64748B" font-size="9">Pass/Block</text>
                         </g>
 
-                        <!-- Node D: Origin -->
+                        <!-- Node D: Server -->
                         <g transform="translate(900, 150)">
                             <circle r="40" fill="#151B2B" stroke="#06B6D4" stroke-width="2" />
                             <image href="{{ $duotone('server.svg') }}" x="-23" y="-23" width="46" height="46" class="telemetry-node-icon tone-protect" preserveAspectRatio="xMidYMid meet" />
                             <text x="0" y="-55" text-anchor="middle" fill="#22D3EE" font-size="12" font-family="JetBrains Mono">45ms</text>
-                            <text x="0" y="58" text-anchor="middle" fill="#E2E8F0" font-size="11" font-weight="600">ORIGIN</text>
+                            <text x="0" y="58" text-anchor="middle" fill="#E2E8F0" font-size="11" font-weight="600">SERVER</text>
                             <text x="0" y="73" text-anchor="middle" fill="#64748B" font-size="9">Protected</text>
                         </g>
 
@@ -442,7 +442,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center mb-16">
                 <h2 class="text-3xl md:text-4xl font-bold text-slate-100 mb-4">Worker Intelligence</h2>
-                <p class="text-slate-400 max-w-3xl mx-auto">Real edge behavior pulled from the VerifySky Worker: fake-click detection, proxy-swarm pressure, human telemetry, signed sessions, and automated WAF response before origin abuse starts.</p>
+                <p class="text-slate-400 max-w-3xl mx-auto">Real edge behavior pulled from the VerifySky Worker: fake-click detection, proxy pressure, human checks, signed sessions, and automatic rules before abuse reaches your server.</p>
             </div>
 
             <div id="features-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5">
@@ -504,7 +504,7 @@
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div class="glass-panel rounded-3xl p-12 border border-gold-500/20 gold-glow">
                 <h2 class="text-3xl md:text-5xl font-bold text-slate-100 mb-6">Ready to secure your ad spend?</h2>
-                <p class="text-slate-400 mb-8 text-lg">Put the Worker between your budget and every fake click, bot farm, proxy swarm, and origin abuse attempt.</p>
+                <p class="text-slate-400 mb-8 text-lg">Put VerifySky between your budget and every fake click, bot network, proxy swarm, and server abuse attempt.</p>
                 <a href="{{ route('register') }}" class="inline-flex items-center gap-2 px-8 py-4 bg-gold-500 hover:bg-gold-400 text-obsidian font-bold rounded-lg transition-all hover:shadow-xl hover:shadow-gold-500/20 text-lg">
                     Create Account
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -608,8 +608,8 @@
                 stat: "auto-expiring rules"
             },
             {
-                title: "IP Farm Escalation",
-                description: "Repeat hard blocks, challenge abuse, and malicious signatures can escalate into durable IP farm blocks.",
+                title: "Blocked IP List",
+                description: "Repeat hard blocks, challenge abuse, and malicious signatures can be added to the blocked IP list.",
                 icon: "{{ $duotone('ban-bug.svg') }}",
                 tone: "tone-threat",
                 accent: "coral",
@@ -631,25 +631,25 @@
             { label: "PASS", icon: "{{ $duotone('shield-check.svg') }}", tone: "tone-protect", className: "border-emerald-500/30 text-emerald-400" },
             { label: "CHALLENGE", icon: "{{ $duotone('radar.svg') }}", tone: "tone-detect", className: "border-cyan-500/30 text-cyan-400" },
             { label: "BLOCK", icon: "{{ $duotone('shield-xmark.svg') }}", tone: "tone-threat", className: "border-coral-500/30 text-coral-400" },
-            { label: "WAF_RULE_CREATED", display: "WAF RULE", icon: "{{ $duotone('siren-on.svg') }}", tone: "tone-ai", className: "border-gold-500/30 text-gold-400" },
-            { label: "IP_FARM_ESCALATED", display: "IP FARM", icon: "{{ $duotone('ban-bug.svg') }}", tone: "tone-threat", className: "border-coral-500/30 text-coral-400" }
+            { label: "AUTO_RULE", display: "AUTO RULE", icon: "{{ $duotone('siren-on.svg') }}", tone: "tone-ai", className: "border-gold-500/30 text-gold-400" },
+            { label: "BLOCKED_IP", display: "BLOCKED IP", icon: "{{ $duotone('ban-bug.svg') }}", tone: "tone-threat", className: "border-coral-500/30 text-coral-400" }
         ];
 
         const decisionSteps = [
             { label: "Request Metadata", desc: "Domain config, IP, ASN, TLS, headers, and ad-click markers are extracted at the edge", time: "0ms", color: "text-cyan-400", bar: "w-1/4" },
             { label: "Risk Correlation", desc: "Bot score, fingerprint history, subnet bursts, path pressure, and honeypot hits become a 0-100 verdict", time: "3ms", color: "text-gold-400", bar: "w-3/4" },
             { label: "Challenge Trap", desc: "Suspicious traffic receives signed slider CAPTCHA, Turnstile, nonce, and telemetry validation", time: "8ms", color: "text-cyan-400", bar: "w-1/2" },
-            { label: "WAF & Farm Escalation", desc: "Confirmed abuse is blocked, temp-banned, logged, and eligible for AI WAF or IP farm escalation", time: "12ms", color: "text-coral-400", bar: "w-5/6" },
-            { label: "Protected Origin", desc: "Clean users continue with signed session or trusted-IP fast path while origin stays shielded", time: "15ms", color: "text-emerald-400", bar: "w-2/3" }
+            { label: "Auto Rules", desc: "Confirmed abuse is blocked, logged, and eligible for automatic rules or the blocked IP list", time: "12ms", color: "text-coral-400", bar: "w-5/6" },
+            { label: "Protected Server", desc: "Clean users continue with a signed session or trusted-IP fast path while your server stays protected", time: "15ms", color: "text-emerald-400", bar: "w-2/3" }
         ];
 
         const telemetryLogs = [
-            { time: "14:23:01.042", type: "BLOCK", ip: "194.32.x.x", reason: "IP farm signature + hard_block memory", region: "US-EAST" },
+            { time: "14:23:01.042", type: "BLOCK", ip: "194.32.x.x", reason: "Blocked IP match + repeat abuse", region: "US-EAST" },
             { time: "14:23:01.045", type: "PASS", ip: "72.184.x.x", reason: "Signed human session accepted", region: "US-WEST" },
             { time: "14:23:01.048", type: "CHALLENGE", ip: "91.203.x.x", reason: "Subnet burst + missing browser headers", region: "EU-WEST" },
             { time: "14:23:01.052", type: "PASS", ip: "8.29.x.x", reason: "Google Ads click context verified", region: "US-CENTRAL" },
-            { time: "14:23:01.055", type: "WAF_RULE_CREATED", ip: "103.5.x.x", reason: "AI clustered ASN attack window", region: "APAC" },
-            { time: "14:23:01.061", type: "IP_FARM_ESCALATED", ip: "185.71.x.x", reason: "Repeated challenge abuse", region: "EU-CENTRAL" }
+            { time: "14:23:01.055", type: "AUTO_RULE", ip: "103.5.x.x", reason: "AI found a repeated attack pattern", region: "APAC" },
+            { time: "14:23:01.061", type: "BLOCKED_IP", ip: "185.71.x.x", reason: "Repeated challenge abuse", region: "EU-CENTRAL" }
         ];
 
         const pricingTiers = [
@@ -676,7 +676,7 @@
                 price: "$499",
                 period: "/month",
                 description: "Recommended defense posture",
-                features: ["2M Protected Sessions", "10M Bot Requests", "Unlimited Edge Rules", "10 Workspaces", "Dedicated Support", "Custom CAPTCHA", "AI WAF Automation", "IP Farm Escalation"],
+                features: ["2M Protected Sessions", "10M Bot Requests", "Unlimited Edge Rules", "10 Workspaces", "Dedicated Support", "Custom CAPTCHA", "AI WAF Automation", "Blocked IP List"],
                 cta: "Create Account",
                 highlighted: true
             },
@@ -775,7 +775,7 @@
             container.innerHTML = `<div class="telemetry-roll space-y-1.5">${logs.map((log, index) => `
                 <div class="log-line flex items-center gap-3 text-xs opacity-80 hover:opacity-100 transition-opacity min-w-0" style="animation-delay: ${index * 0.55}s">
                     <span class="text-slate-600 w-20">${log.time}</span>
-                    <span class="${log.type === 'BLOCK' || log.type === 'IP_FARM_ESCALATED' ? 'text-red-400' : log.type === 'PASS' ? 'text-emerald-400' : log.type === 'CHALLENGE' ? 'text-cyan-400' : 'text-gold-400'} w-28 font-semibold truncate">${log.type}</span>
+                    <span class="${log.type === 'BLOCK' || log.type === 'BLOCKED_IP' ? 'text-red-400' : log.type === 'PASS' ? 'text-emerald-400' : log.type === 'CHALLENGE' ? 'text-cyan-400' : 'text-gold-400'} w-28 font-semibold truncate">${log.type}</span>
                     <span class="text-slate-500 w-24">${log.ip}</span>
                     <span class="text-slate-400 flex-1 truncate">${log.reason}</span>
                     <span class="text-slate-600">${log.region}</span>

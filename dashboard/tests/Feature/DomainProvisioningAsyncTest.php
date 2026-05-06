@@ -51,7 +51,7 @@ class DomainProvisioningAsyncTest extends TestCase
 
         $this->assertTrue($result['ok']);
         $this->assertSame(['www.example.com'], $result['created']);
-        $this->assertStringContainsString('Provisioning started', $result['message']);
+        $this->assertStringContainsString('Setup started', $result['message']);
         $this->assertDatabaseHas('tenant_domains', [
             'tenant_id' => $tenant->id,
             'hostname' => 'www.example.com',
@@ -133,7 +133,7 @@ class DomainProvisioningAsyncTest extends TestCase
 
         $domain->refresh();
         $this->assertSame(TenantDomain::PROVISIONING_FAILED, $domain->provisioning_status);
-        $this->assertSame('Domain provisioning failed. Please retry or contact support.', $domain->provisioning_error);
+        $this->assertSame('Domain setup failed. Please try again or contact support.', $domain->provisioning_error);
         $this->assertNotNull($domain->provisioning_finished_at);
     }
 

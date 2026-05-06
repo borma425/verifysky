@@ -42,7 +42,7 @@ class CreateFirewallRuleAction
                 );
 
                 $removedCount = $removal['removed'] ?? 0;
-                $message = $removedCount > 0 ? " Also removed {$removedCount} IP(s) from the IP Farm graveyard." : '';
+                $message = $removedCount > 0 ? " Also removed {$removedCount} IP(s) from the blocked IP list." : '';
 
                 return ['ok' => $create['ok'], 'error' => $create['error'] ?? null, 'message' => $message];
             }
@@ -54,7 +54,7 @@ class CreateFirewallRuleAction
                 $ipList = implode(', ', array_slice($farmIps, 0, 5));
                 $extra = count($farmIps) > 5 ? ' (+'.(count($farmIps) - 5).' more)' : '';
 
-                return ['ok' => false, 'error' => "These IPs are already permanently banned in the IP Farm: {$ipList}{$extra}. No need to create a duplicate block rule."];
+                return ['ok' => false, 'error' => "These IPs are already in the blocked IP list: {$ipList}{$extra}. No need to create a duplicate block rule."];
             }
         }
 
@@ -62,7 +62,7 @@ class CreateFirewallRuleAction
         $finalDescription = $validated['description'] ?? '';
         if ($finalAction === 'block_ip_farm') {
             if ($validated['field'] !== 'ip.src') {
-                return ['ok' => false, 'error' => 'The "block to ip farm" action can only be used when Field is set to "IP Address / CIDR".'];
+                return ['ok' => false, 'error' => 'The block list action can only be used when Field is set to "IP Address / CIDR".'];
             }
             $finalAction = 'block';
             $expiresAt = null;

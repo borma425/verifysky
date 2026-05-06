@@ -26,16 +26,16 @@ class ProvisionTenantDomainAction
     {
         $tenantId = trim((string) $tenantId);
         if ($tenantId === '') {
-            return ['ok' => false, 'error' => 'Tenant context is required to provision a domain.'];
+            return ['ok' => false, 'error' => 'Please sign in again before adding a domain.'];
         }
 
         if (! Schema::hasTable('tenant_domains')) {
-            return ['ok' => false, 'error' => 'Domain storage is not ready. Run database migrations before onboarding domains.'];
+            return ['ok' => false, 'error' => 'Domain setup is not ready yet. Please try again later.'];
         }
 
         $tenant = Tenant::query()->find($tenantId);
         if (! $tenant instanceof Tenant) {
-            return ['ok' => false, 'error' => 'Tenant was not found.'];
+            return ['ok' => false, 'error' => 'We could not find this account.'];
         }
 
         $securityMode = $validated['security_mode'] ?? 'balanced';
@@ -60,17 +60,17 @@ class ProvisionTenantDomainAction
             $existing = TenantDomain::query()->where('hostname', $hostname)->first();
             if ($existing instanceof TenantDomain && (string) $existing->tenant_id !== $tenantId) {
                 return $created === []
-                    ? ['ok' => false, 'error' => 'This hostname is already assigned to another tenant.']
+                    ? ['ok' => false, 'error' => 'This domain is already used by another user.']
                     : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
-                        'One hostname was skipped because it is already assigned to another tenant.',
+                        'One domain was skipped because another user already uses it.',
                     ]));
             }
 
             if ($existing instanceof TenantDomain && $this->isActiveDuplicate($existing)) {
                 return $created === []
-                    ? ['ok' => false, 'error' => 'This hostname is already provisioned for this tenant.']
+                    ? ['ok' => false, 'error' => 'This domain is already added to your account.']
                     : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
-                        'One hostname was skipped because it is already provisioned for this tenant.',
+                        'One domain was skipped because it is already added to this account.',
                     ]));
             }
 
@@ -78,7 +78,7 @@ class ProvisionTenantDomainAction
                 return $created === []
                     ? ['ok' => false, 'error' => (string) ($this->planLimits->getDomainsUsage($tenant)['message'] ?? 'You have reached the maximum number of domains for your current plan.')]
                     : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
-                        'One hostname was skipped because this tenant has reached the domain limit.',
+                        'One domain was skipped because this account has reached the domain limit.',
                     ]));
             }
 
@@ -94,7 +94,7 @@ class ProvisionTenantDomainAction
                     'provisioning_finished_at' => now(),
                 ])->save();
 
-                $warnings[] = 'Domain '.$hostname.' was saved locally, but provisioning could not be queued yet.';
+                $warnings[] = 'Domain '.$hostname.' was saved, but setup could not start yet.';
             }
         }
 
@@ -151,10 +151,10 @@ class ProvisionTenantDomainAction
      */
     private function successMessage(array $domains, string $originMode): string
     {
-        $message = 'Provisioning started for '.implode(', ', $domains).'. Add the DNS record shown in the setup panel while VerifySky activates protection in the background.';
+        $message = 'Setup started for '.implode(', ', $domains).'. Add the DNS record shown on this page while VerifySky turns on protection.';
 
         if ($originMode === 'auto') {
-            $message .= ' Backend origin detection will run in the provisioning queue.';
+            $message .= ' VerifySky will try to find your server automatically.';
         }
 
         return $message;

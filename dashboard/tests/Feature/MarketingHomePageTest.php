@@ -31,13 +31,13 @@ class MarketingHomePageTest extends TestCase
         $response->assertSee('Slider CAPTCHA + Human Telemetry');
         $response->assertSee('Signed Human Sessions');
         $response->assertSee('AI WAF Rule Automation');
-        $response->assertSee('IP Farm Escalation');
+        $response->assertSee('Blocked IP List');
         $response->assertSee('Protected Session Metering');
         $response->assertSee('PASS');
         $response->assertSee('CHALLENGE');
         $response->assertSee('BLOCK');
-        $response->assertSee('WAF_RULE_CREATED');
-        $response->assertSee('IP_FARM_ESCALATED');
+        $response->assertSee('AUTO_RULE');
+        $response->assertSee('BLOCKED_IP');
         $response->assertSee(asset('duotone/user-ninja.svg'), false);
         $response->assertSee(asset('duotone/brain-circuit.svg'), false);
         $response->assertSee(asset('duotone/radar.svg'), false);
@@ -46,6 +46,7 @@ class MarketingHomePageTest extends TestCase
         $response->assertSee('progress-indicator');
         $response->assertSee('log-line');
         $response->assertSee('EDGE SHIELD');
+        $response->assertSee('SERVER');
         $response->assertSee('Create Account');
         $response->assertSee('Start Defending');
         $response->assertSee('Explore Platform');

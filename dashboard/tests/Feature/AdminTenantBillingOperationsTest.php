@@ -56,7 +56,7 @@ class AdminTenantBillingOperationsTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Users Billing Operations')
+            ->assertSee('Manage users, domains, billing, bonuses, and usage.')
             ->assertSee('Acme Tenant')
             ->assertSee('pass through')
             ->assertSee('12,000 / 10,000', false);
@@ -173,7 +173,7 @@ class AdminTenantBillingOperationsTest extends TestCase
 
         $response->assertRedirect();
         $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Domain setup started for second-example.com.')
-            && str_contains($message, 'activating protection'));
+            && str_contains($message, 'turning on protection'));
     }
 
     public function test_non_admin_cannot_open_tenant_billing_operations_page(): void
@@ -258,8 +258,8 @@ class AdminTenantBillingOperationsTest extends TestCase
         ])->get(route('admin.tenants.index'));
 
         $response->assertOk()
-            ->assertSee('Billing migrations pending')
-            ->assertSee('Run billing migrations first');
+            ->assertSee('Billing setup is pending')
+            ->assertSee('Run billing migrations before changing bonuses, subscriptions, or usage.');
     }
 
     public function test_admin_can_create_manual_plan_grant_and_reset_when_effective_plan_changes(): void
@@ -319,7 +319,7 @@ class AdminTenantBillingOperationsTest extends TestCase
         ]);
 
         $response->assertRedirect();
-        $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Manual PRO grant activated'));
+        $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'PRO bonus activated'));
 
         $grant = TenantPlanGrant::query()->sole();
         $tenant->refresh();

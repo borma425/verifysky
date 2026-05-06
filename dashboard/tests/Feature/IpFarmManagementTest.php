@@ -42,7 +42,7 @@ class IpFarmManagementTest extends TestCase
                     'domain_name' => 'global',
                     'tenant_id' => (string) $tenant->id,
                     'scope' => 'tenant',
-                    'description' => '[IP-FARM] Manual Farm (2 IPs)',
+                    'description' => '[IP-FARM] Manual list (2 IPs)',
                     'action' => 'block',
                     'expression_json' => json_encode(['field' => 'ip.src', 'operator' => 'in', 'value' => '203.0.113.10, 198.51.100.0/24']),
                     'paused' => 0,
@@ -65,13 +65,13 @@ class IpFarmManagementTest extends TestCase
         $response = $this->withTenantSession($tenant)->get(route('ip_farm.index'));
 
         $response->assertOk()
-            ->assertSee('Create IP Farm')
-            ->assertSee('Target Environment')
-            ->assertSee('Global (All)')
+            ->assertSee('Create block list')
+            ->assertSee('Apply to')
+            ->assertSee('All domains')
             ->assertDontSee('Specific domain')
             ->assertDontSee('Remove Targets From All Farms')
-            ->assertSee('Append To Farm')
-            ->assertSee('Delete Farm')
+            ->assertSee('Add to list')
+            ->assertSee('Delete list')
             ->assertSee('203.0.113.10')
             ->assertDontSee('Allow trusted ASN');
     }
@@ -95,7 +95,7 @@ class IpFarmManagementTest extends TestCase
         ]);
 
         $response->assertRedirect(route('ip_farm.index'));
-        $response->assertSessionHas('status', 'IP Farm saved with 2 target(s).');
+        $response->assertSessionHas('status', 'Blocked IP list saved with 2 IP(s).');
     }
 
     public function test_user_can_create_global_ip_farm_like_global_firewall_target_environment(): void
@@ -115,7 +115,7 @@ class IpFarmManagementTest extends TestCase
         ]);
 
         $response->assertRedirect(route('ip_farm.index'));
-        $response->assertSessionHas('status', 'IP Farm saved with 1 target(s).');
+        $response->assertSessionHas('status', 'Blocked IP list saved with 1 IP(s).');
     }
 
     public function test_user_cannot_create_ip_farm_after_plan_limit(): void
@@ -145,17 +145,17 @@ class IpFarmManagementTest extends TestCase
         $edge->shouldReceive('appendIpsToFarmRule')->once()->with(7, ['203.0.113.20'], (string) $tenant->id)->andReturn(['ok' => true, 'added' => 1]);
         $this->withTenantSession($tenant)->post(route('ip_farm.append', 7), ['ips' => '203.0.113.20'])
             ->assertRedirect()
-            ->assertSessionHas('status', 'Added 1 target(s) to IP Farm.');
+            ->assertSessionHas('status', 'Added 1 IP(s) to the blocked list.');
 
         $edge->shouldReceive('removeIpsFromFarmRule')->once()->with(7, ['203.0.113.20'], (string) $tenant->id)->andReturn(['ok' => true, 'removed' => 1]);
         $this->withTenantSession($tenant)->post(route('ip_farm.remove_ips', 7), ['ips' => '203.0.113.20'])
             ->assertRedirect()
-            ->assertSessionHas('status', 'Removed 1 target(s) from IP Farm.');
+            ->assertSessionHas('status', 'Removed 1 IP(s) from the blocked list.');
 
         $edge->shouldReceive('deleteIpFarmRule')->once()->with(7, (string) $tenant->id)->andReturn(['ok' => true]);
         $this->withTenantSession($tenant)->delete(route('ip_farm.destroy', 7))
             ->assertRedirect()
-            ->assertSessionHas('status', 'IP Farm rule deleted.');
+            ->assertSessionHas('status', 'Blocked IP rule deleted.');
     }
 
     private function bindEdgeShieldMock(): MockInterface

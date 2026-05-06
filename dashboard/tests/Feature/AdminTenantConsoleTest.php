@@ -51,7 +51,7 @@ class AdminTenantConsoleTest extends TestCase
         $response = $this->withAdminSession()->get(route('admin.tenants.domains.firewall.index', [$tenant, 'www.cashup.cash']));
 
         $response->assertOk()
-            ->assertSee('Global Firewall')
+            ->assertSee('Firewall')
             ->assertSee('Tenant-wide rule')
             ->assertSee('Domain rule')
             ->assertDontSee('Other domain rule')
@@ -100,7 +100,7 @@ class AdminTenantConsoleTest extends TestCase
         ]);
 
         $response->assertRedirect();
-        $response->assertSessionHas('status', 'Sensitive path saved.');
+        $response->assertSessionHas('status', 'Protected path saved.');
     }
 
     public function test_admin_can_create_tenant_ip_farm_without_plan_limit(): void
@@ -121,7 +121,7 @@ class AdminTenantConsoleTest extends TestCase
         ]);
 
         $response->assertRedirect();
-        $response->assertSessionHas('status', 'IP Farm saved with 2 target(s).');
+        $response->assertSessionHas('status', 'Blocked IP list saved with 2 IP(s).');
     }
 
     public function test_admin_can_bulk_delete_tenant_ip_farms(): void
@@ -138,7 +138,7 @@ class AdminTenantConsoleTest extends TestCase
         ]);
 
         $response->assertRedirect();
-        $response->assertSessionHas('status', 'Selected IP Farm rules deleted.');
+        $response->assertSessionHas('status', 'Selected blocked IP rules deleted.');
     }
 
     public function test_suspended_tenant_is_redirected_to_suspended_page(): void
@@ -171,12 +171,12 @@ class AdminTenantConsoleTest extends TestCase
 
         $this->withAdminSession()->post(route('admin.tenants.account.suspend', $tenant))
             ->assertRedirect()
-            ->assertSessionHas('status', 'Tenant account suspended.');
+            ->assertSessionHas('status', 'User account suspended.');
         $this->assertSame('suspended', $tenant->refresh()->status);
 
         $this->withAdminSession()->post(route('admin.tenants.account.resume', $tenant))
             ->assertRedirect()
-            ->assertSessionHas('status', 'Tenant account resumed.');
+            ->assertSessionHas('status', 'User account resumed.');
         $this->assertSame('active', $tenant->refresh()->status);
     }
 

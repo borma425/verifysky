@@ -1,10 +1,10 @@
 <div class="vs-fw-builder">
   <div class="vs-fw-builder-head">
     <div>
-      <p class="vs-fw-eyebrow">Rule Builder</p>
-      <h2>Create New Firewall Rule</h2>
+      <p class="vs-fw-eyebrow">New rule</p>
+      <h2>Create firewall rule</h2>
     </div>
-    <span class="vs-fw-chip vs-fw-chip-gold">Live preview</span>
+    <span class="vs-fw-chip vs-fw-chip-gold">Preview</span>
   </div>
 
   @if(!$canManageFirewallRules)
@@ -29,7 +29,7 @@
         <section class="vs-fw-form-section">
           <div class="vs-fw-section-head">
             <h3>Scope & action</h3>
-            <span>Choose where the rule applies and what it does.</span>
+            <span>Choose where the rule applies and what happens.</span>
           </div>
           <div class="vs-fw-form-grid">
             <div class="vs-fw-field">
@@ -46,16 +46,16 @@
             <div class="vs-fw-field">
               <label>Action</label>
               <select name="action" class="vs-fw-input js-firewall-preview-source" data-preview-target="action" required @disabled(!$canAddFirewallRule)>
-                <option value="managed_challenge">managed_challenge (Smart CAPTCHA)</option>
-                <option value="challenge">challenge (Interactive CAPTCHA)</option>
-                <option value="js_challenge">js_challenge (Invisible JS Challenge)</option>
-                <option value="block">block (Drop Connection)</option>
-                <option value="block_ip_farm">block to ip farm (Permanent Graveyard Ban)</option>
-                <option value="allow">allow (Fast-Pass, Bypass All)</option>
+                <option value="managed_challenge">Smart CAPTCHA</option>
+                <option value="challenge">Interactive CAPTCHA</option>
+                <option value="js_challenge">Invisible browser check</option>
+                <option value="block">Block</option>
+                <option value="block_ip_farm">Block and remember IP</option>
+                <option value="allow">Allow</option>
               </select>
             </div>
             <div class="vs-fw-field">
-              <label>Duration (TTL)</label>
+              <label>Duration</label>
               <select name="duration" class="vs-fw-input js-firewall-preview-source" data-preview-target="ttl" required @disabled(!$canAddFirewallRule)>
                 <option value="forever" selected>Forever (No Expiry)</option>
                 <option value="1h">1 Hour</option>
@@ -70,8 +70,8 @@
 
         <section class="vs-fw-form-section">
           <div class="vs-fw-section-head">
-            <h3>Match condition</h3>
-            <span>Define the traffic fingerprint.</span>
+            <h3>Match</h3>
+            <span>Choose the traffic this rule should match.</span>
           </div>
           <div class="vs-fw-form-grid vs-fw-form-grid-expression">
             <div class="vs-fw-field">
@@ -106,8 +106,8 @@
 
         <section class="vs-fw-form-section">
           <div class="vs-fw-section-head">
-            <h3>Notes & state</h3>
-            <span>Document intent before activation.</span>
+            <h3>Notes & status</h3>
+            <span>Add a note before turning the rule on.</span>
           </div>
           <div class="vs-fw-form-grid vs-fw-form-grid-notes">
             <div class="vs-fw-field">
@@ -128,7 +128,7 @@
       </form>
 
       <aside class="vs-fw-preview" aria-label="Rule Preview">
-        <p class="vs-fw-eyebrow">Visual feedback</p>
+        <p class="vs-fw-eyebrow">Preview</p>
         <h3>Rule Preview</h3>
         <div class="vs-fw-preview-stack">
           <div class="vs-fw-preview-item">
@@ -137,10 +137,10 @@
           </div>
           <div class="vs-fw-preview-item">
             <span>Action</span>
-            <strong data-firewall-preview="action">managed_challenge (Smart CAPTCHA)</strong>
+            <strong data-firewall-preview="action">Smart CAPTCHA</strong>
           </div>
           <div class="vs-fw-preview-item">
-            <span>TTL</span>
+            <span>Duration</span>
             <strong data-firewall-preview="ttl">Forever (No Expiry)</strong>
           </div>
           <div class="vs-fw-preview-item">
@@ -152,8 +152,8 @@
             <strong data-firewall-preview="state">Enabled on create</strong>
           </div>
           <div class="vs-fw-impact">
-            <strong>Risk / Impact feedback</strong>
-            <p>Challenges matching traffic before allowing access. Use block actions only for confirmed abusive sources.</p>
+            <strong>Impact</strong>
+            <p>Matching visitors may be challenged or blocked. Use block only for traffic you trust is bad.</p>
           </div>
         </div>
       </aside>

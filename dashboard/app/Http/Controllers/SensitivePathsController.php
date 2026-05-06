@@ -65,7 +65,7 @@ class SensitivePathsController extends Controller
             $tenantId = trim((string) session('current_tenant_id', ''));
             $isAdmin = (bool) session('is_admin');
             if (! $this->canManageDomain((string) $path['domain_name'], $tenantId, $isAdmin)) {
-                throw new HttpException(403, 'You do not have access to manage sensitive paths for this domain.');
+                throw new HttpException(403, 'You do not have access to manage protected paths for this domain.');
             }
             $create = $this->edgeShield->createSensitivePath(
                 $path['domain_name'],
@@ -91,7 +91,7 @@ class SensitivePathsController extends Controller
         if ($createdCount > 0) {
             return redirect()->route('sensitive_paths.index')->with(
                 'status',
-                "$createdCount Sensitive paths protected successfully."
+                "$createdCount protected path(s) saved."
             );
         }
 
@@ -109,7 +109,7 @@ class SensitivePathsController extends Controller
 
         return back()->with(
             $delete['ok'] ? 'status' : 'error',
-            $delete['ok'] ? 'Sensitive path unlocked.' : ($delete['error'] ?? 'Failed to unlock path.')
+            $delete['ok'] ? 'Protected path removed.' : ($delete['error'] ?? 'Failed to remove protected path.')
         );
     }
 
@@ -176,7 +176,7 @@ class SensitivePathsController extends Controller
             }
         }
 
-        throw new HttpException(404, 'Sensitive path not found.');
+        throw new HttpException(404, 'Protected path not found.');
     }
 
     private function purgeSensitivePathScope(string $domain): void

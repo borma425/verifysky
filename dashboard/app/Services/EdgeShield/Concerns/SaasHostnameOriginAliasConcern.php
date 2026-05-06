@@ -17,7 +17,7 @@ trait SaasHostnameOriginAliasConcern
 
         $host = $this->normalizeDomain($origin);
         if ($host === '') {
-            return ['ok' => false, 'error' => 'Origin server hostname is invalid.'];
+            return ['ok' => false, 'error' => 'Server domain is invalid.'];
         }
 
         $protectedHost = $this->normalizeDomain($domainName);
@@ -29,7 +29,7 @@ trait SaasHostnameOriginAliasConcern
         ])));
 
         if (in_array($host, $protectedVariants, true) || $host === $saasTarget) {
-            return ['ok' => false, 'error' => 'Origin server cannot point to the protected hostname or SaaS CNAME target. Use the real backend hostname or IP.'];
+            return ['ok' => false, 'error' => 'Server cannot point to the protected domain or VerifySky DNS target. Use the real server domain or IP.'];
         }
 
         return ['ok' => true, 'error' => null, 'target' => $host];

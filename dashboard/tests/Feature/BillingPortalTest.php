@@ -33,7 +33,7 @@ class BillingPortalTest extends TestCase
             ->get(route('billing.index'));
 
         $ownerResponse->assertOk()
-            ->assertSee('Subscription Control')
+            ->assertSee('Subscription')
             ->assertSee('Checkout');
 
         $memberResponse->assertOk()
@@ -58,7 +58,7 @@ class BillingPortalTest extends TestCase
             ->get(route('billing.index'));
 
         $response->assertOk()
-            ->assertSee('Bonus PRO Allowance Active')
+            ->assertSee('Bonus PRO is active')
             ->assertSee('Beta cohort')
             ->assertSee('Checkout');
     }

@@ -17,10 +17,10 @@
     <div class="vs-tuning-topline">
       <div>
         <div class="vs-tuning-eyebrow">Domain Protection</div>
-        <h1 class="vs-tuning-title">Protection Tuning for {{ $domain }}</h1>
-        <p class="vs-tuning-subtitle">Control security instantly<br>No deploy needed</p>
+        <h1 class="vs-tuning-title">Protection settings for {{ $domain }}</h1>
+        <p class="vs-tuning-subtitle">Change security settings instantly<br>No deploy needed</p>
       </div>
-      <div class="vs-tuning-runtime">Runtime-safe controls. Changes are applied through existing forms.</div>
+      <div class="vs-tuning-runtime">Safe controls. Changes are applied through existing forms.</div>
     </div>
 
     @include('domains.partials.tuning.notice')

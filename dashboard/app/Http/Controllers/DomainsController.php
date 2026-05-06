@@ -88,9 +88,9 @@ class DomainsController extends Controller
 
         $message = (string) ($result['message'] ?? '');
         if ($message === '') {
-            $message = 'Route creation started for '.implode(', ', $result['created'] ?? []).'. Add the DNS record shown in the setup panel to continue verification.';
+            $message = 'Setup started for '.implode(', ', $result['created'] ?? []).'. Add the DNS record shown on this page to continue.';
             if (($result['origin_mode'] ?? 'manual') === 'auto') {
-                $message .= ' Backend origin was detected automatically.';
+                $message .= ' VerifySky found your server automatically.';
             }
         }
 
@@ -120,7 +120,7 @@ class DomainsController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Domain status updated.' : ($result['error'] ?: 'Failed to update status')
+            $result['ok'] ? 'Domain status updated.' : ($result['error'] ?: 'We could not update the domain status.')
         );
     }
 
@@ -139,7 +139,7 @@ class DomainsController extends Controller
             return back()->with('error', $result['error']);
         }
 
-        return back()->with('status', 'Target Origin Server successfully updated. Traffic is now routing to '.$request->validated()['origin_server'].'.');
+        return back()->with('status', 'Server updated. Traffic now goes to '.$request->validated()['origin_server'].'.');
     }
 
     public function destroy(string $domain): RedirectResponse
@@ -191,7 +191,7 @@ class DomainsController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Forced CAPTCHA mode updated.' : ($result['error'] ?: 'Failed to update forced CAPTCHA mode')
+            $result['ok'] ? 'CAPTCHA setting updated.' : ($result['error'] ?: 'We could not update CAPTCHA.')
         );
     }
 
@@ -208,7 +208,7 @@ class DomainsController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Security mode updated.' : ($result['error'] ?: 'Failed to update security mode')
+            $result['ok'] ? 'Protection level updated.' : ($result['error'] ?: 'We could not update the protection level.')
         );
     }
 
@@ -225,7 +225,7 @@ class DomainsController extends Controller
         return back()->with(
             $sync['ok'] ? 'status' : 'error',
             $sync['ok']
-                ? 'Domain verification status refreshed.'
+                ? 'Domain status refreshed.'
                 : 'We could not refresh this domain yet. Please try again in a few minutes.'
         );
     }
@@ -241,7 +241,7 @@ class DomainsController extends Controller
             return back()->with('error', $sync['error']);
         }
 
-        return back()->with('status', 'Domain verification status refreshed for '.implode(', ', $sync['refreshed']).'.');
+        return back()->with('status', 'Domain status refreshed for '.implode(', ', $sync['refreshed']).'.');
     }
 
     public function tuning(string $domain): View|RedirectResponse
@@ -272,7 +272,7 @@ class DomainsController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Domain thresholds updated successfully (caches cleared).' : ($result['error'] ?: 'Failed to update thresholds.')
+            $result['ok'] ? 'Security settings updated.' : ($result['error'] ?: 'We could not update security settings.')
         );
     }
 

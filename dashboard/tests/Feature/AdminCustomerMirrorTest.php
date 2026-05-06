@@ -259,8 +259,8 @@ class AdminCustomerMirrorTest extends TestCase
         ])->get(route('admin.tenants.customer.firewall.index', $tenant));
 
         $response->assertOk()
-            ->assertSee('Global Firewall')
-            ->assertSee('Global Rule Set')
+            ->assertSee('Firewall')
+            ->assertSee('Rules for all domains')
             ->assertSee('Allow trusted automation')
             ->assertDontSee('[IP-FARM]');
     }

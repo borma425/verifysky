@@ -67,7 +67,7 @@ class DnsVerificationService
         return [
             'ok' => false,
             'reason' => $resolved === []
-                ? 'DNS does not currently resolve for this hostname.'
+                ? 'DNS does not currently resolve for this domain.'
                 : 'DNS is not pointing at the VerifySky CNAME target.',
             'resolved' => $resolved,
             'flattened_apex' => false,

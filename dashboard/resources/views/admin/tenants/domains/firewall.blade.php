@@ -5,7 +5,7 @@
     <div>
       <a href="{{ route('admin.tenants.domains.show', [$tenant, $domainRecord->hostname]) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to domain</a>
       <h1 class="es-title mt-2">Firewall: {{ $domainRecord->hostname }}</h1>
-      <p class="es-subtitle mt-2">Rules are scoped to user #{{ $tenant->id }} and purge runtime cache through existing actions.</p>
+      <p class="es-subtitle mt-2">Rules apply to user #{{ $tenant->id }} and clear cache after changes.</p>
     </div>
     <div class="text-sm text-sky-100/70">
       {{ number_format($usage['used'] ?? count($rules)) }} / {{ number_format($usage['limit'] ?? 0) }} rules
@@ -45,7 +45,7 @@
         <option value="0">Active</option>
         <option value="1">Paused</option>
       </select>
-      <button class="es-btn md:col-span-2 xl:col-span-2" type="submit">Create Firewall Rule</button>
+      <button class="es-btn md:col-span-2 xl:col-span-2" type="submit">Create firewall rule</button>
     </form>
   </div>
 
@@ -113,7 +113,7 @@
                 <input type="hidden" name="duration" value="forever">
                 <input type="hidden" name="paused" value="{{ (int) ($rule['paused'] ?? 0) }}">
                 <input type="hidden" name="preserve_expiry" value="1">
-                <button class="text-left text-xs font-semibold text-cyan-200 hover:text-cyan-100" type="submit">Save Rule</button>
+                <button class="text-left text-xs font-semibold text-cyan-200 hover:text-cyan-100" type="submit">Save rule</button>
               </form>
             </td>
             <td>

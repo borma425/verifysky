@@ -135,7 +135,7 @@ class DomainActionsTest extends TestCase
             ->assertJsonPath('ok', true)
             ->assertJsonPath('polling', true)
             ->assertJsonPath('groups.0.display_domain', 'example.com')
-            ->assertJsonPath('groups.0.live_status.label', 'PROVISIONING')
+            ->assertJsonPath('groups.0.live_status.label', 'SETTING UP')
             ->assertJsonPath('groups.0.live_status.locked', true)
             ->assertJsonPath('groups.0.health_score', 0);
     }
@@ -188,7 +188,7 @@ class DomainActionsTest extends TestCase
         ]);
 
         $response->assertRedirect()
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'));
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Setup started for www.cashup.cash'));
 
         $this->assertDatabaseHas('tenant_domains', [
             'tenant_id' => $tenant->id,
@@ -219,7 +219,7 @@ class DomainActionsTest extends TestCase
         ]);
 
         $response->assertRedirect()
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Backend origin detection will run in the provisioning queue.'));
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'VerifySky will try to find your server automatically.'));
     }
 
     public function test_store_domain_defers_worker_route_sync_to_queue(): void
@@ -243,7 +243,7 @@ class DomainActionsTest extends TestCase
             ]);
 
         $response->assertRedirect(route('domains.index'))
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'))
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Setup started for www.cashup.cash'))
             ->assertSessionMissing('warning')
             ->assertSessionHas('domain_setup', fn (array $setup): bool => ($setup['domains'] ?? []) === ['www.cashup.cash']);
     }
@@ -271,7 +271,7 @@ class DomainActionsTest extends TestCase
 
         $response->assertRedirect(route('domains.index'))
             ->assertSessionMissing('domain_origin_detection_failed')
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'));
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Setup started for www.cashup.cash'));
     }
 
     public function test_store_domain_defers_manual_origin_validation_to_queue(): void
@@ -300,7 +300,7 @@ class DomainActionsTest extends TestCase
             ]);
 
         $response->assertRedirect(route('domains.index'))
-            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Provisioning started for www.cashup.cash'));
+            ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Setup started for www.cashup.cash'));
     }
 
     public function test_disable_forced_captcha_button_endpoint_works(): void
@@ -349,7 +349,7 @@ class DomainActionsTest extends TestCase
             ]);
 
         $response->assertRedirect()
-            ->assertSessionHas('error', 'Tenant context is required to update this domain.');
+            ->assertSessionHas('error', 'Please sign in again before changing this domain.');
     }
 
     public function test_regular_user_can_update_domain_tuning(): void
@@ -428,7 +428,7 @@ class DomainActionsTest extends TestCase
         ])->get('/domains/cashup.cash/tuning');
 
         $response->assertOk()
-            ->assertSee('Protection Tuning for www.cashup.cash');
+            ->assertSee('Protection settings for www.cashup.cash');
     }
 
     public function test_www_redirect_apex_runtime_action_uses_protected_hostname(): void

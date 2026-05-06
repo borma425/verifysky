@@ -126,7 +126,7 @@ class DomainPlanLimitsTest extends TestCase
         ]);
 
         $response->assertRedirect(route('domains.index'));
-        $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Route creation started for example.com.'));
+        $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Setup started for example.com.'));
     }
 
     public function test_domains_index_shows_usage_and_disables_add_button_when_limit_is_reached(): void
@@ -174,7 +174,7 @@ class DomainPlanLimitsTest extends TestCase
             ->assertSee('Plan Limit Reached');
 
         $this->assertMatchesRegularExpression(
-            '/<button[^>]*disabled[^>]*>\s*<img[^>]*>\s*Add New Domain\s*<\/button>/s',
+            '/<button[^>]*disabled[^>]*>\s*<img[^>]*>\s*Add domain\s*<\/button>/s',
             $response->getContent()
         );
     }

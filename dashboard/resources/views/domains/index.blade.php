@@ -16,7 +16,7 @@
     <section class="es-page-header">
       <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div class="min-w-0">
-          <p class="mb-1 text-xs font-semibold uppercase tracking-[0.1em] text-[#D4C4AB]">Domains Command Center</p>
+          <p class="mb-1 text-xs font-semibold uppercase tracking-[0.1em] text-[#D4C4AB]">Domains</p>
           <div class="flex flex-wrap items-center gap-4">
             <h2 class="text-3xl font-bold tracking-wide text-[#DEE2F0]">Domain Management</h2>
             <div class="hidden items-center gap-2 md:flex">
@@ -39,7 +39,7 @@
             @disabled(! $can_add_domain)
           >
             <img src="{{ asset('duotone/panel-ews.svg') }}" alt="" class="h-4 w-4 opacity-75" style="filter: brightness(0);">
-            Add New Domain
+            Add domain
           </button>
         </div>
       </div>

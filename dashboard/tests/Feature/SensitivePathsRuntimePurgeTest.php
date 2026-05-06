@@ -116,8 +116,8 @@ class SensitivePathsRuntimePurgeTest extends TestCase
 
         $this->withTenantSession($tenant)->get(route('sensitive_paths.index'))
             ->assertOk()
-            ->assertSee('Sensitive Paths Protection')
-            ->assertSee('Protect New Sensitive Path')
+            ->assertSee('Protected Paths')
+            ->assertSee('Protect a new path')
             ->assertSee('name="paths[0][match_type]"', false)
             ->assertSee('name="paths[0][path_pattern]"', false)
             ->assertSee('name="paths[0][domain_name]"', false)

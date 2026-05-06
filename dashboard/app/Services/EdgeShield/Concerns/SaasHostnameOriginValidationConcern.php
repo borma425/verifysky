@@ -48,7 +48,7 @@ trait SaasHostnameOriginValidationConcern
 
             $server = strtolower(trim((string) $response->header('server')));
             if ($response->header('cf-ray') || $response->header('cf-cache-status') || str_contains($server, 'cloudflare')) {
-                return ['ok' => false, 'error' => 'The backend target still appears to sit behind an edge or DNS proxy. Enter the real hosting IP or backend hostname instead.'];
+                return ['ok' => false, 'error' => 'This server still appears to sit behind a proxy. Enter the real hosting IP or server domain instead.'];
             }
 
             $status = $response->status();
@@ -63,7 +63,7 @@ trait SaasHostnameOriginValidationConcern
             }
         }
 
-        return ['ok' => false, 'error' => 'We could not reach this backend for the selected domain. Enter a valid hosting IP or backend hostname before continuing.'];
+        return ['ok' => false, 'error' => 'We could not reach the server for this domain. Enter a valid hosting IP or server domain before continuing.'];
     }
 
     public function detectOriginServerForInput(string $domainName): array
@@ -96,8 +96,8 @@ trait SaasHostnameOriginValidationConcern
         return [
             'ok' => false,
             'error' => $likelyProxy
-                ? 'Automatic backend detection could not find the real origin because this domain appears to sit behind an edge or DNS proxy already. Open Manual Origin and enter the backend IP or hostname.'
-                : 'We could not automatically detect the backend origin for this domain. Open Manual Origin and enter the backend IP or hostname.',
+                ? 'Automatic setup could not find the real server because this domain appears to sit behind a proxy. Enter the server IP or server domain.'
+                : 'Automatic setup could not find the server for this domain. Enter the server IP or server domain.',
             'origin_server' => null,
             'attempts' => $attempts,
         ];

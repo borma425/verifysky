@@ -4,7 +4,7 @@
 
   <section class="vs-tuning-config-section">
     <h2 class="vs-tuning-divider-title">
-      <span>Threshold Configuration</span>
+      <span>Security settings</span>
       <span aria-hidden="true"></span>
     </h2>
     <div class="vs-tuning-grid vs-tuning-settings-grid">
@@ -18,6 +18,6 @@
   @include('domains.partials.tuning.advanced-thresholds')
 
   <div class="vs-tuning-actions">
-    <button class="vs-tuning-button vs-tuning-button-primary" type="submit">Save Threshold Settings</button>
+    <button class="vs-tuning-button vs-tuning-button-primary" type="submit">Save security settings</button>
   </div>
 </form>

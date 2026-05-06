@@ -7,15 +7,15 @@
 
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div>
-      <h1 class="es-title">Users Billing Operations</h1>
-      <p class="es-subtitle mt-2">Fast user index with preloaded domains, users, bonuses, subscriptions, and usage.</p>
+      <h1 class="es-title">Users</h1>
+      <p class="es-subtitle mt-2">Manage users, domains, billing, bonuses, and usage.</p>
     </div>
     <a href="{{ route('admin.overview') }}" class="es-btn es-btn-secondary">Overview</a>
   </div>
 
   @unless($billingAvailable)
     <div class="mb-4 rounded-lg border border-amber-400/35 bg-amber-500/15 px-4 py-3 text-sm text-amber-100">
-      <strong>Billing migrations pending.</strong> Run billing migrations first before bonus, subscription, and usage operations.
+      <strong>Billing setup is pending.</strong> Run billing migrations before changing bonuses, subscriptions, or usage.
     </div>
   @endunless
 

@@ -70,7 +70,7 @@ class LogsIndexViewData
         }
 
         if (count($this->payload['accessible_domains'] ?? []) === 0) {
-            return 'No protected domains are assigned to this tenant yet.';
+            return 'No protected domains are assigned to this account yet.';
         }
 
         return 'No security events matched your domains and filters yet.';
@@ -326,8 +326,8 @@ class LogsIndexViewData
     private function eventLabels(): array
     {
         return [
-            'farm_block' => 'IP Farm Blocks (Permanent)',
-            'temp_block' => 'Temporary Blocks (Tuning)',
+            'farm_block' => 'Blocked IPs (Permanent)',
+            'temp_block' => 'Temporary Blocks (Settings)',
             'challenge_issued' => 'Challenge Issued',
             'challenge_solved' => 'Challenge Solved',
             'challenge_failed' => 'Challenge Failed',

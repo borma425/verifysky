@@ -77,7 +77,7 @@ class LogsAnalyticsVisibilityTest extends TestCase
         ])->get('/logs');
 
         $response->assertOk()
-            ->assertSee('Security Analytics')
+            ->assertSee('Security Activity')
             ->assertSee('Attacks Blocked This Month')
             ->assertSee('Verified Users This Month')
             ->assertSee('Recent Security Events')

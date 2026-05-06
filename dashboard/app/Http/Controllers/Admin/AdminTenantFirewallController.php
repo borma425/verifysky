@@ -43,7 +43,7 @@ class AdminTenantFirewallController extends Controller
         $domainRecord = $this->domainForTenant($tenant, $domain);
         $usage = $this->planLimits->getFirewallRulesUsage((string) $tenant->getKey(), false);
         if (! ($usage['can_add'] ?? false)) {
-            return back()->with('error', (string) ($usage['message'] ?? 'Firewall rule limit reached for this tenant.'));
+            return back()->with('error', (string) ($usage['message'] ?? 'Firewall rule limit reached for this account.'));
         }
 
         $validated = array_merge($request->validate($this->firewallRuleRules(true)), [
@@ -51,7 +51,7 @@ class AdminTenantFirewallController extends Controller
         ]);
         $result = $this->createFirewallRule->execute($validated);
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule created and runtime cache purged.' : ($result['error'] ?? 'Failed to create firewall rule.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule created and cache cleared.' : ($result['error'] ?? 'We could not create the firewall rule.'));
     }
 
     public function update(Request $request, Tenant $tenant, string $domain, int $ruleId): RedirectResponse
@@ -60,7 +60,7 @@ class AdminTenantFirewallController extends Controller
         $validated = $request->validate($this->firewallRuleRules(false));
         $result = $this->updateFirewallRule->execute((string) $domainRecord->hostname, $ruleId, $validated);
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule updated and runtime cache purged.' : ($result['error'] ?? 'Failed to update firewall rule.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule updated and cache cleared.' : ($result['error'] ?? 'We could not update the firewall rule.'));
     }
 
     public function toggle(Request $request, Tenant $tenant, string $domain, int $ruleId): RedirectResponse
@@ -73,7 +73,7 @@ class AdminTenantFirewallController extends Controller
             ((int) $validated['paused']) === 1
         );
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule status updated and runtime cache purged.' : ($result['error'] ?? 'Failed to toggle firewall rule.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule status updated and cache cleared.' : ($result['error'] ?? 'We could not update the firewall rule.'));
     }
 
     public function destroy(Tenant $tenant, string $domain, int $ruleId): RedirectResponse
@@ -81,7 +81,7 @@ class AdminTenantFirewallController extends Controller
         $domainRecord = $this->domainForTenant($tenant, $domain);
         $result = $this->deleteFirewallRule->execute((string) $domainRecord->hostname, $ruleId);
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule deleted and runtime cache purged.' : ($result['error'] ?? 'Failed to delete firewall rule.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Firewall rule deleted and cache cleared.' : ($result['error'] ?? 'We could not delete the firewall rule.'));
     }
 
     private function domainForTenant(Tenant $tenant, string $domain): TenantDomain

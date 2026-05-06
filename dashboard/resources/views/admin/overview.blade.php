@@ -2,8 +2,8 @@
 
 @section('content')
   <div class="mb-6">
-    <h1 class="es-title">Admin Command Center</h1>
-    <p class="es-subtitle mt-2">Platform operations, user management, and security telemetry.</p>
+    <h1 class="es-title">Admin Dashboard</h1>
+    <p class="es-subtitle mt-2">Manage users, domains, billing, and security.</p>
   </div>
 
   <div class="grid gap-4 md:grid-cols-4">
@@ -27,16 +27,16 @@
 
   <div class="mt-6 grid gap-4 md:grid-cols-3">
     <a href="{{ route('admin.tenants.index') }}" class="es-card block p-5 hover:border-cyan-300/35">
-      <div class="text-lg font-bold text-white">Users Operations</div>
-      <p class="mt-2 text-sm text-sky-100/70">Open billing, bonuses, subscriptions, usage cycles, memberships, and domains.</p>
+      <div class="text-lg font-bold text-white">Users</div>
+      <p class="mt-2 text-sm text-sky-100/70">Open billing, bonuses, subscriptions, members, and domains.</p>
     </a>
     <a href="{{ route('admin.logs.security') }}" class="es-card block p-5 hover:border-cyan-300/35">
       <div class="text-lg font-bold text-white">Security Logs</div>
-      <p class="mt-2 text-sm text-sky-100/70">Inspect D1 events across all protected domains.</p>
+      <p class="mt-2 text-sm text-sky-100/70">See events across all protected domains.</p>
     </a>
     <a href="{{ route('admin.settings.index') }}" class="es-card block p-5 hover:border-cyan-300/35">
       <div class="text-lg font-bold text-white">Platform Settings</div>
-      <p class="mt-2 text-sm text-sky-100/70">Manage runtime values and edge synchronization settings.</p>
+      <p class="mt-2 text-sm text-sky-100/70">Manage system values and sync settings.</p>
     </a>
   </div>
 @endsection

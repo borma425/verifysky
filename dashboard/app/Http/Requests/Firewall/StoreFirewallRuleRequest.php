@@ -27,7 +27,7 @@ class StoreFirewallRuleRequest extends FormRequest
 
         if (! $allowed) {
             $this->authorizationMessage = strtolower(trim($domain)) === 'global'
-                ? 'Only platform admins can create global firewall rules.'
+                ? 'Only platform admins can create rules for all domains.'
                 : 'You do not have access to manage firewall rules for this domain.';
         }
 

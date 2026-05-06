@@ -3,7 +3,7 @@
 @section('content')
   <div class="mx-auto w-full max-w-[1600px] space-y-4">
     <div class="flex items-center justify-between">
-      <h2 class="text-2xl font-semibold leading-8 tracking-normal text-white">Sensitive Paths Protection</h2>
+      <h2 class="text-2xl font-semibold leading-8 tracking-normal text-white">Protected Paths</h2>
     </div>
 
     @if(!empty($loadErrors))

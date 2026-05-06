@@ -48,7 +48,7 @@ trait FirewallRuleReadFarmConcern
         ));
         $countResult = $this->d1->query(sprintf('SELECT COUNT(*) as total FROM custom_firewall_rules WHERE %s', $manualFilter));
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load global firewall rules.', 'rules' => [], 'total' => 0];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load firewall rules for all domains.', 'rules' => [], 'total' => 0];
         }
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
@@ -90,7 +90,7 @@ trait FirewallRuleReadFarmConcern
         );
         $result = $this->d1->query($sql);
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load tenant firewall rules.', 'rules' => []];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load firewall rules for this user.', 'rules' => []];
         }
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
@@ -103,7 +103,7 @@ trait FirewallRuleReadFarmConcern
         $tenantSql = $this->tenantFarmScopeSql($tenantId);
         $result = $this->d1->query("SELECT * FROM custom_firewall_rules WHERE description LIKE '[IP-FARM]%'{$tenantSql} ORDER BY id ASC");
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load IP Farm rules.', 'rules' => []];
+            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to load blocked IP rules.', 'rules' => []];
         }
 
         $rows = $this->d1->parseWranglerJson($result['output'])[0]['results'] ?? [];
@@ -228,7 +228,7 @@ trait FirewallRuleReadFarmConcern
 
         $targets = array_values(array_diff($normalized['valid'], $this->allIpFarmTargets($tenantId)));
         if ($targets === []) {
-            return ['ok' => false, 'error' => 'All provided IPs/CIDRs are already present in the IP Farm.'];
+            return ['ok' => false, 'error' => 'All provided IPs/CIDRs are already in the blocked IP list.'];
         }
 
         $created = 0;
@@ -245,7 +245,7 @@ trait FirewallRuleReadFarmConcern
                 $scope
             );
             if (! ($result['ok'] ?? false)) {
-                return ['ok' => false, 'error' => $result['error'] ?? 'Failed to create IP Farm rule.', 'created' => $created];
+                return ['ok' => false, 'error' => $result['error'] ?? 'Failed to create blocked IP rule.', 'created' => $created];
             }
             $created++;
         }
@@ -257,7 +257,7 @@ trait FirewallRuleReadFarmConcern
     {
         $rule = $this->getIpFarmRuleOrNull($ruleId, $tenantId);
         if (! $rule) {
-            return ['ok' => false, 'error' => 'IP Farm rule not found.'];
+            return ['ok' => false, 'error' => 'Blocked IP rule not found.'];
         }
 
         $normalized = $this->normalizeIpFarmTargets($ips);
@@ -268,7 +268,7 @@ trait FirewallRuleReadFarmConcern
         $existingInTenant = $this->allIpFarmTargets($tenantId);
         $newTargets = array_values(array_diff($normalized['valid'], $existingInTenant));
         if ($newTargets === []) {
-            return ['ok' => false, 'error' => 'All provided IPs/CIDRs are already present in the IP Farm.'];
+            return ['ok' => false, 'error' => 'All provided IPs/CIDRs are already in the blocked IP list.'];
         }
 
         $currentTargets = $this->targetsFromFarmRule($rule);
@@ -294,7 +294,7 @@ trait FirewallRuleReadFarmConcern
                 (string) ($rule['scope'] ?? 'domain')
             );
             if (! ($create['ok'] ?? false)) {
-                return ['ok' => false, 'error' => $create['error'] ?? 'Failed to create overflow IP Farm rule.', 'added' => count($newTargets), 'created' => $created];
+                return ['ok' => false, 'error' => $create['error'] ?? 'Failed to create extra blocked IP rule.', 'added' => count($newTargets), 'created' => $created];
             }
             $created++;
         }
@@ -313,7 +313,7 @@ trait FirewallRuleReadFarmConcern
     ): array {
         $rule = $this->getIpFarmRuleOrNull($ruleId, $tenantId);
         if (! $rule) {
-            return ['ok' => false, 'error' => 'IP Farm rule not found.'];
+            return ['ok' => false, 'error' => 'Blocked IP rule not found.'];
         }
 
         $normalized = $this->normalizeIpFarmTargets($ips);
@@ -321,7 +321,7 @@ trait FirewallRuleReadFarmConcern
             return ['ok' => false, 'error' => 'Invalid IP/CIDR target(s): '.implode(', ', array_slice($normalized['invalid'], 0, 8))];
         }
         if ($normalized['valid'] === []) {
-            return ['ok' => false, 'error' => 'IP Farm rule must contain at least one IP/CIDR target.'];
+            return ['ok' => false, 'error' => 'Blocked IP rule must contain at least one IP/CIDR target.'];
         }
 
         $primary = array_slice($normalized['valid'], 0, 500);
@@ -352,7 +352,7 @@ trait FirewallRuleReadFarmConcern
                 $scope
             );
             if (! ($create['ok'] ?? false)) {
-                return ['ok' => false, 'error' => $create['error'] ?? 'Failed to create overflow IP Farm rule.', 'created' => $created];
+                return ['ok' => false, 'error' => $create['error'] ?? 'Failed to create extra blocked IP rule.', 'created' => $created];
             }
             $created++;
         }
@@ -364,7 +364,7 @@ trait FirewallRuleReadFarmConcern
     {
         $rule = $this->getIpFarmRuleOrNull($ruleId, $tenantId);
         if (! $rule) {
-            return ['ok' => false, 'error' => 'IP Farm rule not found.'];
+            return ['ok' => false, 'error' => 'Blocked IP rule not found.'];
         }
 
         return $this->toggle((string) ($rule['domain_name'] ?? 'global'), $ruleId, $paused);
@@ -374,7 +374,7 @@ trait FirewallRuleReadFarmConcern
     {
         $rule = $this->getIpFarmRuleOrNull($ruleId, $tenantId);
         if (! $rule) {
-            return ['ok' => false, 'error' => 'IP Farm rule not found.', 'removed' => 0];
+            return ['ok' => false, 'error' => 'Blocked IP rule not found.', 'removed' => 0];
         }
 
         $normalized = $this->normalizeIpFarmTargets($ipsToRemove);
@@ -405,7 +405,7 @@ trait FirewallRuleReadFarmConcern
     {
         $rule = $this->getIpFarmRuleOrNull($ruleId, $tenantId);
         if (! $rule) {
-            return ['ok' => false, 'error' => 'IP Farm rule not found.'];
+            return ['ok' => false, 'error' => 'Blocked IP rule not found.'];
         }
 
         return $this->delete((string) ($rule['domain_name'] ?? 'global'), $ruleId);
@@ -425,7 +425,7 @@ trait FirewallRuleReadFarmConcern
             }
         }
         if ($safeIds === []) {
-            return ['ok' => false, 'error' => 'No matching IP Farm rules found.', 'deleted' => 0];
+            return ['ok' => false, 'error' => 'No matching blocked IP rules found.', 'deleted' => 0];
         }
 
         $delete = $this->deleteBulk($safeIds);
@@ -492,7 +492,7 @@ trait FirewallRuleReadFarmConcern
             $ruleId
         ));
         if (! ($result['ok'] ?? false)) {
-            return ['ok' => false, 'error' => $result['error'] ?? 'Failed to update IP Farm rule.'];
+            return ['ok' => false, 'error' => $result['error'] ?? 'Failed to update blocked IP rule.'];
         }
         $this->purgeCache($domainName);
 
@@ -508,7 +508,7 @@ trait FirewallRuleReadFarmConcern
     {
         $label = trim(preg_replace('/^\[IP-FARM\]\s*/', '', $description) ?? '');
         $label = trim(preg_replace('/\s*\(\d+\s+IPs\)\s*$/', '', $label) ?? '');
-        $label = $label !== '' ? $label : 'Manual Farm';
+        $label = $label !== '' ? $label : 'Manual list';
         if ($chunk !== null) {
             $label .= ' '.$chunk;
         }

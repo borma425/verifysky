@@ -69,7 +69,7 @@
             <img src="{{ asset('duotone/arrows-rotate.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
           </button>
         </form>
-        <a href="{{ $tuningUrl }}" class="es-icon-btn h-9 w-9 {{ $isProvisioningLocked ? 'pointer-events-none opacity-50' : '' }}" title="{{ $isProvisioningLocked ? 'Available after provisioning completes' : 'Tuning' }}" data-domain-action-guard>
+        <a href="{{ $tuningUrl }}" class="es-icon-btn h-9 w-9 {{ $isProvisioningLocked ? 'pointer-events-none opacity-50' : '' }}" title="{{ $isProvisioningLocked ? 'Available after setup finishes' : 'Settings' }}" data-domain-action-guard>
           <img src="{{ asset('duotone/sliders.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
         </a>
         <div class="hidden h-6 w-px bg-[#303540] md:block"></div>
@@ -92,7 +92,7 @@
       </div>
       <div class="es-status-tile">
         <img src="{{ asset('duotone/server.svg') }}" alt="dns status" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
-        <div class="text-xs font-medium text-[#D4C4AB]">DNS Record Status</div>
+        <div class="text-xs font-medium text-[#D4C4AB]">DNS Status</div>
         <div class="es-status-value font-mono leading-none {{ $hostnameState === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-dns-class>
           @if($hostnameState === 'active')
             <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/circle-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> <span data-domain-dns-label>Active</span></div>
@@ -114,7 +114,7 @@
       </div>
       <div class="es-status-tile">
         <img src="{{ asset('duotone/microchip.svg') }}" alt="runtime" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
-        <div class="text-xs font-medium text-[#D4C4AB]">Runtime System</div>
+        <div class="text-xs font-medium text-[#D4C4AB]">Protection</div>
         <div class="es-status-value font-mono leading-none {{ $isActive && $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-runtime-class>
           @if($isActive && $group['primary_verified'])
             <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/shield-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> <span data-domain-runtime-label>Enabled</span></div>
@@ -127,13 +127,13 @@
 
     <div class="grid gap-6 xl:grid-cols-2">
       <section class="es-domain-panel es-detail-panel p-5">
-        <h4 class="es-detail-heading">Connection Summary</h4>
+        <h4 class="es-detail-heading">Connection</h4>
 
         <div class="mt-4 space-y-4">
           <div class="es-summary-row flex items-center justify-between gap-4">
             <div class="flex items-center gap-2 text-sm text-[#D7E1F5]">
               <img src="{{ asset('duotone/shield-check.svg') }}" alt="verification" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
-              <span>Edge Verification</span>
+              <span>VerifySky Check</span>
             </div>
             <span class="rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm {{ $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-edge-class>
               @if($group['primary_verified'])
@@ -147,17 +147,17 @@
           <div class="es-summary-row flex items-center justify-between gap-4">
             <div class="flex items-center gap-2 text-sm text-[#D7E1F5]">
               <img src="{{ asset('duotone/share-nodes.svg') }}" alt="domain" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
-              <span>Customer Domain</span>
+              <span>Domain</span>
             </div>
             <span class="rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm text-[#D7E1F5]">{{ $group['display_domain'] }}</span>
           </div>
 
           <div class="space-y-2">
-            <div class="text-sm text-[#D7E1F5]">Target Edge Hostname</div>
+            <div class="text-sm text-[#D7E1F5]">Protected domain</div>
             <div class="es-hostname-box flex items-center justify-between rounded-md bg-[#0E131D] px-3.5 py-3">
               <span class="es-hostname-value break-all font-mono text-[#FCB900]">{{ $group['primary_domain'] }}</span>
-              <button type="button" x-on:click="copy(@js($group['primary_domain']), 'hostname-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
-                <img src="{{ asset('duotone/clipboard.svg') }}" alt="copy hostname" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
+              <button type="button" x-on:click="copy(@js($group['primary_domain']), 'domain-{{ $groupIndex }}')" class="text-[#D4C4AB] hover:text-[#FFFFFF]">
+                <img src="{{ asset('duotone/clipboard.svg') }}" alt="copy domain" class="es-duotone-icon es-icon-tone-muted h-4 w-4">
               </button>
             </div>
           </div>
@@ -165,7 +165,7 @@
 
         @if(!$group['primary_verified'])
           <div class="mt-5 rounded-lg border border-[#FCB900]/16 bg-[rgba(252,185,0,0.07)] p-4">
-            <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#FCB900]">DNS Action Required</div>
+            <div class="text-[10px] font-bold uppercase tracking-[0.16em] text-[#FCB900]">Check DNS</div>
             <div class="mt-3 space-y-2">
               @foreach($group['dns_rows'] as $row)
                 <div class="es-domain-subpanel p-3">
@@ -183,21 +183,21 @@
 
       <section class="es-domain-panel es-detail-panel p-5">
         <div class="es-control-header flex items-center justify-between gap-3">
-          <h4 class="es-detail-heading">Control Settings</h4>
-          <span class="text-xs font-bold text-[#FCB900]">Apply Changes</span>
+          <h4 class="es-detail-heading">Settings</h4>
+          <span class="text-xs font-bold text-[#FCB900]">Apply</span>
         </div>
 
         <form method="POST" action="{{ $securityModeUrl }}" class="mt-4 space-y-3.5">
           @csrf
           <div class="space-y-2">
-            <label class="block text-xs font-medium text-[#D7E1F5]">Security Mode</label>
+            <label class="block text-xs font-medium text-[#D7E1F5]">Protection level</label>
             <select name="security_mode" class="es-input es-domain-select h-10 w-full text-xs" data-domain-action-guard @disabled($isProvisioningLocked)>
               <option value="balanced" @selected($group['mode'] === 'balanced')>Balanced</option>
               <option value="monitor" @selected($group['mode'] === 'monitor')>Monitor</option>
               <option value="aggressive" @selected($group['mode'] === 'aggressive')>Aggressive</option>
             </select>
           </div>
-          <button class="es-btn w-full" type="submit" data-domain-action-guard @disabled($isProvisioningLocked)>Apply Mode</button>
+          <button class="es-btn w-full" type="submit" data-domain-action-guard @disabled($isProvisioningLocked)>Apply</button>
         </form>
 
         <div class="mt-5 space-y-4">
@@ -207,7 +207,7 @@
             <button class="es-inline-switch disabled:cursor-not-allowed disabled:opacity-50" type="submit" aria-label="Toggle forced captcha" data-domain-action-guard @disabled($isProvisioningLocked)>
               <span class="es-inline-switch-copy">
                 <span class="es-inline-switch-title">Force CAPTCHA</span>
-                <span class="es-inline-switch-note">Challenge all incoming traffic</span>
+                <span class="es-inline-switch-note">Ask every visitor to solve a check</span>
               </span>
               <span class="es-toggle-shell {{ $forceCaptchaEnabled ? 'es-toggle-shell-on' : '' }}"><span class="es-toggle-knob"></span></span>
             </button>
@@ -218,8 +218,8 @@
             <input type="hidden" name="status" value="{{ $isActive ? 'paused' : 'active' }}">
             <button class="es-inline-switch disabled:cursor-not-allowed disabled:opacity-50" type="submit" aria-label="Toggle runtime status" data-domain-action-guard @disabled($isProvisioningLocked)>
               <span class="es-inline-switch-copy">
-                <span class="es-inline-switch-title">Runtime Protection</span>
-                <span class="es-inline-switch-note">WAF and DDoS mitigation</span>
+                <span class="es-inline-switch-title">Protection</span>
+                <span class="es-inline-switch-note">Turn security on or off</span>
               </span>
               <span class="es-toggle-shell {{ $isActive ? 'es-toggle-shell-on' : '' }}"><span class="es-toggle-knob"></span></span>
             </button>

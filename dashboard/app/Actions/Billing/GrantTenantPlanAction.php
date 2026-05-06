@@ -66,7 +66,7 @@ class GrantTenantPlanAction
             ]);
 
             if (! $grant instanceof TenantPlanGrant) {
-                throw new \RuntimeException('Failed to create tenant plan grant.');
+                throw new \RuntimeException('Failed to create plan bonus.');
             }
 
             return $grant;

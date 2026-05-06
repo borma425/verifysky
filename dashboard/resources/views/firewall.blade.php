@@ -10,9 +10,9 @@
   <section class="vs-fw-page es-animate">
     <div class="vs-fw-command">
       <div>
-        <p class="vs-fw-eyebrow">Security Policy Console</p>
-        <h1 class="vs-fw-title">Global Firewall</h1>
-        <p class="vs-fw-subtitle">Manage and configure advanced network security policies.</p>
+        <p class="vs-fw-eyebrow">Firewall</p>
+        <h1 class="vs-fw-title">Firewall Rules</h1>
+        <p class="vs-fw-subtitle">Choose what traffic to allow, challenge, or block.</p>
       </div>
 
       @if(!empty($firewallUsage))
@@ -46,7 +46,7 @@
       <div class="vs-fw-stat">
         <span class="vs-fw-stat-icon">AI</span>
         <span>
-          <span class="vs-fw-stat-label">AI Interventions</span>
+          <span class="vs-fw-stat-label">Auto Rules</span>
           <strong>{{ number_format(count($aiRules ?? [])) }}</strong>
         </span>
       </div>
@@ -74,11 +74,11 @@
 
     <div class="vs-fw-inventory-head">
       <div>
-        <p class="vs-fw-eyebrow">Rule Inventory</p>
-        <h2>Review, pause, edit, or remove active policy entries.</h2>
+        <p class="vs-fw-eyebrow">Rules</p>
+        <h2>Review, pause, edit, or remove active rules.</h2>
       </div>
       <div class="vs-fw-tabs" aria-label="Rule type tabs">
-        <span class="vs-fw-tab vs-fw-tab-active">System AI Interventions</span>
+        <span class="vs-fw-tab vs-fw-tab-active">Auto Rules</span>
         <span class="vs-fw-tab">Manual Firewall Rules</span>
       </div>
     </div>

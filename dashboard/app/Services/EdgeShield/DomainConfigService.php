@@ -28,7 +28,7 @@ class DomainConfigService
     {
         $tenantScope = $this->tenantScopeSql($isAdmin, $tenantId);
         if ($tenantScope === null) {
-            return ['ok' => false, 'error' => 'Tenant context is required to load this domain.', 'config' => null];
+            return ['ok' => false, 'error' => 'Please sign in again before opening this domain.', 'config' => null];
         }
 
         $sql = sprintf(
@@ -59,7 +59,7 @@ class DomainConfigService
     {
         $tenantScope = $this->tenantScopeSql($isAdmin, $tenantId);
         if ($tenantScope === null) {
-            return ['ok' => false, 'error' => 'Tenant context is required to load domains.', 'domains' => []];
+            return ['ok' => false, 'error' => 'Please sign in again before opening your domains.', 'domains' => []];
         }
         $where = $tenantScope !== '' ? 'WHERE '.ltrim($tenantScope, ' AND') : '';
         $result = $this->d1->query(
@@ -102,7 +102,7 @@ class DomainConfigService
     {
         $tenantScope = $this->tenantScopeSql($isAdmin, $tenantId);
         if ($tenantScope === null) {
-            return ['ok' => false, 'error' => 'Tenant context is required to update this domain.'];
+            return ['ok' => false, 'error' => 'Please sign in again before changing this domain.'];
         }
         $sql = sprintf(
             "UPDATE domain_configs SET thresholds_json = '%s', updated_at = CURRENT_TIMESTAMP WHERE domain_name = '%s'%s",
@@ -112,7 +112,7 @@ class DomainConfigService
         );
         $result = $this->d1->query($sql);
         if (! $result['ok']) {
-            return ['ok' => false, 'error' => $result['error'] ?: 'Failed to update domain thresholds.'];
+            return ['ok' => false, 'error' => $result['error'] ?: 'We could not update security settings.'];
         }
 
         $this->purgeDomainConfigCache($domainName);

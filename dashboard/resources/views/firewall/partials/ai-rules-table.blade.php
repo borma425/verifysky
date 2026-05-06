@@ -3,7 +3,7 @@
     <div class="vs-fw-table-head">
       <div>
         <div class="vs-fw-table-title-row">
-          <h3>System AI Interventions</h3>
+          <h3>Auto Rules</h3>
           <span class="vs-fw-chip vs-fw-chip-ai">{{ count($aiRules) }} Smart Rules</span>
         </div>
         <p>Smart rules automatically generated and merged by the AI Defense Engine.</p>

@@ -106,10 +106,10 @@ class FirewallPlanLimitsTest extends TestCase
         ])->get('/firewall');
 
         $response->assertOk()
-            ->assertSee('Global Firewall')
+            ->assertSee('Firewall')
             ->assertSee('Starter')
             ->assertSee('1 / 5 custom rules')
-            ->assertSee('All Domains (Global)')
+            ->assertSee('All domains')
             ->assertSee('Allow trusted ASN')
             ->assertSee('Tenant scope rule')
             ->assertDontSee('[IP-FARM]');

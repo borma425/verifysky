@@ -4,12 +4,12 @@
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div>
       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
-      <h1 class="es-title mt-2">Sensitive Paths</h1>
-      <p class="es-subtitle mt-2">Protect sensitive routes for every client domain or one specific hostname.</p>
+      <h1 class="es-title mt-2">Protected Paths</h1>
+      <p class="es-subtitle mt-2">Protect important URLs for all domains or one domain.</p>
     </div>
     <div class="flex gap-2">
       <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Firewall</a>
-      <a href="{{ route('admin.tenants.ip_farm.index', $tenant) }}" class="es-btn es-btn-secondary">IP Farm</a>
+      <a href="{{ route('admin.tenants.ip_farm.index', $tenant) }}" class="es-btn es-btn-secondary">Blocked IPs</a>
     </div>
   </div>
 
@@ -23,12 +23,12 @@
 
   <div class="grid gap-5 xl:grid-cols-[420px_1fr]">
     <div class="es-card p-5">
-      <h2 class="mb-4 text-lg font-bold text-white">Add Protected Path</h2>
+      <h2 class="mb-4 text-lg font-bold text-white">Add protected path</h2>
       <form method="POST" action="{{ route('admin.tenants.sensitive_paths.store', $tenant) }}" class="space-y-3">
         @csrf
         <label class="block text-sm text-sky-100">Scope
           <select class="es-input mt-1" name="scope">
-            <option value="tenant">All client domains</option>
+            <option value="tenant">All domains</option>
             <option value="domain">Specific domain</option>
           </select>
         </label>
@@ -51,13 +51,13 @@
             <option value="challenge">challenge</option>
           </select>
         </div>
-        <button class="es-btn w-full" type="submit">Save Sensitive Path</button>
+        <button class="es-btn w-full" type="submit">Save protected path</button>
       </form>
     </div>
 
     <div class="es-card p-0">
       <div class="border-b border-white/10 p-5">
-        <h2 class="text-lg font-bold text-white">Protected Paths</h2>
+        <h2 class="text-lg font-bold text-white">Protected paths</h2>
       </div>
       <div class="overflow-x-auto">
         <table class="es-table min-w-[900px]">
@@ -77,7 +77,7 @@
             @php $scope = ($path['scope'] ?? '') === 'tenant' || ($path['domain_name'] ?? '') === 'global' ? 'tenant' : 'domain'; @endphp
             <tr>
               <td>#{{ $path['id'] ?? '' }}</td>
-              <td>{{ $scope === 'tenant' ? 'All client domains' : 'Specific domain' }}</td>
+              <td>{{ $scope === 'tenant' ? 'All domains' : 'Specific domain' }}</td>
               <td>{{ $scope === 'tenant' ? 'All domains' : ($path['domain_name'] ?? '') }}</td>
               <td class="font-mono text-sky-100">{{ $path['path_pattern'] ?? '' }}</td>
               <td>{{ $path['match_type'] ?? '' }}</td>
@@ -91,7 +91,7 @@
               </td>
             </tr>
           @empty
-            <tr><td colspan="7" class="py-8 text-center text-sky-100/70">No sensitive paths for this client.</td></tr>
+            <tr><td colspan="7" class="py-8 text-center text-sky-100/70">No protected paths for this user.</td></tr>
           @endforelse
           </tbody>
         </table>

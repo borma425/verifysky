@@ -19,22 +19,19 @@ class IpFarmController extends Controller
     ) {}
 
     /**
-     * Display the IP Farm — Permanent Ban Graveyard page.
-     * Shows all [IP-FARM] rules from Global Firewall with timeline view.
+     * Display the blocked IP list page.
      */
     public function index(): View
     {
         $loadErrors = [];
         $tenantId = $this->tenantId();
 
-        // Fetch IP Farm rules
         $farmResult = $this->service->listIpFarmRules($tenantId);
         if (! $farmResult['ok']) {
-            $loadErrors[] = $farmResult['error'] ?? 'Failed to load IP Farm rules.';
+            $loadErrors[] = $farmResult['error'] ?? 'We could not load blocked IP rules.';
         }
         $farmRules = $farmResult['rules'] ?? [];
 
-        // Parse each rule to extract IPs and metadata
         $parsedRules = [];
         $totalIps = 0;
         foreach ($farmRules as $rule) {
@@ -70,7 +67,7 @@ class IpFarmController extends Controller
         $stats = $this->service->getIpFarmStats($tenantId);
 
         return view('ip_farm', [
-            'title' => 'IP Farm — Permanent Ban Graveyard',
+            'title' => 'Blocked IPs',
             'loadErrors' => $loadErrors,
             'farmRules' => $parsedRules,
             'totalIps' => $totalIps,
@@ -87,7 +84,7 @@ class IpFarmController extends Controller
         $tenantId = $this->tenantId();
         $usage = $this->planLimits->getFirewallRulesUsage($tenantId, false);
         if (! ($usage['can_add'] ?? false)) {
-            return back()->with('error', (string) ($usage['message'] ?? 'IP Farm rule limit reached for this plan.'));
+            return back()->with('error', (string) ($usage['message'] ?? 'Blocked IP rule limit reached for this plan.'));
         }
 
         $validated = $this->validateFarmPayload($request);
@@ -105,8 +102,8 @@ class IpFarmController extends Controller
         return back()->with(
             $result['ok'] ? 'status' : 'error',
             $result['ok']
-                ? 'IP Farm saved with '.(int) ($result['added'] ?? 0).' target(s).'
-                : ($result['error'] ?? 'Failed to create IP Farm.')
+                ? 'Blocked IP list saved with '.(int) ($result['added'] ?? 0).' IP(s).'
+                : ($result['error'] ?? 'We could not create the blocked IP list.')
         );
     }
 
@@ -115,7 +112,7 @@ class IpFarmController extends Controller
         $tenantId = $this->tenantId();
         $usage = $this->planLimits->getFirewallRulesUsage($tenantId, false);
         if (! ($usage['can_add'] ?? false)) {
-            return back()->with('error', (string) ($usage['message'] ?? 'IP Farm rule limit reached for this plan.'));
+            return back()->with('error', (string) ($usage['message'] ?? 'Blocked IP rule limit reached for this plan.'));
         }
 
         $validated = $request->validate(['ips' => ['required', 'string', 'max:20000']]);
@@ -124,7 +121,7 @@ class IpFarmController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Added '.(int) ($result['added'] ?? 0).' target(s) to IP Farm.' : ($result['error'] ?? 'Failed to update IP Farm.')
+            $result['ok'] ? 'Added '.(int) ($result['added'] ?? 0).' IP(s) to the blocked list.' : ($result['error'] ?? 'We could not update the blocked list.')
         );
     }
 
@@ -143,7 +140,7 @@ class IpFarmController extends Controller
         );
         $this->purgeScope($scope, $domainName);
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'IP Farm rule updated.' : ($result['error'] ?? 'Failed to update IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Blocked IP rule updated.' : ($result['error'] ?? 'We could not update the blocked list.'));
     }
 
     public function toggle(Request $request, int $ruleId): RedirectResponse
@@ -152,7 +149,7 @@ class IpFarmController extends Controller
         $result = $this->service->toggleIpFarmRule($ruleId, ((int) $validated['paused']) === 1, $this->tenantId());
         $this->purgeAllTenantDomains();
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'IP Farm status updated.' : ($result['error'] ?? 'Failed to update IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Blocked IP rule status updated.' : ($result['error'] ?? 'We could not update the blocked list.'));
     }
 
     public function removeIps(Request $request, int $ruleId): RedirectResponse
@@ -163,7 +160,7 @@ class IpFarmController extends Controller
 
         return back()->with(
             $result['ok'] ? 'status' : 'error',
-            $result['ok'] ? 'Removed '.(int) ($result['removed'] ?? 0).' target(s) from IP Farm.' : ($result['error'] ?? 'Failed to update IP Farm.')
+            $result['ok'] ? 'Removed '.(int) ($result['removed'] ?? 0).' IP(s) from the blocked list.' : ($result['error'] ?? 'We could not update the blocked list.')
         );
     }
 
@@ -172,7 +169,7 @@ class IpFarmController extends Controller
         $result = $this->service->deleteIpFarmRule($ruleId, $this->tenantId());
         $this->purgeAllTenantDomains();
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'IP Farm rule deleted.' : ($result['error'] ?? 'Failed to delete IP Farm.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Blocked IP rule deleted.' : ($result['error'] ?? 'We could not delete the blocked IP rule.'));
     }
 
     public function bulkDestroy(Request $request): RedirectResponse
@@ -184,7 +181,7 @@ class IpFarmController extends Controller
         $result = $this->service->deleteBulkIpFarmRules($validated['rule_ids'], $this->tenantId());
         $this->purgeAllTenantDomains();
 
-        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Selected IP Farm rules deleted.' : ($result['error'] ?? 'Failed to delete IP Farm rules.'));
+        return back()->with($result['ok'] ? 'status' : 'error', $result['ok'] ? 'Selected blocked IP rules deleted.' : ($result['error'] ?? 'We could not delete blocked IP rules.'));
     }
 
     private function validateFarmPayload(Request $request): array
@@ -206,7 +203,7 @@ class IpFarmController extends Controller
             return ['tenant', 'global'];
         }
 
-        abort_if($domainName === '', 422, 'Domain is required for domain-scoped IP Farm rules.');
+        abort_if($domainName === '', 422, 'Domain is required for domain-specific blocked IP rules.');
 
         $domain = TenantDomain::query()
             ->where('tenant_id', $this->tenantId())

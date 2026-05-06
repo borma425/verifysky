@@ -31,7 +31,7 @@ class DomainIndexViewData
             'can_add_domain' => (bool) ($this->domainsUsage['can_add'] ?? true),
             'plan_key' => (string) ($this->domainsUsage['plan_key'] ?? config('plans.default', 'starter')),
             'domains_usage_message' => $this->domainsUsage['message'] ?? null,
-            'error' => $this->successful() ? null : ($this->result['error'] ?: 'Failed to load domains'),
+            'error' => $this->successful() ? null : ($this->result['error'] ?: 'We could not load domains.'),
         ];
     }
 
@@ -239,7 +239,7 @@ class DomainIndexViewData
         $base = [
             'state' => $overallStatus,
             'label' => strtoupper($overallStatus),
-            'description' => 'Domain setup is being checked.',
+            'description' => 'Checking domain setup.',
             'tone' => 'warning',
             'badge_class' => 'border-[#FCB900]/22 bg-[#FCB900]/10 text-[#FFDC9C]',
             'value_class' => 'text-[#D7E1F5]',
@@ -254,7 +254,7 @@ class DomainIndexViewData
                 'label' => 'ACTION REQUIRED',
                 'description' => $provisioningError !== ''
                     ? $provisioningError
-                    : 'Domain provisioning did not complete. Review the setup details or retry refresh.',
+                    : 'Domain setup did not finish. Check the setup details or refresh.',
                 'tone' => 'danger',
                 'badge_class' => 'border-[#D47B78]/32 bg-[#D47B78]/12 text-[#FFE6E3]',
                 'value_class' => 'text-[#F3B5AE]',
@@ -267,8 +267,8 @@ class DomainIndexViewData
 
         if ($lifecycleStatus === 'pending') {
             return array_merge($base, [
-                'label' => 'QUEUED',
-                'description' => 'Domain setup is queued and will start in the background.',
+                'label' => 'STARTING',
+                'description' => 'Domain setup will start soon.',
                 'tone' => 'progress',
                 'badge_class' => 'border-[#FCB900]/28 bg-[#FCB900]/12 text-[#FFDC9C]',
                 'value_class' => 'text-[#FFDC9C]',
@@ -280,8 +280,8 @@ class DomainIndexViewData
 
         if ($lifecycleStatus === 'provisioning') {
             return array_merge($base, [
-                'label' => 'PROVISIONING',
-                'description' => 'Configuring the protected route in the background.',
+                'label' => 'SETTING UP',
+                'description' => 'Setting up protection in the background.',
                 'tone' => 'progress',
                 'badge_class' => 'border-[#FCB900]/28 bg-[#FCB900]/12 text-[#FFDC9C]',
                 'value_class' => 'text-[#FFDC9C]',
@@ -293,8 +293,8 @@ class DomainIndexViewData
 
         if ($primaryVerified) {
             return array_merge($base, [
-                'label' => 'PROTECTED ROUTE ACTIVE',
-                'description' => 'DNS, SSL, and runtime protection are active.',
+                'label' => 'PROTECTED',
+                'description' => 'DNS, SSL, and protection are active.',
                 'tone' => 'success',
                 'badge_class' => 'border-[#10B981]/24 bg-[#10B981]/10 text-[#A7F3D0]',
                 'value_class' => 'text-[#10B981]',
@@ -307,14 +307,14 @@ class DomainIndexViewData
         if ($hostnameStatus === 'active' && $sslStatus !== 'active') {
             return array_merge($base, [
                 'label' => 'SSL PENDING',
-                'description' => 'DNS is connected. The SSL certificate is still validating.',
+                'description' => 'DNS is connected. SSL is still checking.',
                 'action_label' => 'Wait for SSL',
             ]);
         }
 
         return array_merge($base, [
-            'label' => 'DNS ACTION REQUIRED',
-            'description' => 'Add or correct the DNS record shown in the setup panel.',
+            'label' => 'CHECK DNS',
+            'description' => 'Add or fix the DNS record shown on this page.',
             'action_label' => 'Check DNS record',
         ]);
     }

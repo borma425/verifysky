@@ -57,8 +57,8 @@ class BlockIpFromLogsAction
 
         return [
             'ok' => true,
-            'message' => 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours and added to Manual Firewall Rules.'
-                .(! empty($farmIps) ? ' (already permanently banned in IP Farm)' : ''),
+            'message' => 'IP '.$ip.' was blocked on '.$domain.' for up to 24 hours and added to manual firewall rules.'
+                .(! empty($farmIps) ? ' (already in the blocked IP list)' : ''),
         ];
     }
 }

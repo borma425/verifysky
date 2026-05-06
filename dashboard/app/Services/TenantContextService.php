@@ -54,7 +54,7 @@ class TenantContextService
     {
         $name = trim((string) $user->name);
 
-        return $name !== '' ? $name.' Tenant' : 'User '.$user->id.' Tenant';
+        return $name !== '' ? $name.' Account' : 'User '.$user->id.' Account';
     }
 
     private function uniqueLoginPathForTenant(Tenant $tenant): string

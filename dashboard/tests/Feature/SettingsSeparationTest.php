@@ -47,7 +47,7 @@ class SettingsSeparationTest extends TestCase
             ->assertSee('Current Password')
             ->assertSee('New Password')
             ->assertSee('Confirm Password')
-            ->assertSee('Tenant Access')
+            ->assertSee('Account Access')
             ->assertSee('Account Name')
             ->assertSee('Login Slug')
             ->assertSee(url('/account').'/')
