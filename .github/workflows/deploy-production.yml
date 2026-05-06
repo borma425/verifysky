@@ -1,0 +1,49 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: verifysky-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.VERIFYSKY_PRODUCTION_HOST }}
+          DEPLOY_PORT: ${{ secrets.VERIFYSKY_PRODUCTION_PORT }}
+          DEPLOY_USER: ${{ secrets.VERIFYSKY_PRODUCTION_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.VERIFYSKY_PRODUCTION_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/verifysky_production
+          chmod 600 ~/.ssh/verifysky_production
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy release
+        env:
+          DEPLOY_HOST: ${{ secrets.VERIFYSKY_PRODUCTION_HOST }}
+          DEPLOY_PORT: ${{ secrets.VERIFYSKY_PRODUCTION_PORT }}
+          DEPLOY_USER: ${{ secrets.VERIFYSKY_PRODUCTION_USER }}
+        run: |
+          set -euo pipefail
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+          ssh -i ~/.ssh/verifysky_production -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -euo pipefail; cd /var/www/verifysky/repository; git fetch origin main; git checkout main; git pull --ff-only origin main; VERIFY_SKY_EXPECTED_SHA='${GITHUB_SHA}' bash scripts/deploy_production.sh"
