@@ -10,7 +10,10 @@ use Throwable;
 
 class DomainProvisioningService
 {
-    public function __construct(private readonly EdgeShieldService $edgeShield) {}
+    public function __construct(
+        private readonly EdgeShieldService $edgeShield,
+        private readonly DomainAssetPolicyService $domainAssets
+    ) {}
 
     public function markProvisioning(int $tenantDomainId): TenantDomain
     {
@@ -94,12 +97,17 @@ class DomainProvisioningService
             'verified_at' => $this->isVerified($hostnameStatus, $sslStatus) ? now() : null,
             'provisioning_finished_at' => $this->isVerified($hostnameStatus, $sslStatus) ? now() : null,
         ])->save();
+
+        if ($this->isVerified($hostnameStatus, $sslStatus)) {
+            $this->domainAssets->grantTrialIfEligible($domain->refresh());
+        }
     }
 
     public function syncDomainConfigToD1(int $tenantDomainId): void
     {
         $domain = $this->domain($tenantDomainId);
-        $payload = is_array($domain->provisioning_payload) ? $domain->provisioning_payload : [];
+        $payload = $domain->getAttribute('provisioning_payload');
+        $payload = is_array($payload) ? $payload : [];
         if ($payload === []) {
             throw new RuntimeException('Domain setup data is missing.');
         }
@@ -148,7 +156,8 @@ class DomainProvisioningService
     public function syncSaasSecurityArtifacts(int $tenantDomainId): void
     {
         $domain = $this->domain($tenantDomainId);
-        $payload = is_array($domain->provisioning_payload) ? $domain->provisioning_payload : [];
+        $payload = $domain->getAttribute('provisioning_payload');
+        $payload = is_array($payload) ? $payload : [];
         $zoneId = trim((string) ($payload['zone_id'] ?? $this->edgeShield->saasZoneId()));
 
         if ($zoneId === '') {
@@ -199,6 +208,8 @@ class DomainProvisioningService
             'verified_at' => $domain->verified_at ?? now(),
             'provisioning_finished_at' => $domain->provisioning_finished_at ?? now(),
         ])->save();
+
+        $this->domainAssets->grantTrialIfEligible($domain->refresh());
     }
 
     private function domain(int $tenantDomainId): TenantDomain

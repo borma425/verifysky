@@ -6,6 +6,7 @@ use App\Actions\Domains\ProvisionTenantDomainAction;
 use App\Http\Requests\Domains\AdminStoreTenantDomainRequest;
 use App\Jobs\PurgeRuntimeBundleCache;
 use App\Jobs\SendManualGrantActivatedMailJob;
+use App\Models\DomainAssetHistory;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Models\TenantMembership;
@@ -100,6 +101,54 @@ class AdminTenantBillingOperationsTest extends TestCase
             ->assertSee('Pro')
             ->assertSee('Beta cohort')
             ->assertSee('Revoke Bonus');
+    }
+
+    public function test_admin_tenant_page_displays_domain_asset_history_summary(): void
+    {
+        $tenant = Tenant::query()->create([
+            'name' => 'Asset History Tenant',
+            'slug' => 'asset-history-tenant',
+            'plan' => 'starter',
+            'status' => 'active',
+            'billing_start_at' => '2026-04-01 00:00:00',
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.example.com',
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'my-store.vercel.app',
+        ]);
+        DomainAssetHistory::query()->create([
+            'asset_key' => 'example.com',
+            'asset_type' => DomainAssetHistory::TYPE_REGISTRABLE_DOMAIN,
+            'registrable_domain' => 'example.com',
+            'hostname' => null,
+            'pro_trial_granted_at' => '2026-04-15 12:00:00',
+        ]);
+        DomainAssetHistory::query()->create([
+            'asset_key' => 'my-store.vercel.app',
+            'asset_type' => DomainAssetHistory::TYPE_SHARED_HOSTNAME,
+            'registrable_domain' => 'vercel.app',
+            'hostname' => 'my-store.vercel.app',
+            'quarantined_until' => '2026-05-07 12:00:00',
+        ]);
+        $this->app->instance(PlanLimitsService::class, new PlanLimitsService(Mockery::mock(D1DatabaseClient::class)));
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => true,
+        ])->get(route('admin.tenants.show', $tenant));
+
+        $response->assertOk()
+            ->assertSee('Domain Asset History')
+            ->assertSee('example.com')
+            ->assertSee('Registrable domain')
+            ->assertSee('Trial used: <span class="font-semibold text-white">Yes</span>', false)
+            ->assertSee('my-store.vercel.app')
+            ->assertSee('Shared hostname')
+            ->assertSee('2026-05-07 12:00 UTC');
     }
 
     public function test_admin_cannot_manually_add_domain_when_client_reached_plan_limit(): void

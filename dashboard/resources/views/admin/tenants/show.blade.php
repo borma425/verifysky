@@ -12,6 +12,7 @@
     $canAddDomain = (bool) ($domainsUsage['can_add'] ?? true);
     $domainUsageLabel = $domainLimit === null ? $domainUsed.' / Unlimited' : $domainUsed.' / '.$domainLimit;
     $domainLimitEquation = $billingTerms->domainEquation($domainsUsage);
+    $domainAssetSummaries = $domainAssetSummaries ?? [];
   @endphp
 
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -70,6 +71,46 @@
       @endif
     </div>
   </div>
+
+  @if($domainAssetSummaries !== [])
+    <div class="es-card mt-5 p-5">
+      <div class="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-white">Domain Asset History</h2>
+          <p class="mt-1 text-sm text-sky-100/65">Trial and quarantine source of truth for this user's domains.</p>
+        </div>
+        <div class="text-xs font-bold uppercase tracking-[0.16em] text-sky-100/50">Support view</div>
+      </div>
+      <div class="grid gap-3 xl:grid-cols-2">
+        @foreach($domainAssetSummaries as $asset)
+          @php
+            $isShared = ($asset['asset_type'] ?? '') === \App\Models\DomainAssetHistory::TYPE_SHARED_HOSTNAME;
+            $quarantinedUntil = $asset['quarantined_until'] ?? null;
+          @endphp
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div class="min-w-0">
+                <div class="truncate font-semibold text-white">{{ $asset['hostname'] }}</div>
+                <div class="mt-1 truncate font-mono text-xs text-sky-100/65">{{ $asset['asset_key'] }}</div>
+              </div>
+              <span class="shrink-0 rounded-full border {{ $isShared ? 'border-amber-300/30 bg-amber-400/10 text-amber-100' : 'border-cyan-300/25 bg-cyan-400/10 text-cyan-100' }} px-2 py-1 text-[11px] font-bold uppercase tracking-[0.12em]">
+                {{ $isShared ? 'Shared hostname' : 'Registrable domain' }}
+              </span>
+            </div>
+            <div class="mt-4 grid gap-2 text-sm text-sky-100/75 md:grid-cols-2">
+              <div>Trial used: <span class="font-semibold text-white">{{ $asset['trial_used'] ? 'Yes' : 'No' }}</span></div>
+              <div>
+                Quarantine:
+                <span class="font-semibold text-white">
+                  {{ $quarantinedUntil ? $quarantinedUntil->format('Y-m-d H:i').' UTC' : 'None' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        @endforeach
+      </div>
+    </div>
+  @endif
 
   <div class="mt-5 grid gap-4 xl:grid-cols-2">
     <div class="es-card p-5">

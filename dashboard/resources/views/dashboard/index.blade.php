@@ -72,9 +72,19 @@
     <div class="es-overview-shell">
       @if($billingStatus)
         @if($billingStatus['active_grant'])
-          <div class="mb-4 rounded-xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
-            Bonus {{ strtoupper($billingStatus['active_grant']['granted_plan_key']) }} allowance active until {{ $billingStatus['active_grant']['ends_at']?->format('Y-m-d') }}.
-          </div>
+          @if(($billingStatus['active_grant']['source'] ?? '') === 'trial')
+            <div class="mb-4">
+              @include('partials.trial-banner', [
+                'trialGrant' => $billingStatus['active_grant'],
+                'trialPlanName' => $billingStatus['plan_name'] ?? 'Pro',
+                'billingTerms' => $billingTerms,
+              ])
+            </div>
+          @else
+            <div class="mb-4 rounded-xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
+              Bonus {{ strtoupper($billingStatus['active_grant']['granted_plan_key']) }} allowance active until {{ $billingStatus['active_grant']['ends_at']?->format('Y-m-d') }}.
+            </div>
+          @endif
         @endif
       @endif
 

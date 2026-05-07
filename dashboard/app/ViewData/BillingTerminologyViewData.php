@@ -2,11 +2,15 @@
 
 namespace App\ViewData;
 
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+
 class BillingTerminologyViewData
 {
     public function sourceLabel(?string $source): string
     {
         return match ($source) {
+            'trial_grant' => 'Pro trial',
             'manual_grant' => 'Bonus allowance',
             'paid_subscription' => 'Paid plan',
             default => 'Plan limit',
@@ -16,10 +20,38 @@ class BillingTerminologyViewData
     public function sourceDescription(?string $source): string
     {
         return match ($source) {
+            'trial_grant' => 'Temporary Pro trial for a verified domain.',
             'manual_grant' => 'Temporary extra allowance added by VerifySky support.',
             'paid_subscription' => 'Limits come from the active paid subscription.',
             default => 'Limits come from the account plan.',
         };
+    }
+
+    public function grantLabel(mixed $grant): string
+    {
+        $source = is_array($grant) ? (string) ($grant['source'] ?? '') : (string) ($grant->source ?? '');
+
+        return $source === 'trial' ? 'Pro trial' : 'Bonus allowance';
+    }
+
+    public function grantStatusText(mixed $grant): string
+    {
+        $plan = strtoupper(is_array($grant) ? (string) ($grant['granted_plan_key'] ?? '') : (string) ($grant->granted_plan_key ?? ''));
+        $label = $this->grantLabel($grant);
+
+        return trim($label.' '.$plan);
+    }
+
+    public function daysRemaining(?CarbonInterface $endsAt): int
+    {
+        if (! $endsAt instanceof CarbonInterface) {
+            return 0;
+        }
+
+        return (int) max(0, CarbonImmutable::now('UTC')->startOfDay()->diffInDays(
+            CarbonImmutable::instance($endsAt)->utc()->startOfDay(),
+            false
+        ));
     }
 
     /**
@@ -33,7 +65,7 @@ class BillingTerminologyViewData
         $source = (string) ($billingStatus['effective_plan_source'] ?? 'baseline');
         $base = $total;
 
-        if ($source === 'manual_grant') {
+        if (in_array($source, ['manual_grant', 'trial_grant'], true)) {
             $base = $this->planLimit((string) ($billingStatus['baseline_plan_key'] ?? ''), $limitKey);
         }
 

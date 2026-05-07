@@ -43,7 +43,7 @@ class EffectiveTenantPlanService
 
         if ($activeGrant instanceof TenantPlanGrant) {
             $effective = $this->planDefinitionForKey($activeGrant->granted_plan_key);
-            $source = 'manual_grant';
+            $source = (string) $activeGrant->source === 'trial' ? 'trial_grant' : 'manual_grant';
         }
 
         return array_merge($effective, [

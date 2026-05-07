@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\PurgeRuntimeBundleCache;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use App\ViewData\FirewallIndexViewData;
@@ -26,7 +27,8 @@ class AdminTenantConsoleController extends Controller
         private readonly UpdateFirewallRuleAction $updateFirewallRule,
         private readonly ToggleFirewallRuleAction $toggleFirewallRule,
         private readonly DeleteFirewallRuleAction $deleteFirewallRule,
-        private readonly PlanLimitsService $planLimits
+        private readonly PlanLimitsService $planLimits,
+        private readonly DomainAssetPolicyService $domainAssets
     ) {}
 
     public function firewall(Request $request, Tenant $tenant, ?string $domain = null): View
@@ -325,6 +327,11 @@ class AdminTenantConsoleController extends Controller
 
         $tenantId = (string) $tenant->getKey();
         DB::transaction(function () use ($tenant, $tenantId): void {
+            $this->domainAssets->quarantineRemovedHostnames(
+                $tenant->domains()->pluck('hostname')->all(),
+                $tenantId,
+                'tenant_deleted'
+            );
             $this->edgeShield->queryD1("DELETE FROM custom_firewall_rules WHERE tenant_id = '".str_replace("'", "''", $tenantId)."'");
             $this->edgeShield->queryD1("DELETE FROM sensitive_paths WHERE tenant_id = '".str_replace("'", "''", $tenantId)."'");
             $this->edgeShield->queryD1("DELETE FROM domain_configs WHERE tenant_id = '".str_replace("'", "''", $tenantId)."'");

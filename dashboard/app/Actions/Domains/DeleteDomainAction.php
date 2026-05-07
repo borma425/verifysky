@@ -3,12 +3,16 @@
 namespace App\Actions\Domains;
 
 use App\Models\TenantDomain;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\EdgeShieldService;
 use Illuminate\Support\Facades\Schema;
 
 class DeleteDomainAction
 {
-    public function __construct(private readonly EdgeShieldService $edgeShield) {}
+    public function __construct(
+        private readonly EdgeShieldService $edgeShield,
+        private readonly DomainAssetPolicyService $domainAssets
+    ) {}
 
     public function execute(string $domain, bool $isAdmin, ?string $tenantId): array
     {
@@ -48,6 +52,12 @@ class DeleteDomainAction
         if (! $result['ok']) {
             return ['ok' => false, 'error' => $result['error'] ?: 'Failed to remove domain'];
         }
+
+        $this->domainAssets->quarantineRemovedHostnames(
+            [(string) ($row['domain_name'] ?? $domain)],
+            $tenantId,
+            'domain_deleted'
+        );
 
         if ($tenantId && Schema::hasTable('tenant_domains')) {
             TenantDomain::query()

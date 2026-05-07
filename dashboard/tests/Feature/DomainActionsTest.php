@@ -2,15 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\Tenant;
+use App\Models\TenantDomain;
 use App\Repositories\DomainConfigRepository;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
-use App\Models\Tenant;
-use App\Models\TenantDomain;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Mockery;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -246,6 +246,50 @@ class DomainActionsTest extends TestCase
             ->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Setup started for www.cashup.cash'))
             ->assertSessionMissing('warning')
             ->assertSessionHas('domain_setup', fn (array $setup): bool => ($setup['domains'] ?? []) === ['www.cashup.cash']);
+    }
+
+    public function test_domains_index_shows_quarantine_alert_with_billing_link(): void
+    {
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->once()->with(Mockery::type(Tenant::class))->andReturn([
+            'used' => 0,
+            'limit' => 1,
+            'remaining' => 1,
+            'can_add' => true,
+            'plan_key' => 'starter',
+            'message' => null,
+        ]);
+        $this->planLimits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
+            'plan_key' => 'starter',
+            'plan_name' => 'Starter',
+            'protected_sessions' => 10000,
+            'bot_fair_use' => 50000,
+        ]);
+
+        $repository = Mockery::mock(DomainConfigRepository::class);
+        $repository->shouldReceive('listForTenant')->once()->with((string) $tenant->id, false)->andReturn([
+            'ok' => true,
+            'error' => null,
+            'domains' => [],
+        ]);
+        $this->app->instance(DomainConfigRepository::class, $repository);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+            'error' => 'Generic provisioning failure.',
+            'domain_quarantine' => [
+                'asset_key' => 'example.com',
+                'quarantined_until' => '2026-05-07 12:00:00',
+            ],
+        ])->get(route('domains.index'));
+
+        $response->assertOk()
+            ->assertSee('Domain temporarily locked')
+            ->assertSee('example.com')
+            ->assertSee('2026-05-07 12:00:00 UTC')
+            ->assertSee('Open Billing');
     }
 
     public function test_store_domain_no_longer_fails_synchronously_when_auto_detection_will_fail_later(): void

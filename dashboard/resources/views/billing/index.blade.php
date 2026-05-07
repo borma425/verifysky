@@ -7,6 +7,8 @@
     $periodEndsAt = $subscription?->current_period_ends_at?->utc();
     $planCards = $paidPlans ?? [];
     $grantEndsAt = $activeGrant?->ends_at?->utc();
+    $grantIsTrial = (string) ($activeGrant?->source ?? '') === 'trial';
+    $grantLabel = $activeGrant ? $billingTerms->grantStatusText($activeGrant) : null;
     $currentPlanName = $currentPlan['name'] ?? ucfirst((string) $tenant->plan);
     $effectivePlanSource = $billingTerms->sourceLabel($billingStatus['effective_plan_source'] ?? 'baseline');
   @endphp
@@ -36,8 +38,8 @@
         @endif
         @if($grantEndsAt)
           <div>
-            <span class="vs-billing-label">Bonus</span>
-            <span class="vs-billing-value-muted font-mono">Extra allowance until {{ $grantEndsAt->format('Y-m-d H:i') }} UTC</span>
+            <span class="vs-billing-label">{{ $grantIsTrial ? 'Trial' : 'Bonus' }}</span>
+            <span class="vs-billing-value-muted font-mono">{{ $grantIsTrial ? 'Pro trial until' : 'Extra allowance until' }} {{ $grantEndsAt->format('Y-m-d H:i') }} UTC</span>
           </div>
         @endif
       </div>
@@ -49,11 +51,17 @@
         <div class="vs-billing-alert-text">Billing is not ready yet. Run the latest billing migrations before enabling payments.</div>
       </div>
     @else
-      @if($activeGrant)
+      @if($activeGrant && $grantIsTrial)
+        @include('partials.trial-banner', [
+          'trialGrant' => $activeGrant,
+          'trialPlanName' => $currentPlanName,
+          'billingTerms' => $billingTerms,
+        ])
+      @elseif($activeGrant)
         <div class="vs-billing-alert vs-billing-alert-info">
           <img src="{{ asset('duotone/circle-info.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-5 w-5">
           <div class="vs-billing-alert-text">
-            Bonus {{ strtoupper((string) $activeGrant->granted_plan_key) }} is active until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
+            {{ $grantLabel }} is active until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.
             @if($activeGrant->reason)
               Reason: {{ $activeGrant->reason }}
             @endif
@@ -68,7 +76,7 @@
               <h2 class="vs-billing-h2">Current Subscription</h2>
               <p class="vs-billing-subcopy">This shows your latest PayPal subscription status.</p>
             </div>
-            <span class="vs-billing-status">{{ $grantEndsAt ? 'Bonus Active' : $subscriptionStatus }}</span>
+            <span class="vs-billing-status">{{ $grantEndsAt ? ($grantIsTrial ? 'Trial Active' : 'Bonus Active') : $subscriptionStatus }}</span>
           </div>
 
           <div class="vs-billing-metrics">
@@ -85,7 +93,7 @@
             <div class="vs-billing-metric {{ $subscription?->cancel_at_period_end ? 'vs-billing-metric-warning' : '' }}">
               <span class="vs-billing-label">Status</span>
               <span class="vs-billing-metric-value {{ $subscription?->cancel_at_period_end ? 'vs-billing-text-danger' : '' }}">
-                {{ $subscription?->cancel_at_period_end ? 'Cancellation queued' : ($grantEndsAt ? 'Bonus Active' : $subscriptionStatus) }}
+                {{ $subscription?->cancel_at_period_end ? 'Cancellation queued' : ($grantEndsAt ? ($grantIsTrial ? 'Trial Active' : 'Bonus Active') : $subscriptionStatus) }}
               </span>
             </div>
           </div>

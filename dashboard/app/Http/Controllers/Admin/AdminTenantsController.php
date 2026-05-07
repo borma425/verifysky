@@ -13,6 +13,7 @@ use App\Models\TenantPlanGrant;
 use App\Models\User;
 use App\Services\Billing\BillingPlanCatalogService;
 use App\Services\Billing\TenantBillingStatusService;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\Plans\PlanLimitsService;
 use App\ViewData\Admin\AdminTenantRowViewData;
 use Carbon\CarbonImmutable;
@@ -31,7 +32,8 @@ class AdminTenantsController extends Controller
         private readonly ProvisionTenantDomainAction $provisionTenantDomain,
         private readonly BillingPlanCatalogService $planCatalog,
         private readonly PlanLimitsService $planLimits,
-        private readonly AdminTenantRowViewData $rowViewData
+        private readonly AdminTenantRowViewData $rowViewData,
+        private readonly DomainAssetPolicyService $domainAssets
     ) {}
 
     public function index(): View
@@ -89,6 +91,7 @@ class AdminTenantsController extends Controller
             'tenant' => $tenant,
             'row' => $this->rowViewData->fromTenant($tenant, $billingAvailable),
             'domainsUsage' => $this->planLimits->getDomainsUsage($tenant),
+            'domainAssetSummaries' => $this->domainAssets->summariesForTenant($tenant),
             'billingAvailable' => $billingAvailable,
             'grantablePlans' => $this->planCatalog->paidPlans(),
         ]);
@@ -101,6 +104,12 @@ class AdminTenantsController extends Controller
             $response = back()->withInput()->with('error', $result['error']);
             if (($result['origin_detection_failed'] ?? false) === true) {
                 $response->with('domain_origin_detection_failed', true);
+            }
+            if (($result['quarantine_blocked'] ?? false) === true) {
+                $response->with('domain_quarantine', [
+                    'asset_key' => (string) ($result['asset_key'] ?? ''),
+                    'quarantined_until' => $result['quarantined_until'] ?? null,
+                ]);
             }
 
             return $response;

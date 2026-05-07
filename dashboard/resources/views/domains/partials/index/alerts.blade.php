@@ -1,4 +1,36 @@
-@if($error && !session('domain_origin_detection_failed'))
+@if(session('domain_quarantine'))
+  @php
+    $quarantine = session('domain_quarantine');
+    $assetKey = trim((string) ($quarantine['asset_key'] ?? ''));
+    $quarantineEndsAt = trim((string) ($quarantine['quarantined_until'] ?? ''));
+  @endphp
+  <div class="es-animate rounded-2xl border border-[#FCB900]/30 bg-[#FCB900]/10 p-5 text-sm text-[#FFF3D1] shadow-sm backdrop-blur-md">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-start gap-3">
+        <span class="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#FCB900]/20 bg-[#171C26]">
+          <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-5 w-5">
+        </span>
+        <div>
+          <div class="text-[11px] font-bold uppercase tracking-[0.18em] text-[#FCB900]">Domain temporarily locked</div>
+          <p class="mt-1 font-semibold text-white">
+            {{ $assetKey !== '' ? $assetKey : 'This domain' }} was recently removed from VerifySky.
+          </p>
+          <p class="mt-1 text-xs leading-relaxed text-[#FFF3D1]">
+            @if($quarantineEndsAt !== '')
+              The quarantine is scheduled to end at <span class="font-mono text-white">{{ $quarantineEndsAt }} UTC</span>.
+            @else
+              This domain is still inside its quarantine window.
+            @endif
+            Upgrade to a paid plan to reactivate it now, or contact support.
+          </p>
+        </div>
+      </div>
+      <a href="{{ route('billing.index') }}" class="es-btn shrink-0 px-4 py-2 text-sm">Open Billing</a>
+    </div>
+  </div>
+@endif
+
+@if($error && !session('domain_origin_detection_failed') && !session('domain_quarantine'))
   <div class="es-animate rounded-xl border border-[#D47B78]/38 bg-[#D47B78]/12 p-4 text-sm font-medium text-[#FFE6E3] shadow-sm backdrop-blur-md">
     <div class="flex items-center gap-3">
       <img src="{{ asset('duotone/triangle-exclamation.svg') }}" alt="error" class="es-duotone-icon es-icon-tone-coral h-4 w-4">

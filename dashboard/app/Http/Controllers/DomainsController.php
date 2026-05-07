@@ -20,8 +20,8 @@ use App\Http\Requests\Domains\UpdateDomainStatusRequest;
 use App\Http\Requests\Domains\UpdateDomainTuningRequest;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
-use App\Services\Domains\DnsVerificationService;
 use App\Repositories\DomainConfigRepository;
+use App\Services\Domains\DnsVerificationService;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use App\ViewData\DomainIndexViewData;
@@ -81,6 +81,12 @@ class DomainsController extends Controller
             $response = back()->withInput()->with('error', $result['error']);
             if (($result['origin_detection_failed'] ?? false) === true) {
                 $response->with('domain_origin_detection_failed', true);
+            }
+            if (($result['quarantine_blocked'] ?? false) === true) {
+                $response->with('domain_quarantine', [
+                    'asset_key' => (string) ($result['asset_key'] ?? ''),
+                    'quarantined_until' => $result['quarantined_until'] ?? null,
+                ]);
             }
 
             return $response;

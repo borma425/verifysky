@@ -169,6 +169,41 @@ class DashboardBillingVisibilityTest extends TestCase
             ->assertSee('/ 100,000', false);
     }
 
+    public function test_dashboard_shows_trial_banner_for_active_trial_grant(): void
+    {
+        $tenant = $this->makeTenant('visible-trial-tenant');
+        TenantUsage::query()->create([
+            'tenant_id' => $tenant->id,
+            'cycle_start_at' => '2026-04-01 00:00:00',
+            'cycle_end_at' => '2026-05-01 00:00:00',
+            'protected_sessions_used' => 600,
+            'bot_requests_used' => 1200,
+            'quota_status' => TenantUsage::STATUS_ACTIVE,
+        ]);
+        TenantPlanGrant::query()->create([
+            'tenant_id' => $tenant->id,
+            'granted_plan_key' => 'pro',
+            'source' => 'trial',
+            'status' => TenantPlanGrant::STATUS_ACTIVE,
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(13),
+        ]);
+
+        $this->bindDashboardEdgeShield();
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->get('/dashboard');
+
+        $response->assertOk()
+            ->assertSee('Pro trial active')
+            ->assertSee('Upgrade to keep Pro')
+            ->assertDontSee('Bonus PRO allowance active until')
+            ->assertSee('/ 100,000', false);
+    }
+
     public function test_dashboard_gracefully_skips_billing_widget_when_billing_tables_are_missing(): void
     {
         $tenant = $this->makeTenant('billing-schema-pending');

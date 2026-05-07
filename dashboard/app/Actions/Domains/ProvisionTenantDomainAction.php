@@ -9,6 +9,7 @@ use App\Jobs\Domains\SyncSaasSecurityArtifactsJob;
 use App\Jobs\Domains\ValidateOriginServerJob;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use Illuminate\Support\Facades\Bus;
@@ -19,11 +20,13 @@ class ProvisionTenantDomainAction
 {
     public function __construct(
         private readonly EdgeShieldService $edgeShield,
-        private readonly PlanLimitsService $planLimits
+        private readonly PlanLimitsService $planLimits,
+        private readonly DomainAssetPolicyService $domainAssets
     ) {}
 
-    public function execute(array $validated, ?string $tenantId): array
+    public function execute(array $validated, ?string $tenantId, ?bool $isAdmin = null): array
     {
+        $isAdmin = $isAdmin ?? (bool) session('is_admin');
         $tenantId = trim((string) $tenantId);
         if ($tenantId === '') {
             return ['ok' => false, 'error' => 'Please sign in again before adding a domain.'];
@@ -57,6 +60,21 @@ class ProvisionTenantDomainAction
                 continue;
             }
 
+            $quarantine = $this->domainAssets->quarantineStatusForTenant($hostname, $tenant, $isAdmin);
+            if ($quarantine['blocked']) {
+                return $created === []
+                    ? [
+                        'ok' => false,
+                        'error' => (string) $quarantine['message'],
+                        'quarantine_blocked' => true,
+                        'quarantined_until' => $quarantine['quarantined_until']?->toDateTimeString(),
+                        'asset_key' => $quarantine['asset_key'],
+                    ]
+                    : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
+                        'One domain was skipped because it was recently removed from VerifySky.',
+                    ]));
+            }
+
             $existing = TenantDomain::query()->where('hostname', $hostname)->first();
             if ($existing instanceof TenantDomain && (string) $existing->tenant_id !== $tenantId) {
                 return $created === []
@@ -74,9 +92,10 @@ class ProvisionTenantDomainAction
                     ]));
             }
 
-            if (! $this->hasReusableSlot($existing) && ! ($this->planLimits->getDomainsUsage($tenant)['can_add'] ?? false)) {
+            $domainsUsage = $this->planLimits->getDomainsUsage($tenant);
+            if (! $this->hasReusableSlot($existing) && ! $domainsUsage['can_add']) {
                 return $created === []
-                    ? ['ok' => false, 'error' => (string) ($this->planLimits->getDomainsUsage($tenant)['message'] ?? 'You have reached the maximum number of domains for your current plan.')]
+                    ? ['ok' => false, 'error' => (string) ($domainsUsage['message'] ?: 'You have reached the maximum number of domains for your current plan.')]
                     : $this->partialResult($created, $originMode, $originServer, array_merge($warnings, [
                         'One domain was skipped because this account has reached the domain limit.',
                     ]));

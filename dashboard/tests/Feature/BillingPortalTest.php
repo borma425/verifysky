@@ -58,9 +58,32 @@ class BillingPortalTest extends TestCase
             ->get(route('billing.index'));
 
         $response->assertOk()
-            ->assertSee('Bonus PRO is active')
+            ->assertSee('Bonus allowance PRO is active')
             ->assertSee('Beta cohort')
             ->assertSee('Checkout');
+    }
+
+    public function test_billing_portal_shows_trial_banner_without_bonus_wording(): void
+    {
+        [$tenant, $owner] = $this->makeTenantWithUsers();
+        TenantPlanGrant::query()->create([
+            'tenant_id' => $tenant->id,
+            'granted_plan_key' => 'pro',
+            'source' => 'trial',
+            'status' => TenantPlanGrant::STATUS_ACTIVE,
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->addDays(13),
+        ]);
+
+        $response = $this->withSession($this->sessionFor($tenant, $owner))
+            ->get(route('billing.index'));
+
+        $response->assertOk()
+            ->assertSee('Pro trial active')
+            ->assertSee('Trial Active')
+            ->assertSee('Upgrade to keep Pro')
+            ->assertDontSee('Bonus allowance PRO is active')
+            ->assertDontSee('Bonus PRO is active');
     }
 
     public function test_admin_is_redirected_away_from_customer_billing_portal(): void

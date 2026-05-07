@@ -3,12 +3,16 @@
 namespace App\Actions\Domains;
 
 use App\Models\TenantDomain;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\EdgeShieldService;
 use Illuminate\Support\Facades\Schema;
 
 class DeleteDomainGroupAction
 {
-    public function __construct(private readonly EdgeShieldService $edgeShield) {}
+    public function __construct(
+        private readonly EdgeShieldService $edgeShield,
+        private readonly DomainAssetPolicyService $domainAssets
+    ) {}
 
     public function execute(string $domain, bool $isAdmin, ?string $tenantId): array
     {
@@ -58,6 +62,12 @@ class DeleteDomainGroupAction
         if (! $delete['ok']) {
             return ['ok' => false, 'error' => 'We could not remove this domain from VerifySky. Please try again.'];
         }
+
+        $this->domainAssets->quarantineRemovedHostnames(
+            array_map(static fn (array $row): string => (string) ($row['domain_name'] ?? ''), $rows),
+            $tenantId,
+            'domain_group_deleted'
+        );
 
         if ($tenantId && Schema::hasTable('tenant_domains')) {
             TenantDomain::query()

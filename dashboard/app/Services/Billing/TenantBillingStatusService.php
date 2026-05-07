@@ -104,9 +104,29 @@ class TenantBillingStatusService
         return [
             'id' => (int) $grant->getKey(),
             'granted_plan_key' => (string) $grant->granted_plan_key,
+            'source' => (string) $grant->source,
             'starts_at' => CarbonImmutable::parse((string) $grant->starts_at, 'UTC')->utc(),
             'ends_at' => CarbonImmutable::parse((string) $grant->ends_at, 'UTC')->utc(),
             'reason' => $grant->reason !== null ? (string) $grant->reason : null,
+            'metadata_json' => $this->metadata($grant->getAttribute('metadata_json')),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function metadata(mixed $metadata): array
+    {
+        if (is_array($metadata)) {
+            return $metadata;
+        }
+
+        if (is_string($metadata) && $metadata !== '') {
+            $decoded = json_decode($metadata, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
     }
 }
