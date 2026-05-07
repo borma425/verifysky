@@ -36,6 +36,8 @@ rsync -a --delete \
 ln -sfn "${SHARED_DIR}/.env" "${release_dir}/dashboard/.env"
 rm -rf "${release_dir}/dashboard/storage"
 ln -sfn "${SHARED_DIR}/storage" "${release_dir}/dashboard/storage"
+rm -rf "${release_dir}/dashboard/public/storage"
+ln -sfn "${SHARED_DIR}/storage/app/public" "${release_dir}/dashboard/public/storage"
 printf '%s\n' "${short_sha}" > "${release_dir}/REVISION"
 
 sudo chown -R www-data:www-data "${release_dir}"
