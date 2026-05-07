@@ -51,9 +51,11 @@ class MarketingHomePageTest extends TestCase
         $response->assertSee('Start Defending');
         $response->assertSee('Explore Platform');
         $response->assertSee('Free');
-        $response->assertSee('Growth');
+        $response->assertSee('Starter');
+        $response->assertSee('$9');
         $response->assertSee('Pro');
         $response->assertSee('Business');
+        $response->assertSee('Scale');
         $response->assertSee(route('register'), false);
         $response->assertSee('https://cdn.tailwindcss.com');
         $response->assertDontSee('Logo.png');

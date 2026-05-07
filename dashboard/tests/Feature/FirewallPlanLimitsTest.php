@@ -93,8 +93,8 @@ class FirewallPlanLimitsTest extends TestCase
             'message' => null,
         ]);
         $limits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
-            'protected_sessions' => 10000,
-            'bot_fair_use' => 25000,
+            'protected_sessions' => 5000,
+            'bot_fair_use' => 5000,
             'plan_key' => 'starter',
             'plan_name' => 'Free',
         ]);
@@ -243,7 +243,7 @@ class FirewallPlanLimitsTest extends TestCase
         $limits->shouldReceive('domainBelongsToTenant')->once()->with('example.com', 'tenant-1', false)->andReturn(true);
         $limits->shouldReceive('getFirewallRulesUsage')->once()->with('tenant-1', false)->andReturn([
             'can_add' => false,
-            'message' => 'Free includes up to 5 custom firewall rules. Upgrade to Growth to add more.',
+            'message' => 'Free includes up to 5 custom firewall rules. Upgrade to Starter to add more.',
         ]);
 
         $response = $this->withSession([
@@ -254,7 +254,7 @@ class FirewallPlanLimitsTest extends TestCase
 
         $response->assertRedirect('/firewall');
         $response->assertSessionHasErrors([
-            'domain_name' => 'Free includes up to 5 custom firewall rules. Upgrade to Growth to add more.',
+            'domain_name' => 'Free includes up to 5 custom firewall rules. Upgrade to Starter to add more.',
         ]);
     }
 
@@ -357,8 +357,8 @@ class FirewallPlanLimitsTest extends TestCase
             'message' => null,
         ]);
         $limits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
-            'protected_sessions' => 10000,
-            'bot_fair_use' => 25000,
+            'protected_sessions' => 5000,
+            'bot_fair_use' => 5000,
             'plan_key' => 'starter',
             'plan_name' => 'Free',
         ]);

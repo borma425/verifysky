@@ -60,7 +60,7 @@ class AdminTenantBillingOperationsTest extends TestCase
             ->assertSee('Manage users, domains, billing, bonuses, and usage.')
             ->assertSee('Acme Tenant')
             ->assertSee('pass through')
-            ->assertSee('12,000 / 10,000', false);
+            ->assertSee('12,000 / 5,000', false);
     }
 
     public function test_admin_page_displays_active_manual_grant_details(): void

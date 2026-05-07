@@ -76,11 +76,11 @@ class PlanLimitsServiceTest extends TestCase
         $this->assertFalse($usage['can_add']);
     }
 
-    public function test_growth_plan_domain_usage_allows_adding_second_domain(): void
+    public function test_starter_paid_plan_domain_usage_allows_adding_second_domain(): void
     {
         $tenant = Tenant::query()->create([
-            'name' => 'Growth Tenant',
-            'slug' => 'growth-tenant',
+            'name' => 'Paid Starter Tenant',
+            'slug' => 'paid-starter-tenant',
             'plan' => 'growth',
             'status' => 'active',
         ]);
@@ -168,10 +168,10 @@ class PlanLimitsServiceTest extends TestCase
         $service = new PlanLimitsService(Mockery::mock(D1DatabaseClient::class));
         $limits = $service->getBillingUsageLimits($tenant);
 
-        $this->assertSame(30000, $limits['protected_sessions']);
-        $this->assertSame(50000, $limits['bot_fair_use']);
+        $this->assertSame(100000, $limits['protected_sessions']);
+        $this->assertSame(100000, $limits['bot_fair_use']);
         $this->assertSame('growth', $limits['plan_key']);
-        $this->assertSame('Growth', $limits['plan_name']);
+        $this->assertSame('Starter', $limits['plan_name']);
     }
 
     public function test_active_manual_grant_overrides_baseline_plan_limits(): void
@@ -194,8 +194,8 @@ class PlanLimitsServiceTest extends TestCase
         $service = new PlanLimitsService(Mockery::mock(D1DatabaseClient::class));
         $limits = $service->getBillingUsageLimits($tenant);
 
-        $this->assertSame(100000, $limits['protected_sessions']);
-        $this->assertSame(100000, $limits['bot_fair_use']);
+        $this->assertSame(300000, $limits['protected_sessions']);
+        $this->assertSame(300000, $limits['bot_fair_use']);
         $this->assertSame('pro', $limits['plan_key']);
         $this->assertSame('Pro', $limits['plan_name']);
     }

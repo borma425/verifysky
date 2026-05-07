@@ -21,6 +21,8 @@ class BillingPlanCatalogServiceTest extends TestCase
 
         $this->assertFalse($plans->has('starter'));
         $this->assertSame(['growth', 'pro', 'business', 'scale'], $plans->keys()->all());
+        $this->assertSame('Starter', $plans['growth']['name']);
+        $this->assertSame(9, $plans['growth']['price_monthly']);
         $this->assertSame('P-GROWTH', $plans['growth']['provider_plan_id']);
         $this->assertTrue($catalog->isPaidPlan('growth'));
         $this->assertFalse($catalog->isPaidPlan('starter'));
@@ -40,6 +42,9 @@ class BillingPlanCatalogServiceTest extends TestCase
         $this->assertSame(['starter', 'growth', 'pro', 'business', 'scale'], $plans->keys()->all());
         $this->assertSame('Free', $plans['starter']['name']);
         $this->assertSame(0, $plans['starter']['price_monthly']);
+        $this->assertSame(5000, $plans['starter']['limits']['protected_sessions']);
+        $this->assertSame('Starter', $plans['growth']['name']);
+        $this->assertSame(9, $plans['growth']['price_monthly']);
         $this->assertNull($plans['starter']['provider_plan_id']);
         $this->assertSame('P-PRO', $plans['pro']['provider_plan_id']);
     }

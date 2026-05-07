@@ -85,7 +85,7 @@ class AdminCommandCenterTest extends TestCase
             ->assertSee('Acme Ops')
             ->assertSee('Manage User')
             ->assertSee('pass through')
-            ->assertSee('12,000 / 10,000', false);
+            ->assertSee('12,000 / 5,000', false);
     }
 
     public function test_admin_can_open_tenant_drill_down(): void

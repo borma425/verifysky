@@ -72,7 +72,7 @@ class DashboardBillingVisibilityTest extends TestCase
         $response->assertOk()
             ->assertSee('Protected Sessions')
             ->assertSee('600')
-            ->assertSee('/ 10,000', false)
+            ->assertSee('/ 5,000', false)
             ->assertSee('Bot Requests Rejected')
             ->assertDontSee('Your current VerifySky quota has been exhausted.');
     }
@@ -166,7 +166,7 @@ class DashboardBillingVisibilityTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Bonus PRO allowance active until')
-            ->assertSee('/ 100,000', false);
+            ->assertSee('/ 300,000', false);
     }
 
     public function test_dashboard_shows_trial_banner_for_active_trial_grant(): void
@@ -201,7 +201,7 @@ class DashboardBillingVisibilityTest extends TestCase
             ->assertSee('Pro trial active')
             ->assertSee('Upgrade to keep Pro')
             ->assertDontSee('Bonus PRO allowance active until')
-            ->assertSee('/ 100,000', false);
+            ->assertSee('/ 300,000', false);
     }
 
     public function test_dashboard_gracefully_skips_billing_widget_when_billing_tables_are_missing(): void

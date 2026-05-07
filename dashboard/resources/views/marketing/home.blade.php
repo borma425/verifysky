@@ -493,7 +493,7 @@
                 <p class="text-slate-400">Transparent pricing for teams of every size</p>
             </div>
 
-            <div id="pricing-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div id="pricing-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
                 <!-- Pricing cards injected via JavaScript -->
             </div>
         </div>
@@ -658,35 +658,44 @@
                 price: "$0",
                 period: "/month",
                 description: "For new teams validating protection",
-                features: ["10K Protected Sessions", "25K Bot Requests", "5 Edge Rules", "1 Workspace", "Email Support"],
+                features: ["5K Protected Sessions", "5K Bot Requests", "5 Edge Rules", "1 Workspace", "Email Support"],
                 cta: "Create Account",
                 highlighted: false
             },
             {
-                name: "Growth",
-                price: "$149",
+                name: "Starter",
+                price: "$9",
                 period: "/month",
-                description: "For growing businesses",
-                features: ["500K Protected Sessions", "2M Bot Requests", "20 Edge Rules", "3 Workspaces", "Priority Support", "Google Ads Integration"],
+                description: "For small production sites",
+                features: ["100K Protected Sessions", "100K Bot Requests", "15 Edge Rules", "2 Domains", "Google Ads Integration"],
                 cta: "Create Account",
                 highlighted: false
             },
             {
                 name: "Pro",
-                price: "$499",
+                price: "$29",
                 period: "/month",
                 description: "Recommended defense posture",
-                features: ["2M Protected Sessions", "10M Bot Requests", "Unlimited Edge Rules", "10 Workspaces", "Dedicated Support", "Custom CAPTCHA", "AI WAF Automation", "Blocked IP List"],
+                features: ["300K Protected Sessions", "300K Bot Requests", "50 Edge Rules", "5 Domains", "Custom CAPTCHA", "AI WAF Automation", "Blocked IP List"],
                 cta: "Create Account",
                 highlighted: true
             },
             {
                 name: "Business",
-                price: "Custom",
-                period: "",
+                price: "$99",
+                period: "/month",
                 description: "For large organizations",
-                features: ["Unlimited Sessions", "Unlimited Requests", "Custom Edge Rules", "Unlimited Workspaces", "SLA Guarantee", "Dedicated Infrastructure", "White-label Options"],
-                cta: "Contact Sales",
+                features: ["1M Protected Sessions", "1M Bot Requests", "150 Edge Rules", "10 Domains", "Priority Support", "Advanced Reporting"],
+                cta: "Create Account",
+                highlighted: false
+            },
+            {
+                name: "Scale",
+                price: "$249",
+                period: "/month",
+                description: "For high-traffic properties",
+                features: ["3M Protected Sessions", "3M Bot Requests", "500 Edge Rules", "25 Domains", "SLA Review", "Dedicated Onboarding"],
+                cta: "Create Account",
                 highlighted: false
             }
         ];

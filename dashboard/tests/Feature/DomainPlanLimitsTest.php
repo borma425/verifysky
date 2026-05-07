@@ -87,7 +87,7 @@ class DomainPlanLimitsTest extends TestCase
 
         $response->assertRedirect(route('domains.index'));
         $response->assertSessionHasErrors([
-            'domain_name' => 'You have reached the maximum number of domains for your current plan. Upgrade to Growth to add more domains.',
+            'domain_name' => 'You have reached the maximum number of domains for your current plan. Upgrade to Starter to add more domains.',
         ]);
         $this->assertDatabaseCount('tenant_domains', 1);
     }
