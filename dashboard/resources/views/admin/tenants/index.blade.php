@@ -48,7 +48,7 @@
             </td>
             <td>{{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</td>
             <td>
-              <div class="font-semibold text-white">{{ $row['effective_plan']['name'] ?? 'Starter' }}</div>
+              <div class="font-semibold text-white">{{ $row['effective_plan']['name'] ?? 'Free' }}</div>
               <div class="text-xs text-sky-100/60">{{ $source }}</div>
             </td>
             <td>

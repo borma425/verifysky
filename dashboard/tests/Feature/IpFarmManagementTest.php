@@ -174,14 +174,14 @@ class IpFarmManagementTest extends TestCase
             'limit' => 5,
             'remaining' => $canAdd ? 4 : 0,
             'can_add' => $canAdd,
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'message' => $canAdd ? null : 'Limit reached.',
         ]);
         $limits->shouldReceive('getBillingUsageLimits')->byDefault()->with(Mockery::type(Tenant::class))->andReturn([
             'protected_sessions' => 10000,
             'bot_fair_use' => 25000,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
         $this->app->instance(PlanLimitsService::class, $limits);
     }

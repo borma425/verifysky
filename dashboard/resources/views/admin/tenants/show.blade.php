@@ -41,7 +41,7 @@
   <div class="grid gap-4 xl:grid-cols-3">
     <div class="es-card p-5">
       <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Plan</div>
-      <div class="mt-3 text-xl font-bold text-white">{{ $row['effective_plan']['name'] ?? 'Starter' }}</div>
+      <div class="mt-3 text-xl font-bold text-white">{{ $row['effective_plan']['name'] ?? 'Free' }}</div>
       <div class="mt-1 text-sm text-sky-100/70">Current access: {{ $billingTerms->sourceLabel($row['effective_plan']['source'] ?? 'baseline') }}</div>
       <div class="mt-1 text-sm text-sky-100/70">Plan Limit: {{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</div>
       <div class="mt-3 text-sm text-sky-100/80">Domains: {{ $domainUsageLabel }}</div>

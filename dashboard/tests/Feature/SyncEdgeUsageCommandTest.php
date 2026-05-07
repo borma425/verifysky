@@ -41,7 +41,7 @@ class SyncEdgeUsageCommandTest extends TestCase
             'protected_sessions' => 100,
             'bot_fair_use' => 100,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
         $this->bindD1Sequence([12]);
         $this->bindCloudflareSequence([[
@@ -81,7 +81,7 @@ class SyncEdgeUsageCommandTest extends TestCase
             'protected_sessions' => 5,
             'bot_fair_use' => 100,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
         $this->bindD1Sequence([6]);
         $this->bindCloudflareSequence([[
@@ -128,7 +128,7 @@ class SyncEdgeUsageCommandTest extends TestCase
             'protected_sessions' => 5,
             'bot_fair_use' => 100,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
         $this->bindD1Sequence([8]);
         $this->bindCloudflareSequence([[
@@ -185,7 +185,7 @@ class SyncEdgeUsageCommandTest extends TestCase
             'protected_sessions' => 100,
             'bot_fair_use' => 100,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
         $this->bindD1Sequence([80, 85]);
         $this->bindCloudflareSequence([
@@ -228,7 +228,7 @@ class SyncEdgeUsageCommandTest extends TestCase
             'protected_sessions' => 100,
             'bot_fair_use' => 100,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
         $this->bindD1Sequence([4, 9]);
         $this->bindCloudflareSequence([

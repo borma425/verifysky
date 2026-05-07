@@ -50,7 +50,7 @@ class MarketingHomePageTest extends TestCase
         $response->assertSee('Create Account');
         $response->assertSee('Start Defending');
         $response->assertSee('Explore Platform');
-        $response->assertSee('Starter');
+        $response->assertSee('Free');
         $response->assertSee('Growth');
         $response->assertSee('Pro');
         $response->assertSee('Business');

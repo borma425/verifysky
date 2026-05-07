@@ -238,6 +238,19 @@ Hard rules:
 
 ## 11) Quality Gates
 
+The project constitution is the governing quality standard for all feature work:
+
+- Security-first separation between the dashboard control plane and Worker
+  enforcement plane.
+- No unencrypted PII, secrets, tokens, credentials, or tenant operational data in
+  storage, logs, caches, exports, or client payloads.
+- Normal user-facing API responses below 200 ms.
+- At least 80% project test coverage, with documented exceptions only when
+  approved with compensating verification.
+- PSR-12/Pint for PHP and ESLint for lintable JavaScript/TypeScript source.
+- Feature flags or equivalent configuration for risky or incomplete behavior.
+- Documentation and modular design for all control/enforcement-plane contracts.
+
 Dashboard gates (must pass):
 
 ```bash
@@ -309,7 +322,9 @@ scripts/setup_monorepo.sh verify
 2. Prefer strangler refactor with delegation.
 3. Any endpoint mutation requires FormRequest.
 4. Any risky flow change requires targeted tests.
-5. Any file approaching 520 lines should be evaluated for split before 600.
+5. Any risky or incomplete behavior requires a feature flag or equivalent
+   configuration with rollback/deactivation steps.
+6. Any file approaching 520 lines should be evaluated for split before 600.
 
 ---
 

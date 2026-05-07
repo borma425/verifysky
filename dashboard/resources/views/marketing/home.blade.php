@@ -654,11 +654,11 @@
 
         const pricingTiers = [
             {
-                name: "Starter",
-                price: "$49",
+                name: "Free",
+                price: "$0",
                 period: "/month",
-                description: "For small teams getting started",
-                features: ["100K Protected Sessions", "500K Bot Requests", "5 Edge Rules", "1 Workspace", "Email Support"],
+                description: "For new teams validating protection",
+                features: ["10K Protected Sessions", "25K Bot Requests", "5 Edge Rules", "1 Workspace", "Email Support"],
                 cta: "Create Account",
                 highlighted: false
             },

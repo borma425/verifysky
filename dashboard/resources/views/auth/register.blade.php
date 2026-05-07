@@ -179,7 +179,7 @@
                                 Create Account
                             </div>
                             <h1 class="text-2xl font-bold text-white mb-2">Start defending your traffic.</h1>
-                            <p class="text-sm text-vs-muted">Your first workspace starts on the Starter plan. Billing can be managed after onboarding.</p>
+                            <p class="text-sm text-vs-muted">Your first workspace starts on the Free plan. Billing can be managed after onboarding.</p>
                         </div>
 
                         <!-- Form -->

@@ -199,7 +199,7 @@ class AdminTenantConsoleTest extends TestCase
             'limit' => 5,
             'remaining' => 0,
             'can_add' => false,
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'message' => 'Limit reached.',
         ]);
         $this->app->instance(PlanLimitsService::class, $limits);

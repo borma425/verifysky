@@ -4,7 +4,7 @@
   <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
     <div class="es-card p-5">
       <div class="text-[10px] uppercase tracking-[0.18em] text-[#76859C]">Plan</div>
-      <div class="mt-2 text-xl font-bold text-white">{{ $currentPlan['name'] ?? 'Starter' }}</div>
+      <div class="mt-2 text-xl font-bold text-white">{{ $currentPlan['name'] ?? 'Free' }}</div>
     </div>
     <div class="es-card p-5">
       <div class="text-[10px] uppercase tracking-[0.18em] text-[#76859C]">Protected Domains</div>

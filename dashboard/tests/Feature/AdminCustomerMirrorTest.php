@@ -159,6 +159,34 @@ class AdminCustomerMirrorTest extends TestCase
             ->assertDontSee('Bravo Tenant');
     }
 
+    public function test_admin_customer_mirror_billing_is_read_only_and_shows_free_plan_card(): void
+    {
+        $tenant = Tenant::query()->create([
+            'name' => 'Mirror Billing Tenant',
+            'slug' => 'mirror-billing-tenant',
+            'plan' => 'starter',
+            'status' => 'active',
+            'billing_start_at' => '2026-04-01 00:00:00',
+        ]);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => true,
+            'user_id' => 99,
+            'user_email' => 'admin@example.test',
+        ])->get(route('admin.tenants.customer.billing.index', $tenant));
+
+        $response->assertOk()
+            ->assertSee('Subscription Summary')
+            ->assertSee('Free Plan')
+            ->assertSee('data-plan-key="starter"', false)
+            ->assertSee('Read Only')
+            ->assertDontSee('Checkout')
+            ->assertDontSee('Cancel At Period End')
+            ->assertDontSee(route('billing.checkout', 'growth'), false)
+            ->assertDontSee(route('billing.checkout', 'starter'), false);
+    }
+
     public function test_customer_mirror_blocks_mutation_attempts_without_changing_session_context(): void
     {
         $tenant = Tenant::query()->create([
@@ -246,7 +274,7 @@ class AdminCustomerMirrorTest extends TestCase
             'limit' => 5,
             'remaining' => 4,
             'can_add' => true,
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'message' => null,
         ]);
         $this->app->instance(PlanLimitsService::class, $limits);

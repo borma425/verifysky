@@ -10,8 +10,8 @@ return [
 
     'plans' => [
         'starter' => [
-            'name' => 'Starter',
-            'price_monthly' => 9,
+            'name' => 'Free',
+            'price_monthly' => 0,
             'limits' => [
                 'domains' => 1,
                 'custom_rules' => 5,

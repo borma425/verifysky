@@ -89,14 +89,14 @@ class FirewallPlanLimitsTest extends TestCase
             'limit' => 5,
             'remaining' => 4,
             'can_add' => true,
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'message' => null,
         ]);
         $limits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
             'protected_sessions' => 10000,
             'bot_fair_use' => 25000,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
 
         $response = $this->withSession([
@@ -107,7 +107,7 @@ class FirewallPlanLimitsTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Firewall')
-            ->assertSee('Starter')
+            ->assertSee('Free')
             ->assertSee('1 / 5 custom rules')
             ->assertSee('All domains')
             ->assertSee('Allow trusted ASN')
@@ -243,7 +243,7 @@ class FirewallPlanLimitsTest extends TestCase
         $limits->shouldReceive('domainBelongsToTenant')->once()->with('example.com', 'tenant-1', false)->andReturn(true);
         $limits->shouldReceive('getFirewallRulesUsage')->once()->with('tenant-1', false)->andReturn([
             'can_add' => false,
-            'message' => 'Starter includes up to 5 custom firewall rules. Upgrade to Growth to add more.',
+            'message' => 'Free includes up to 5 custom firewall rules. Upgrade to Growth to add more.',
         ]);
 
         $response = $this->withSession([
@@ -254,7 +254,7 @@ class FirewallPlanLimitsTest extends TestCase
 
         $response->assertRedirect('/firewall');
         $response->assertSessionHasErrors([
-            'domain_name' => 'Starter includes up to 5 custom firewall rules. Upgrade to Growth to add more.',
+            'domain_name' => 'Free includes up to 5 custom firewall rules. Upgrade to Growth to add more.',
         ]);
     }
 
@@ -353,14 +353,14 @@ class FirewallPlanLimitsTest extends TestCase
             'limit' => 5,
             'remaining' => 5,
             'can_add' => true,
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'message' => null,
         ]);
         $limits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
             'protected_sessions' => 10000,
             'bot_fair_use' => 25000,
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
         ]);
 
         $rawError = "\033[31m✘ \033[41;31m[\033[41;97mERROR\033[41;31m]\033[0m no such column: tenant_id at offset 76: SQLITE_ERROR 🪵 Logs were written to \"/opt/lampp/htdocs/verifysky/dashboard/storage/wrangler-runtime/logs/wrangler-2026-04-21_15-16-50_785.log\"";

@@ -34,6 +34,12 @@ class BillingPortalTest extends TestCase
 
         $ownerResponse->assertOk()
             ->assertSee('Subscription')
+            ->assertSee('Free Plan')
+            ->assertSee('$0/month')
+            ->assertSee('data-plan-key="starter"', false)
+            ->assertSee('Current')
+            ->assertDontSee('Starter Plan')
+            ->assertDontSee(route('billing.checkout', 'starter'), false)
             ->assertSee('Checkout');
 
         $memberResponse->assertOk()

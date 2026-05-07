@@ -8,6 +8,7 @@ use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Repositories\DomainConfigRepository;
 use App\Repositories\SecurityLogRepository;
+use App\Services\Billing\BillingPlanCatalogService;
 use App\Services\Billing\EffectiveTenantPlanService;
 use App\Services\Billing\TenantBillingStatusService;
 use App\Services\Billing\TenantSubscriptionService;
@@ -29,7 +30,8 @@ class AdminCustomerMirrorController extends Controller
         private readonly TenantBillingStatusService $tenantBillingStatus,
         private readonly TenantSubscriptionService $subscriptions,
         private readonly PlanLimitsService $planLimits,
-        private readonly EffectiveTenantPlanService $effectivePlans
+        private readonly EffectiveTenantPlanService $effectivePlans,
+        private readonly BillingPlanCatalogService $planCatalog
     ) {}
 
     public function overview(Tenant $tenant): View
@@ -61,6 +63,7 @@ class AdminCustomerMirrorController extends Controller
                 'subscription' => $this->subscriptions->currentSubscriptionForTenant($tenant),
                 'billingStorageReady' => $this->subscriptions->storageReady(),
                 'activeGrant' => $this->effectivePlans->activeGrantForTenant($tenant),
+                'planCards' => $this->planCatalog->displayPlans(),
             ]
         ));
     }

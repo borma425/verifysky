@@ -5,11 +5,12 @@
     $billingTerms = app(\App\ViewData\BillingTerminologyViewData::class);
     $subscriptionStatus = $subscription?->status ? ucfirst(str_replace('_', ' ', $subscription->status)) : 'No paid subscription';
     $periodEndsAt = $subscription?->current_period_ends_at?->utc();
-    $planCards = $paidPlans ?? [];
+    $planCards = $planCards ?? $paidPlans ?? [];
     $grantEndsAt = $activeGrant?->ends_at?->utc();
     $grantIsTrial = (string) ($activeGrant?->source ?? '') === 'trial';
     $grantLabel = $activeGrant ? $billingTerms->grantStatusText($activeGrant) : null;
-    $currentPlanName = $currentPlan['name'] ?? ucfirst((string) $tenant->plan);
+    $fallbackPlanName = (string) $tenant->plan === 'starter' ? 'Free' : ucfirst((string) $tenant->plan);
+    $currentPlanName = $currentPlan['name'] ?? $fallbackPlanName;
     $effectivePlanSource = $billingTerms->sourceLabel($billingStatus['effective_plan_source'] ?? 'baseline');
   @endphp
 
@@ -52,11 +53,13 @@
       </div>
     @else
       @if($activeGrant && $grantIsTrial)
-        @include('partials.trial-banner', [
-          'trialGrant' => $activeGrant,
-          'trialPlanName' => $currentPlanName,
-          'billingTerms' => $billingTerms,
-        ])
+        <div class="vs-billing-alert vs-billing-alert-success">
+          <img src="{{ asset('duotone/shield-check.svg') }}" alt="" class="es-duotone-icon es-icon-tone-success h-5 w-5">
+          <div class="vs-billing-alert-body">
+            <div class="vs-billing-alert-text">Pro trial active. {{ $currentPlanName }} protection is active until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.</div>
+            <a href="{{ route('billing.index') }}" class="vs-billing-inline-action">Upgrade to keep Pro</a>
+          </div>
+        </div>
       @elseif($activeGrant)
         <div class="vs-billing-alert vs-billing-alert-info">
           <img src="{{ asset('duotone/circle-info.svg') }}" alt="" class="es-duotone-icon es-icon-tone-brass h-5 w-5">
@@ -154,50 +157,13 @@
 
           <div class="vs-billing-plan-list">
             @foreach($planCards as $plan)
-              @php
-                $isCurrent = ($currentPlan['key'] ?? $tenant->plan) === $plan['key'];
-                $limits = $plan['limits'] ?? [];
-              @endphp
-              <div class="vs-billing-plan-card {{ $isCurrent ? 'vs-billing-plan-card-current' : '' }}">
-                <div class="vs-billing-plan-title-row">
-                  <div>
-                    <h3 class="vs-billing-plan-name">
-                      {{ $plan['name'] }}
-                      @if($isCurrent)
-                        <span class="vs-billing-current-badge">Current</span>
-                      @endif
-                    </h3>
-                    <div class="vs-billing-plan-price">${{ number_format($plan['price_monthly']) }}/month</div>
-                  </div>
-                  @if($canManageBilling)
-                    <form method="POST" action="{{ route('billing.checkout', $plan['key']) }}">
-                      @csrf
-                      <button type="submit" class="vs-billing-checkout {{ $isCurrent ? 'vs-billing-checkout-current' : '' }}">
-                      {{ $isCurrent ? 'Subscribe again' : 'Checkout' }}
-                      </button>
-                    </form>
-                  @endif
-                </div>
-
-                <div class="vs-billing-limit-grid">
-                  <div class="vs-billing-limit">
-                    <span class="vs-billing-limit-label">Domains</span>
-                    {{ number_format((int) ($limits['domains'] ?? 0)) }}
-                  </div>
-                  <div class="vs-billing-limit">
-                    <span class="vs-billing-limit-label">Firewall Rules</span>
-                    {{ number_format((int) ($limits['custom_rules'] ?? 0)) }}
-                  </div>
-                  <div class="vs-billing-limit">
-                    <span class="vs-billing-limit-label">Protected Sessions</span>
-                    {{ number_format((int) ($limits['protected_sessions'] ?? 0)) }}
-                  </div>
-                  <div class="vs-billing-limit">
-                    <span class="vs-billing-limit-label">Bot Fair Use</span>
-                    {{ number_format((int) ($limits['bot_fair_use'] ?? 0)) }}
-                  </div>
-                </div>
-              </div>
+              @include('billing.partials.plan-card', [
+                'plan' => $plan,
+                'currentPlan' => $currentPlan,
+                'tenant' => $tenant,
+                'canManageBilling' => $canManageBilling,
+                'readOnly' => false,
+              ])
             @endforeach
           </div>
         </div>

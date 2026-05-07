@@ -7102,25 +7102,27 @@
     }
 
     .vs-billing {
-        --vs-bg: var(--es-page);
-        --vs-surface: var(--es-surface);
-        --vs-surface-high: var(--es-surface-3);
-        --vs-surface-highest: var(--es-surface-4);
-        --vs-surface-low: var(--es-surface-2);
-        --vs-surface-lowest: var(--es-surface-input);
-        --vs-primary: var(--es-brand);
-        --vs-primary-soft: var(--es-brand-soft);
-        --vs-outline: var(--es-border);
-        --vs-outline-soft: var(--es-border-subtle);
-        --vs-text: var(--es-text);
-        --vs-muted: var(--es-text-muted);
-        --vs-success: var(--es-success);
-        --vs-danger: var(--es-danger);
-        --vs-info: var(--es-info);
+        --vs-bg: #0E131D;
+        --vs-surface: #1B202A;
+        --vs-surface-high: #252A35;
+        --vs-surface-highest: #303540;
+        --vs-surface-low: #171C26;
+        --vs-surface-lowest: #090E18;
+        --vs-primary: #FCB900;
+        --vs-primary-strong: #FFDC9C;
+        --vs-primary-soft: rgba(252, 185, 0, 0.12);
+        --vs-outline: rgba(157, 143, 120, 0.28);
+        --vs-outline-soft: rgba(80, 69, 50, 0.36);
+        --vs-text: #DEE2F1;
+        --vs-muted: #AEB9CC;
+        --vs-variant: #D4C4AB;
+        --vs-success: #3BCF8E;
+        --vs-danger: #D47B78;
+        --vs-info: #35D7FF;
         display: grid;
         gap: 2rem;
         color: var(--vs-text);
-        font-family: Manrope, Inter, var(--font-sans);
+        font-family: Inter, Manrope, var(--font-sans);
     }
 
     .vs-billing * {
@@ -7134,7 +7136,7 @@
     .vs-billing-meta,
     .vs-billing-label,
     .vs-billing-limit-label {
-        color: var(--vs-muted);
+        color: var(--vs-variant);
         font-size: 0.8125rem;
         font-weight: 800;
         letter-spacing: 0.08em;
@@ -7148,7 +7150,7 @@
 
     .vs-billing-title {
         margin-top: 0.25rem;
-        color: var(--es-text-strong);
+        color: #FFFFFF;
         font-size: clamp(1.5rem, 1.2rem + 0.8vw, 1.9rem);
         font-weight: 800;
         line-height: 1.15;
@@ -7178,7 +7180,7 @@
         align-items: start;
         margin-top: 1.5rem;
         border-left: 4px solid var(--vs-primary);
-        border-radius: var(--es-radius-sm);
+        border-radius: 4px;
         background: var(--vs-surface);
         padding: 1rem;
     }
@@ -7203,10 +7205,20 @@
         gap: 0.75rem;
         align-items: flex-start;
         border-left: 2px solid currentColor;
-        border-radius: var(--es-radius-sm);
+        border-radius: 4px;
         background: var(--vs-surface-low);
         outline: 1px solid color-mix(in srgb, currentColor 20%, transparent);
         padding: 1rem;
+    }
+
+    .vs-billing-alert-body {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        align-items: center;
+        justify-content: space-between;
+        min-width: 0;
+        flex: 1;
     }
 
     .vs-billing-alert-danger {
@@ -7217,9 +7229,34 @@
         color: var(--vs-info);
     }
 
+    .vs-billing-alert-success {
+        color: var(--vs-success);
+    }
+
     .vs-billing-alert-text {
+        min-width: 0;
+        flex: 1;
         font-weight: 650;
         line-height: 1.65;
+    }
+
+    .vs-billing-inline-action {
+        display: inline-flex;
+        min-height: 2.25rem;
+        align-items: center;
+        border-radius: 4px;
+        background: linear-gradient(to bottom, var(--vs-primary-strong), var(--vs-primary));
+        color: #412D00;
+        padding: 0.45rem 0.8rem;
+        font-size: 0.8125rem;
+        font-weight: 800;
+        line-height: 1;
+        transition: filter 160ms ease;
+        white-space: nowrap;
+    }
+
+    .vs-billing-inline-action:hover {
+        filter: brightness(1.06);
     }
 
     .vs-billing-grid {
@@ -7229,7 +7266,7 @@
     }
 
     .vs-billing-panel {
-        border-radius: var(--es-radius);
+        border-radius: 8px;
         background: var(--vs-surface);
         outline: 1px solid var(--vs-outline-soft);
         padding: 1.5rem;
@@ -7269,9 +7306,9 @@
     .vs-billing-current-badge {
         display: inline-flex;
         align-items: center;
-        border-radius: var(--es-radius-sm);
+        border-radius: 4px;
         border: 1px solid rgba(62, 213, 152, 0.34);
-        background: var(--es-success-soft);
+        background: rgba(59, 207, 142, 0.1);
         color: var(--vs-success);
         padding: 0.35rem 0.65rem;
         font-size: 0.75rem;
@@ -7279,6 +7316,12 @@
         letter-spacing: 0.06em;
         line-height: 1;
         text-transform: uppercase;
+    }
+
+    .vs-billing-status-readonly {
+        border-color: rgba(252, 185, 0, 0.3);
+        background: var(--vs-primary-soft);
+        color: var(--vs-primary);
     }
 
     .vs-billing-metrics {
@@ -7290,7 +7333,7 @@
 
     .vs-billing-metric,
     .vs-billing-limit {
-        border-radius: var(--es-radius-sm);
+        border-radius: 4px;
         background: var(--vs-surface-lowest);
         outline: 1px solid var(--vs-outline-soft);
         padding: 1rem;
@@ -7373,13 +7416,18 @@
     }
 
     .vs-billing-secondary-action,
-    .vs-billing-checkout {
-        border-radius: var(--es-radius-sm);
+    .vs-billing-checkout,
+    .vs-billing-plan-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
         background: var(--vs-surface-highest);
-        color: var(--es-text-strong);
+        color: #FFFFFF;
         outline: 1px solid var(--vs-outline);
         font-weight: 800;
         transition: background-color 160ms ease, color 160ms ease;
+        white-space: nowrap;
     }
 
     .vs-billing-secondary-action {
@@ -7393,7 +7441,7 @@
 
     .vs-billing-owner-note {
         margin-top: 1rem;
-        border-radius: var(--es-radius-sm);
+        border-radius: 4px;
         color: var(--vs-muted);
         padding-inline: 0.5rem;
         font-size: 0.875rem;
@@ -7407,7 +7455,7 @@
     .vs-billing-plan-card {
         position: relative;
         overflow: hidden;
-        border-radius: var(--es-radius);
+        border-radius: 8px;
         background: var(--vs-surface);
         outline: 1px solid var(--vs-outline-soft);
         padding: 1.25rem;
@@ -7421,6 +7469,10 @@
 
     .vs-billing-plan-card-current {
         outline-color: var(--vs-primary);
+    }
+
+    .vs-billing-plan-card-free {
+        border-left: 2px solid var(--vs-outline);
     }
 
     .vs-billing-plan-card-current::after {
@@ -7438,6 +7490,10 @@
         position: relative;
         z-index: 1;
         margin-bottom: 1rem;
+    }
+
+    .vs-billing-plan-title-row > div {
+        min-width: 0;
     }
 
     .vs-billing-current-badge {
@@ -7464,9 +7520,21 @@
         text-transform: uppercase;
     }
 
+    .vs-billing-plan-action {
+        position: relative;
+        z-index: 1;
+        min-height: 2rem;
+        padding: 0.45rem 0.8rem;
+        color: var(--vs-muted);
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        text-transform: uppercase;
+    }
+
     .vs-billing-plan-card:hover .vs-billing-checkout,
     .vs-billing-checkout-current {
-        background: linear-gradient(to bottom, var(--es-brand-strong), var(--vs-primary));
+        background: linear-gradient(to bottom, var(--vs-primary-strong), var(--vs-primary));
         color: #412D00;
         outline: 0;
     }

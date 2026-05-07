@@ -49,7 +49,7 @@ class PlanLimitsServiceTest extends TestCase
         $usage = $service->getFirewallRulesUsage((string) $tenant->id, false);
 
         $this->assertSame('starter', $usage['plan_key']);
-        $this->assertSame('Starter', $usage['plan_name']);
+        $this->assertSame('Free', $usage['plan_name']);
         $this->assertSame(5, $usage['limit']);
         $this->assertSame(5, $usage['used']);
         $this->assertFalse($usage['can_add']);

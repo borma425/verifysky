@@ -261,7 +261,7 @@ class DomainActionsTest extends TestCase
         ]);
         $this->planLimits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'protected_sessions' => 10000,
             'bot_fair_use' => 50000,
         ]);
@@ -437,7 +437,7 @@ class DomainActionsTest extends TestCase
         $tenant = $this->tenant();
         $this->planLimits->shouldReceive('getBillingUsageLimits')->andReturn([
             'plan_key' => 'starter',
-            'plan_name' => 'Starter',
+            'plan_name' => 'Free',
             'protected_sessions' => 10000,
             'bot_fair_use' => 25000,
         ]);

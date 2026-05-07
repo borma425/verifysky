@@ -97,7 +97,7 @@ class AdminTenantBillingOperationsTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Grant Tenant')
-            ->assertSee('Starter')
+            ->assertSee('Free')
             ->assertSee('Pro')
             ->assertSee('Beta cohort')
             ->assertSee('Revoke Bonus');

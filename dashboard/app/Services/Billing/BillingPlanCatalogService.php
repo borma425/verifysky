@@ -9,9 +9,25 @@ class BillingPlanCatalogService
      */
     public function paidPlans(): array
     {
+        return $this->plans(includeStarter: false);
+    }
+
+    /**
+     * @return array<int, array{key:string,name:string,price_monthly:int,limits:array,provider_plan_id:?string}>
+     */
+    public function displayPlans(): array
+    {
+        return $this->plans(includeStarter: true);
+    }
+
+    /**
+     * @return array<int, array{key:string,name:string,price_monthly:int,limits:array,provider_plan_id:?string}>
+     */
+    private function plans(bool $includeStarter): array
+    {
         $plans = [];
         foreach ((array) config('plans.plans', []) as $key => $definition) {
-            if (! is_array($definition) || $key === 'starter') {
+            if (! is_array($definition) || (! $includeStarter && $key === 'starter')) {
                 continue;
             }
 

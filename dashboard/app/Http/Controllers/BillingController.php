@@ -38,6 +38,7 @@ class BillingController extends Controller
             'billingStatus' => $billingStatus,
             'subscription' => $this->subscriptions->currentSubscriptionForTenant($tenant),
             'paidPlans' => $this->planCatalog->paidPlans(),
+            'planCards' => $this->planCatalog->displayPlans(),
             'canManageBilling' => $this->subscriptions->userCanManageBilling($tenant, $userId),
             'billingStorageReady' => $this->subscriptions->storageReady(),
             'activeGrant' => $this->effectivePlans->activeGrantForTenant($tenant),
