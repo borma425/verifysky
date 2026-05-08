@@ -16,6 +16,7 @@
     $cf = $row['cloudflare_cost'] ?? [];
     $cfSummary = $cf['summary'] ?? [];
     $cfDomains = $cf['domains'] ?? [];
+    $cfOutcomes = $cf['outcomes'] ?? [];
     $cfResources = $cf['resources'] ?? [];
   @endphp
 
@@ -94,6 +95,45 @@
           @endforeach
           </tbody>
         </table>
+      </div>
+    @endif
+    @if($cfOutcomes !== [])
+      <div class="mt-5">
+        <h2 class="text-lg font-bold text-white">Outcome Breakdown</h2>
+        <div class="mt-3 overflow-x-auto">
+          <table class="es-table min-w-[1040px]">
+            <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Outcome</th>
+              <th>Requests</th>
+              <th>Estimated</th>
+              <th>Cost / 1M</th>
+              <th>D1 reads</th>
+              <th>D1 writes</th>
+              <th>KV reads</th>
+              <th>KV writes</th>
+              <th>KV write bytes</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach($cfOutcomes as $outcomeCost)
+              <tr>
+                <td class="font-semibold text-white">{{ $outcomeCost['domain_name'] }}</td>
+                <td>{{ $outcomeCost['outcome'] }}</td>
+                <td>{{ number_format((int) ($outcomeCost['requests'] ?? 0)) }}</td>
+                <td>${{ number_format((float) ($outcomeCost['estimated_cost_usd'] ?? 0), 4) }}</td>
+                <td>${{ number_format((float) ($outcomeCost['cost_per_million_requests_usd'] ?? 0), 4) }}</td>
+                <td>{{ number_format((int) ($outcomeCost['d1_rows_read'] ?? 0)) }}</td>
+                <td>{{ number_format((int) ($outcomeCost['d1_rows_written'] ?? 0)) }}</td>
+                <td>{{ number_format((int) ($outcomeCost['kv_reads'] ?? 0)) }}</td>
+                <td>{{ number_format((int) ($outcomeCost['kv_writes'] ?? 0)) }}</td>
+                <td>{{ number_format((int) ($outcomeCost['kv_write_bytes'] ?? 0)) }}</td>
+              </tr>
+            @endforeach
+            </tbody>
+          </table>
+        </div>
       </div>
     @endif
   </div>

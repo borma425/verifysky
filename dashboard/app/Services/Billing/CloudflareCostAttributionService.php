@@ -24,7 +24,9 @@ class CloudflareCostAttributionService
         return Schema::hasColumn('tenants', 'is_vip')
             && Schema::hasTable('cloudflare_usage_daily')
             && Schema::hasTable('cloudflare_cost_daily')
-            && Schema::hasTable('cloudflare_billing_snapshots');
+            && Schema::hasTable('cloudflare_billing_snapshots')
+            && Schema::hasColumn('cloudflare_usage_daily', 'outcome')
+            && Schema::hasColumn('cloudflare_cost_daily', 'outcome');
     }
 
     /**
@@ -56,7 +58,8 @@ class CloudflareCostAttributionService
             foreach ($rows as $row) {
                 $tenantId = (int) ($row['tenant_id'] ?? 0);
                 $domainName = strtolower(trim((string) ($row['domain_name'] ?? '')));
-                $usageDate = (string) ($row['usage_date'] ?? '');
+                $usageDate = $this->usageDateForStorage($row['usage_date'] ?? '');
+                $outcome = $this->normalizeOutcome($row['outcome'] ?? 'legacy');
 
                 if ($tenantId <= 0 || $domainName === '' || $usageDate === '') {
                     continue;
@@ -75,12 +78,31 @@ class CloudflareCostAttributionService
                     'last_synced_at' => $now,
                 ];
 
+                if ($outcome !== 'legacy') {
+                    CloudflareUsageDaily::query()
+                        ->where('usage_date', $usageDate)
+                        ->where('tenant_id', $tenantId)
+                        ->where('domain_name', $domainName)
+                        ->where('environment', $environment)
+                        ->where('outcome', 'legacy')
+                        ->delete();
+
+                    CloudflareCostDaily::query()
+                        ->where('usage_date', $usageDate)
+                        ->where('tenant_id', $tenantId)
+                        ->where('domain_name', $domainName)
+                        ->where('environment', $environment)
+                        ->where('outcome', 'legacy')
+                        ->delete();
+                }
+
                 CloudflareUsageDaily::query()->updateOrCreate(
                     [
                         'usage_date' => $usageDate,
                         'tenant_id' => $tenantId,
                         'domain_name' => $domainName,
                         'environment' => $environment,
+                        'outcome' => $outcome,
                     ],
                     $usageValues
                 );
@@ -91,6 +113,7 @@ class CloudflareCostAttributionService
                         'tenant_id' => $tenantId,
                         'domain_name' => $domainName,
                         'environment' => $environment,
+                        'outcome' => $outcome,
                     ],
                     array_merge($this->estimateCosts($usageValues), [
                         'last_synced_at' => $now,
@@ -160,6 +183,7 @@ class CloudflareCostAttributionService
             ->get();
 
         $usageByDomain = $usageRows->groupBy('domain_name');
+        $costsByDomainOutcome = $costRows->groupBy(fn (CloudflareCostDaily $row): string => $row->domain_name.'|'.$row->outcome);
         $domains = $costRows
             ->groupBy('domain_name')
             ->map(function (Collection $rows, string $domain) use ($usageByDomain): array {
@@ -181,6 +205,31 @@ class CloudflareCostAttributionService
             ->values()
             ->all();
 
+        $outcomes = $usageRows
+            ->groupBy(fn (CloudflareUsageDaily $row): string => $row->domain_name.'|'.$row->outcome)
+            ->map(function (Collection $rows, string $key) use ($costsByDomainOutcome): array {
+                [$domain, $outcome] = explode('|', $key, 2);
+                $costs = $costsByDomainOutcome->get($key, collect());
+                $requests = (int) $rows->sum('requests');
+                $estimatedCost = (float) $costs->sum('total_estimated_cost_usd');
+
+                return [
+                    'domain_name' => $domain,
+                    'outcome' => $outcome,
+                    'requests' => $requests,
+                    'estimated_cost_usd' => $estimatedCost,
+                    'cost_per_million_requests_usd' => $requests > 0 ? round(($estimatedCost / $requests) * 1_000_000, 6) : 0.0,
+                    'd1_rows_read' => (int) $rows->sum('d1_rows_read'),
+                    'd1_rows_written' => (int) $rows->sum('d1_rows_written'),
+                    'kv_reads' => (int) $rows->sum('kv_reads'),
+                    'kv_writes' => (int) $rows->sum('kv_writes'),
+                    'kv_write_bytes' => (int) $rows->sum('kv_write_bytes'),
+                ];
+            })
+            ->sortBy([['domain_name', 'asc'], ['outcome', 'asc']])
+            ->values()
+            ->all();
+
         $lastSynced = $costRows->max('last_synced_at');
 
         return [
@@ -192,6 +241,7 @@ class CloudflareCostAttributionService
                     : null,
             ],
             'domains' => $domains,
+            'outcomes' => $outcomes,
             'resources' => [
                 'workers' => $this->formatMoney((float) $costRows->sum('workers_requests_cost_usd') + (float) $costRows->sum('workers_cpu_cost_usd')),
                 'd1' => $this->formatMoney((float) $costRows->sum('d1_cost_usd')),
@@ -362,6 +412,7 @@ class CloudflareCostAttributionService
   index1 AS tenant_id,
   blob1 AS domain_name,
   blob2 AS environment,
+  if(nullIf(blob3, '') IS NULL, 'legacy', blob3) AS outcome,
   SUM(_sample_interval * double1) AS requests,
   SUM(_sample_interval * double2) AS d1_rows_read,
   SUM(_sample_interval * double3) AS d1_rows_written,
@@ -375,7 +426,7 @@ FROM %s
 WHERE timestamp >= toDateTime('%s')
   AND timestamp < toDateTime('%s')
   AND blob2 = '%s'
-GROUP BY usage_date, tenant_id, domain_name, environment
+GROUP BY usage_date, tenant_id, domain_name, environment, outcome
 ORDER BY usage_date ASC",
             $this->quoteIdentifier($dataset),
             $start->format('Y-m-d H:i:s'),
@@ -427,6 +478,27 @@ ORDER BY usage_date ASC",
         return max(0, (int) round((float) $value));
     }
 
+    private function normalizeOutcome(mixed $value): string
+    {
+        $outcome = strtolower(trim((string) $value));
+        $allowed = ['pass', 'challenge_issued', 'challenge_passed', 'challenge_failed', 'blocked', 'legacy'];
+
+        return in_array($outcome, $allowed, true) ? $outcome : 'legacy';
+    }
+
+    private function usageDateForStorage(mixed $value): string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return '';
+        }
+
+        try {
+            return CarbonImmutable::parse($value, 'UTC')->utc()->startOfDay()->toDateTimeString();
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
     private function perMillion(mixed $quantity, float $rate): float
     {
         return (((float) $quantity) / 1_000_000) * $rate;
@@ -454,6 +526,7 @@ ORDER BY usage_date ASC",
                 'final_reconciled_cost_usd' => null,
             ],
             'domains' => [],
+            'outcomes' => [],
             'resources' => [
                 'workers' => '$0.00',
                 'd1' => '$0.00',

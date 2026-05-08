@@ -64,6 +64,7 @@ import {
   bindUsageTenant,
   createMeteredEnv,
   flushUsageMeter,
+  markUsageOutcome,
 } from "./usage-meter";
 
 // Forward declarations — these modules will be created in Phases 4 and 5.
@@ -696,6 +697,7 @@ async function meterOriginResponse(
   meta: RequestMeta
 ): Promise<Response> {
   const response = await responsePromise;
+  markUsageOutcome(env, "pass");
   return applyMeteringToOriginResponse(response, metering, env, ctx, meta);
 }
 
@@ -1870,6 +1872,8 @@ async function serveChallengePagePlaceholder(
   domainConfig: DomainConfigRecord,
   env: Env
 ): Promise<Response> {
+  markUsageOutcome(env, "challenge_issued");
+
   if (!hasJwtSecret(env)) {
     return createErrorResponse(
       "WORKER_MISCONFIGURED",
@@ -1927,6 +1931,7 @@ async function handleSubmission(
     const thresholds = parseThresholds(domainConfig);
     return handleChallengeSubmission(request, meta, domainConfig, thresholds, env, ctx);
   } catch {
+    markUsageOutcome(env, "challenge_failed");
     return createErrorResponse(
       "CHALLENGE_UNAVAILABLE",
       "Challenge system is not available",
@@ -1955,6 +1960,7 @@ function normalizeBlockRedirectUrl(raw: string | undefined): string | null {
 }
 
 function handleHardBlock(env: Env): Response {
+  markUsageOutcome(env, "blocked");
   const redirectUrl = normalizeBlockRedirectUrl(env.ES_BLOCK_REDIRECT_URL);
   if (redirectUrl) {
     return new Response(null, {
@@ -1996,7 +2002,11 @@ function handleHardBlock(env: Env): Response {
   );
 }
 
-function handleStatelessBlock(): Response {
+function handleStatelessBlock(env?: Env): Response {
+  if (env) {
+    markUsageOutcome(env, "blocked");
+  }
+
   return new Response("Forbidden", {
     status: 403,
     headers: {
@@ -2136,14 +2146,14 @@ async function handleWorkerRequest(
     // These are platform-wide secret/probe paths with negligible false-positive
     // risk. Customer-managed CMS paths remain in the configurable WAF layer.
     if (isTier0SecretProbePath(meta.path)) {
-      return handleStatelessBlock();
+      return handleStatelessBlock(env);
     }
 
     // --- Early Static Asset Bypass (no KV/D1) ---
     // Only GET/HEAD web assets are bypassed here. JSON/API-like resources stay
     // in the normal protection path to avoid weakening customer applications.
     if (isEarlyStaticBypassRequest(request, meta.path)) {
-      return safeOriginFetch(request);
+      return safeOriginFetch(request, env);
     }
 
     // --- Resolve Domain Configuration (EARLY) ---
@@ -2154,13 +2164,13 @@ async function handleWorkerRequest(
 
     if (!domainConfig) {
       // Domain not onboarded — transparently pass through.
-      return safeOriginFetch(request);
+      return safeOriginFetch(request, env);
     }
 
     if (domainConfig.status !== "active") {
       // Paused/revoked domains should bypass protection transparently.
       // No temp bans, no firewall rules, no risk scoring — just pass through.
-      return safeOriginFetch(request);
+      return safeOriginFetch(request, env);
     }
 
     bindUsageTenant(env, domainConfig.tenant_id, domainConfig.domain_name || domain);
@@ -2178,7 +2188,7 @@ async function handleWorkerRequest(
           crawlerDecision.reason || "Crawler allow-listed"
         )
       );
-      return safeOriginFetch(request);
+      return safeOriginFetch(request, env);
     }
 
     let metering: MeteringState | null = null;
@@ -2507,7 +2517,7 @@ async function handleWorkerRequest(
     // to prevent post-CAPTCHA abuse.
     if (session) {
       // Skip static assets — no need to count CSS/JS/images
-      if (isStaticAssetPath(meta.path)) return safeOriginFetch(request);
+      if (isStaticAssetPath(meta.path)) return safeOriginFetch(request, env);
 
       if (!meta.isPrefetch) {
         // Check grace marker first (set by challenge.ts after successful CAPTCHA solve).
@@ -2592,7 +2602,7 @@ async function handleWorkerRequest(
 
     // Do not issue interactive challenges for static assets.
     if (isStaticAssetPath(meta.path)) {
-      return safeOriginFetch(request);
+      return safeOriginFetch(request, env);
     }
 
     // --- Trusted IP Path: Visit Counter + Flood Read-Only ---
@@ -2795,7 +2805,7 @@ async function handleWorkerRequest(
 
     // Do not issue interactive challenges for static assets.
     if (isStaticAssetPath(meta.path)) {
-      return safeOriginFetch(request);
+      return safeOriginFetch(request, env);
     }
 
     // --- Visit Counter for New Visitors (before risk engine) ---
@@ -2980,7 +2990,11 @@ async function handleWorkerRequest(
     }
 }
 
-async function safeOriginFetch(request: Request): Promise<Response> {
+async function safeOriginFetch(request: Request, env?: Env): Promise<Response> {
+  if (env) {
+    markUsageOutcome(env, "pass");
+  }
+
   try {
     return await fetch(request);
   } catch (error) {

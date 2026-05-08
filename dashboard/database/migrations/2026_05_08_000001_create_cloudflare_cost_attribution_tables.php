@@ -21,6 +21,7 @@ return new class extends Migration
                 $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
                 $table->string('domain_name', 255);
                 $table->string('environment', 40)->default('production');
+                $table->string('outcome', 40)->default('legacy');
                 $table->unsignedBigInteger('requests')->default(0);
                 $table->unsignedBigInteger('d1_rows_read')->default(0);
                 $table->unsignedBigInteger('d1_rows_written')->default(0);
@@ -33,9 +34,9 @@ return new class extends Migration
                 $table->dateTime('last_synced_at')->nullable();
                 $table->timestamps();
 
-                $table->unique(['usage_date', 'tenant_id', 'domain_name', 'environment'], 'cf_usage_daily_identity');
+                $table->unique(['usage_date', 'tenant_id', 'domain_name', 'environment', 'outcome'], 'cf_usage_daily_identity');
                 $table->index(['tenant_id', 'usage_date']);
-                $table->index(['environment', 'usage_date']);
+                $table->index(['environment', 'usage_date', 'outcome'], 'cf_usage_daily_outcome_idx');
             });
         }
 
@@ -46,6 +47,7 @@ return new class extends Migration
                 $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
                 $table->string('domain_name', 255);
                 $table->string('environment', 40)->default('production');
+                $table->string('outcome', 40)->default('legacy');
                 $table->decimal('workers_requests_cost_usd', 14, 6)->default(0);
                 $table->decimal('workers_cpu_cost_usd', 14, 6)->default(0);
                 $table->decimal('d1_cost_usd', 14, 6)->default(0);
@@ -56,9 +58,9 @@ return new class extends Migration
                 $table->dateTime('last_synced_at')->nullable();
                 $table->timestamps();
 
-                $table->unique(['usage_date', 'tenant_id', 'domain_name', 'environment'], 'cf_cost_daily_identity');
+                $table->unique(['usage_date', 'tenant_id', 'domain_name', 'environment', 'outcome'], 'cf_cost_daily_identity');
                 $table->index(['tenant_id', 'usage_date']);
-                $table->index(['environment', 'usage_date']);
+                $table->index(['environment', 'usage_date', 'outcome'], 'cf_cost_daily_outcome_idx');
             });
         }
 

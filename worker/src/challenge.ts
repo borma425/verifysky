@@ -39,6 +39,7 @@ import {
   isPrivateOrReservedIP,
 } from "./utils";
 import { SLIDER_RUNTIME_SCRIPT } from "./generated/slider-runtime";
+import { markUsageOutcome } from "./usage-meter";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -117,6 +118,8 @@ export async function handleChallengeGeneration(
   domainConfig: DomainConfigRecord,
   env: Env
 ): Promise<Response> {
+  markUsageOutcome(env, "challenge_issued");
+
   // Generate cryptographic nonce and random target position
   const nonce = generateNonce(32);
   const targetX = generateTargetX();
@@ -229,17 +232,23 @@ export async function handleChallengeSubmission(
   env: Env,
   ctx: ExecutionContext
 ): Promise<Response> {
+  const failed = (code: string, message: string, status: number): Response => {
+    markUsageOutcome(env, "challenge_failed");
+    return createErrorResponse(code, message, status);
+  };
+
   const strictContextBinding = String(env.ES_STRICT_CONTEXT_BINDING ?? "off").toLowerCase() === "on";
   // Basic content-type validation
   const contentType = request.headers.get("Content-Type") || "";
   if (!contentType.toLowerCase().includes("application/json")) {
-    return createErrorResponse("UNSUPPORTED_MEDIA_TYPE", "Expected application/json", 415);
+    return failed("UNSUPPORTED_MEDIA_TYPE", "Expected application/json", 415);
   }
 
   // Per-IP submission rate limit (protect challenge endpoint from flooding)
   const rateLimited = await isSubmissionRateLimited(meta.ip, env);
   if (rateLimited) {
     ctx.waitUntil(markIPTemporarilyBanned(env, meta.ip, "submission_rate_limit", thresholds, meta));
+    markUsageOutcome(env, "blocked");
     return createErrorResponse("RATE_LIMITED", "Too many verification attempts. Try again later.", 429);
   }
 
@@ -249,7 +258,7 @@ export async function handleChallengeSubmission(
     const body = await request.json();
     submission = validateSubmissionPayload(body);
   } catch (error) {
-    return createErrorResponse(
+    return failed(
       "INVALID_PAYLOAD",
       "Invalid challenge submission format",
       400
@@ -268,7 +277,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         "Challenge cookie validation failed"));
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "cookie_mismatch", thresholds, meta));
-      return createErrorResponse("CHALLENGE_CONTEXT_MISMATCH", "Challenge context mismatch", 403);
+      return failed("CHALLENGE_CONTEXT_MISMATCH", "Challenge context mismatch", 403);
     }
     ctx.waitUntil(logEvent(env, "challenge_warning", meta, submission.fingerprint,
       "Challenge cookie validation failed (soft-pass)"));
@@ -288,7 +297,7 @@ export async function handleChallengeSubmission(
     // Nonce already consumed or never existed — possible replay attack
     ctx.waitUntil(logEvent(env, "replay_detected", meta, submission.fingerprint,
       `Nonce replay attempt: ${submission.nonce.substring(0, 16)}`));
-    return createErrorResponse("REPLAY_DETECTED", "This challenge has already been used", 403);
+    return failed("REPLAY_DETECTED", "This challenge has already been used", 403);
   }
 
   // Immediately consume the nonce in KV (one-time use)
@@ -307,17 +316,17 @@ export async function handleChallengeSubmission(
       .bind(submission.nonce)
       .first<ChallengeRecord>();
   } catch {
-    return createErrorResponse("CHALLENGE_ERROR", "Challenge verification failed", 500);
+    return failed("CHALLENGE_ERROR", "Challenge verification failed", 500);
   }
 
   if (!challenge) {
-    return createErrorResponse("CHALLENGE_EXPIRED", "Challenge not found or already used", 403);
+    return failed("CHALLENGE_EXPIRED", "Challenge not found or already used", 403);
   }
 
   // Check challenge expiration
   if (new Date(challenge.expires_at).getTime() < Date.now()) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "expired"));
-    return createErrorResponse("CHALLENGE_EXPIRED", "Challenge has expired", 403);
+    return failed("CHALLENGE_EXPIRED", "Challenge has expired", 403);
   }
 
   // Verify IP matches the original challenge request
@@ -327,7 +336,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         `IP mismatch: challenge issued to ${challenge.ip_address}`));
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch", thresholds, meta));
-      return createErrorResponse("IP_MISMATCH", "Challenge IP mismatch", 403);
+      return failed("IP_MISMATCH", "Challenge IP mismatch", 403);
     }
     ctx.waitUntil(logEvent(env, "challenge_warning", meta, submission.fingerprint,
       `IP mismatch detected (soft-pass): challenge issued to ${challenge.ip_address}`));
@@ -345,7 +354,7 @@ export async function handleChallengeSubmission(
   if (meta.path !== expectedSubmitPath) {
     ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "path_mismatch"));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "path_mismatch", thresholds, meta));
-    return createErrorResponse("INVALID_PATH", "Invalid submission path", 403);
+    return failed("INVALID_PATH", "Invalid submission path", 403);
   }
 
   const signaturePayload = `${submission.nonce}:${expectedSubmitPath}`;
@@ -359,7 +368,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Challenge signature verification failed"));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "signature_mismatch", thresholds, meta));
-    return createErrorResponse("INVALID_SIGNATURE", "Challenge integrity verification failed", 403);
+    return failed("INVALID_SIGNATURE", "Challenge integrity verification failed", 403);
   }
 
   const nonceHeader = (request.headers.get("X-ES-Nonce") || "").trim();
@@ -369,7 +378,7 @@ export async function handleChallengeSubmission(
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Nonce header mismatch"));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch", thresholds, meta));
-    return createErrorResponse("INVALID_NONCE_HEADER", "Invalid nonce header", 403);
+    return failed("INVALID_NONCE_HEADER", "Invalid nonce header", 403);
   }
 
   // --- 6. Analyze telemetry for human behavior ---
@@ -401,7 +410,7 @@ export async function handleChallengeSubmission(
       `Telemetry rejected: ${telemetryResult.reason}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "telemetry_rejected", thresholds, meta));
-    return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
+    return failed("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
   // --- 7. Verify slider X position matches target ---
@@ -411,7 +420,7 @@ export async function handleChallengeSubmission(
       `X position mismatch: submitted ${submission.sliderX}, target ${challenge.target_x}, diff ${xDiff}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "x_mismatch", thresholds, meta));
-    return createErrorResponse("CHALLENGE_FAILED", "Verification failed", 403);
+    return failed("CHALLENGE_FAILED", "Verification failed", 403);
   }
 
   // --- 8. Verify Turnstile token (invisible background check) ---
@@ -431,7 +440,7 @@ export async function handleChallengeSubmission(
         ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
           "Turnstile verification failed (strict mode)"));
         ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed", thresholds, meta));
-        return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
+        return failed("TURNSTILE_FAILED", "Background security verification failed", 403);
       }
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
         "Turnstile verification failed (soft-pass mode)"));
@@ -442,7 +451,7 @@ export async function handleChallengeSubmission(
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
         "Turnstile token missing (strict mode)"));
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing", thresholds, meta));
-      return createErrorResponse("TURNSTILE_FAILED", "Background security verification failed", 403);
+      return failed("TURNSTILE_FAILED", "Background security verification failed", 403);
     }
     ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
       "Turnstile token missing (soft-pass mode)"));
@@ -506,6 +515,8 @@ export async function handleChallengeSubmission(
   const safeRedirect = (submission.originalPath || "/").startsWith("/") 
     ? (submission.originalPath || "/") 
     : "/";
+
+  markUsageOutcome(env, "challenge_passed");
 
   return createJsonResponse(
     {

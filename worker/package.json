@@ -20,6 +20,7 @@
     "db:init:local:staging": "node scripts/db-init.mjs --env staging --local",
     "db:seed:local": "node scripts/seed-local-d1.mjs",
     "db:seed:local:staging": "node scripts/seed-local-d1.mjs --env staging",
+    "test:outcomes": "node --test tests/usage-outcomes.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

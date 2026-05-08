@@ -14,6 +14,7 @@ class CloudflareUsageDaily extends Model
         'tenant_id',
         'domain_name',
         'environment',
+        'outcome',
         'requests',
         'd1_rows_read',
         'd1_rows_written',

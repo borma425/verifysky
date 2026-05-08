@@ -14,6 +14,7 @@ class CloudflareCostDaily extends Model
         'tenant_id',
         'domain_name',
         'environment',
+        'outcome',
         'workers_requests_cost_usd',
         'workers_cpu_cost_usd',
         'd1_cost_usd',

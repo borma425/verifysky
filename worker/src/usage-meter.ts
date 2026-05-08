@@ -1,5 +1,12 @@
 import type { Env } from "./types";
 
+export type UsageOutcome =
+  | "pass"
+  | "challenge_issued"
+  | "challenge_passed"
+  | "challenge_failed"
+  | "blocked";
+
 type MutableEnv = Env & {
   DB: D1Database;
   SESSION_KV: KVNamespace;
@@ -36,6 +43,10 @@ export function bindUsageTenant(env: Env, tenantId?: string | null, domain?: str
   meters.get(env)?.bindTenant(tenantId, domain);
 }
 
+export function markUsageOutcome(env: Env, outcome: UsageOutcome): void {
+  meters.get(env)?.markOutcome(outcome);
+}
+
 export function flushUsageMeter(env: Env, response: Response): void {
   meters.get(env)?.flush(response);
 }
@@ -55,6 +66,7 @@ class UsageMeter {
 
   private tenantId = "";
   private domain = "";
+  private outcome: UsageOutcome = "pass";
   private flushed = false;
 
   constructor(private readonly env: Env) {}
@@ -69,6 +81,10 @@ class UsageMeter {
     if (normalizedDomain !== "") {
       this.domain = normalizedDomain;
     }
+  }
+
+  markOutcome(outcome: UsageOutcome): void {
+    this.outcome = outcome;
   }
 
   wrapD1(db: D1Database): D1Database {
@@ -164,7 +180,7 @@ class UsageMeter {
         blobs: [
           this.domain,
           this.environmentName(),
-          this.outcomeFor(response.status),
+          this.outcome,
         ],
         doubles: [
           this.counters.requests,
@@ -249,14 +265,6 @@ class UsageMeter {
 
   private environmentName(): string {
     return String(this.env.ES_TEST_MODE || "").toLowerCase() === "on" ? "staging" : "production";
-  }
-
-  private outcomeFor(status: number): string {
-    if (status >= 500) return "error";
-    if (status >= 400) return "blocked";
-    if (status >= 300) return "redirect";
-
-    return "pass";
   }
 }
 
