@@ -65,6 +65,10 @@ class CloudflareCostAttributionService
                     continue;
                 }
 
+                if (! Tenant::query()->whereKey($tenantId)->exists()) {
+                    continue;
+                }
+
                 $usageValues = [
                     'requests' => $this->integerMetric($row['requests'] ?? 0),
                     'd1_rows_read' => $this->integerMetric($row['d1_rows_read'] ?? 0),
@@ -412,7 +416,7 @@ class CloudflareCostAttributionService
   index1 AS tenant_id,
   blob1 AS domain_name,
   blob2 AS environment,
-  if(nullIf(blob3, '') IS NULL, 'legacy', blob3) AS outcome,
+  if(blob3 = '', 'legacy', blob3) AS outcome,
   SUM(_sample_interval * double1) AS requests,
   SUM(_sample_interval * double2) AS d1_rows_read,
   SUM(_sample_interval * double3) AS d1_rows_written,

@@ -42,6 +42,14 @@ class CloudflareCostAttributionTest extends TestCase
                     'kv_lists' => 0,
                     'kv_write_bytes' => 500,
                 ],
+                [
+                    'usage_date' => '2026-05-01',
+                    'tenant_id' => '999999',
+                    'domain_name' => 'orphan.example.com',
+                    'environment' => 'production',
+                    'outcome' => 'blocked',
+                    'requests' => 1,
+                ],
             ]),
         ]);
 
@@ -57,6 +65,10 @@ class CloudflareCostAttributionTest extends TestCase
         $this->assertSame('example.com', $usage->domain_name);
         $this->assertSame('pass', $usage->outcome);
         $this->assertSame(100000, $usage->requests);
+        $this->assertDatabaseMissing('cloudflare_usage_daily', [
+            'tenant_id' => 999999,
+            'domain_name' => 'orphan.example.com',
+        ]);
         $this->assertGreaterThan(0, (float) $cost->total_estimated_cost_usd);
         $this->assertSame('0.030000', $cost->workers_requests_cost_usd);
 
