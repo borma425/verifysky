@@ -78,7 +78,7 @@ return new class extends Migration
                 $table->timestamps();
 
                 $table->unique(['period_start', 'period_end', 'environment', 'source', 'resource'], 'cf_billing_snapshot_identity');
-                $table->index(['environment', 'period_start', 'period_end']);
+                $table->index(['environment', 'period_start', 'period_end'], 'cf_billing_period_idx');
             });
         }
     }
