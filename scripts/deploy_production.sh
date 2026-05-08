@@ -33,6 +33,12 @@ rsync -a --delete \
   --exclude='public/build' \
   "${REPO_DIR}/dashboard/" "${release_dir}/dashboard/"
 
+rsync -a --delete \
+  --exclude='node_modules' \
+  --exclude='dist' \
+  --exclude='.wrangler' \
+  "${REPO_DIR}/worker/" "${release_dir}/worker/"
+
 ln -sfn "${SHARED_DIR}/.env" "${release_dir}/dashboard/.env"
 rm -rf "${release_dir}/dashboard/storage"
 ln -sfn "${SHARED_DIR}/storage" "${release_dir}/dashboard/storage"
@@ -52,6 +58,13 @@ if [[ -f package-lock.json ]]; then
   echo "[deploy] Building frontend assets"
   sudo -u www-data env HOME="${SHARED_DIR}/storage" npm ci --no-audit --no-fund
   sudo -u www-data env HOME="${SHARED_DIR}/storage" npm run build
+fi
+
+if [[ -f "${release_dir}/worker/package-lock.json" ]]; then
+  echo "[deploy] Installing Worker dependencies"
+  cd "${release_dir}/worker"
+  sudo -u www-data env HOME="${SHARED_DIR}/storage" npm ci --no-audit --no-fund
+  cd "${release_dir}/dashboard"
 fi
 
 echo "[deploy] Optimizing Laravel"
