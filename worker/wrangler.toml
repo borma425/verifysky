@@ -36,6 +36,10 @@ database_id = "b7cc89c4-c6de-4353-b438-e10ca956d566"
 binding = "SESSION_KV"
 id = "effdc34b66704947bc30dce9a7644571"
 
+[[analytics_engine_datasets]]
+binding = "USAGE_ANALYTICS"
+dataset = "verifysky_usage"
+
 # ---------------------------------------------------------------------------
 # Environment Variables (Secrets) — GLOBAL ONLY
 # Set via: wrangler secret put <KEY_NAME>
@@ -87,6 +91,10 @@ database_id = "57656d70-8d1a-4fff-b38b-fe705303bac1"
 [[env.staging.kv_namespaces]]
 binding = "SESSION_KV"
 id = "230e5e4702d24cf8b84abd0c6dddad43"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "USAGE_ANALYTICS"
+dataset = "verifysky_usage_staging"
 
 [env.staging.vars]
 OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"

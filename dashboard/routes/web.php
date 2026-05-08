@@ -126,6 +126,7 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
         Route::get('/admin/tenants/{tenant}/domains', [AdminTenantDomainsController::class, 'index'])->name('admin.tenants.domains.index');
         Route::get('/admin/tenants/{tenant}/domains/statuses', [AdminTenantDomainsController::class, 'statuses'])->name('admin.tenants.domains.statuses');
         Route::post('/admin/tenants/{tenant}/domains', [AdminTenantsController::class, 'storeDomain'])->name('admin.tenants.domains.store');
+        Route::post('/admin/tenants/{tenant}/vip', [AdminTenantsController::class, 'updateVip'])->name('admin.tenants.vip.update');
         Route::post('/admin/tenants/{tenant}/force-cycle-reset', [AdminTenantsController::class, 'forceCycleReset'])->name('admin.tenants.force_cycle_reset');
         Route::post('/admin/tenants/{tenant}/manual-grants', [AdminTenantsController::class, 'grantPlan'])->name('admin.tenants.manual_grants.store');
         Route::post('/admin/tenants/{tenant}/manual-grants/{grant}/revoke', [AdminTenantsController::class, 'revokePlanGrant'])->name('admin.tenants.manual_grants.revoke');

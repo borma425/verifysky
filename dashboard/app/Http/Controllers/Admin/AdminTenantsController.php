@@ -12,6 +12,7 @@ use App\Models\Tenant;
 use App\Models\TenantPlanGrant;
 use App\Models\User;
 use App\Services\Billing\BillingPlanCatalogService;
+use App\Services\Billing\CloudflareCostAttributionService;
 use App\Services\Billing\TenantBillingStatusService;
 use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\Plans\PlanLimitsService;
@@ -33,7 +34,8 @@ class AdminTenantsController extends Controller
         private readonly BillingPlanCatalogService $planCatalog,
         private readonly PlanLimitsService $planLimits,
         private readonly AdminTenantRowViewData $rowViewData,
-        private readonly DomainAssetPolicyService $domainAssets
+        private readonly DomainAssetPolicyService $domainAssets,
+        private readonly CloudflareCostAttributionService $cloudflareCosts
     ) {}
 
     public function index(): View
@@ -58,7 +60,10 @@ class AdminTenantsController extends Controller
         $tenants = $query->paginate(25);
         $tenantRows = $tenants
             ->getCollection()
-            ->map(fn (Tenant $tenant): array => $this->rowViewData->fromTenant($tenant, $billingAvailable))
+            ->map(fn (Tenant $tenant): array => $this->withCloudflareCostSummary(
+                $this->rowViewData->fromTenant($tenant, $billingAvailable),
+                $tenant
+            ))
             ->all();
 
         return view('admin.tenants.index', [
@@ -89,12 +94,33 @@ class AdminTenantsController extends Controller
 
         return view('admin.tenants.show', [
             'tenant' => $tenant,
-            'row' => $this->rowViewData->fromTenant($tenant, $billingAvailable),
+            'row' => $this->withCloudflareCostSummary($this->rowViewData->fromTenant($tenant, $billingAvailable), $tenant),
             'domainsUsage' => $this->planLimits->getDomainsUsage($tenant),
             'domainAssetSummaries' => $this->domainAssets->summariesForTenant($tenant),
             'billingAvailable' => $billingAvailable,
             'grantablePlans' => $this->planCatalog->paidPlans(),
         ]);
+    }
+
+    public function updateVip(Request $request, Tenant $tenant): RedirectResponse
+    {
+        if (! Schema::hasColumn('tenants', 'is_vip')) {
+            return back()->with('error', 'VIP billing visibility is not ready. Run the latest migrations first.');
+        }
+
+        $validated = $request->validate([
+            'is_vip' => ['nullable', 'boolean'],
+        ]);
+
+        $tenant->forceFill([
+            'is_vip' => (bool) ($validated['is_vip'] ?? false),
+        ])->save();
+
+        return back()->with('status', sprintf(
+            'VIP Cloudflare cost visibility %s for %s.',
+            $tenant->is_vip ? 'enabled' : 'disabled',
+            $tenant->name
+        ));
     }
 
     public function storeDomain(AdminStoreTenantDomainRequest $request, Tenant $tenant): RedirectResponse
@@ -205,6 +231,25 @@ class AdminTenantsController extends Controller
         return Schema::hasTable('tenant_usage')
             && Schema::hasTable('tenant_plan_grants')
             && Schema::hasTable('tenant_subscriptions');
+    }
+
+    private function withCloudflareCostSummary(array $row, Tenant $tenant): array
+    {
+        $summary = $this->cloudflareCosts->summaryForTenant($tenant);
+        $monthlyRevenue = (float) ($row['effective_plan']['price_monthly'] ?? 0);
+        $estimatedCost = (float) ($summary['summary']['estimated_cost_usd'] ?? 0);
+        $finalCost = $summary['summary']['final_reconciled_cost_usd'] ?? null;
+        $basisCost = is_numeric($finalCost) ? (float) $finalCost : $estimatedCost;
+        $profit = $monthlyRevenue - $basisCost;
+
+        $row['cloudflare_cost'] = array_merge($summary, [
+            'monthly_revenue_usd' => $monthlyRevenue,
+            'profit_usd' => $profit,
+            'margin_percentage' => $monthlyRevenue > 0 ? round(($profit / $monthlyRevenue) * 100, 1) : null,
+            'visible_to_customer' => (bool) $tenant->is_vip,
+        ]);
+
+        return $row;
     }
 
     private function adminUserFromSession(): ?User

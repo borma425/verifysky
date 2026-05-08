@@ -12,6 +12,10 @@ Schedule::command('billing:sync-edge-usage')
     ->hourly()
     ->withoutOverlapping();
 
+Schedule::command('billing:sync-cloudflare-costs')
+    ->hourly()
+    ->withoutOverlapping();
+
 Schedule::command('billing:reconcile-expired-subscriptions')
     ->hourly()
     ->withoutOverlapping();

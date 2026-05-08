@@ -14,6 +14,9 @@ export interface Env {
   // Cloudflare KV — sub-millisecond session validation and nonce tracking
   SESSION_KV: KVNamespace;
 
+  // Workers Analytics Engine — tenant/domain usage telemetry for billing attribution
+  USAGE_ANALYTICS?: AnalyticsEngineDataset;
+
   // ---- Global Secrets (shared across all tenants) ----
 
   // Cryptographic signing key for Human Session Tokens (JWT)

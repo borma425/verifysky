@@ -30,6 +30,7 @@
           <th>Billing Cycle</th>
           <th>Bonus</th>
           <th>Domains</th>
+          <th>Cloudflare Cost</th>
           <th>Actions</th>
         </tr>
         </thead>
@@ -39,6 +40,7 @@
             $tenant = $row['tenant'];
             $billing = $row['billing'];
             $grant = $row['active_grant'];
+            $cf = $row['cloudflare_cost'] ?? [];
             $source = $billingTerms->sourceLabel($row['effective_plan']['source'] ?? 'baseline');
           @endphp
           <tr>
@@ -79,11 +81,29 @@
               <div class="text-xs text-sky-100/60">{{ $row['members_count'] ?? 0 }} member(s)</div>
             </td>
             <td>
+              <div class="font-semibold text-white">${{ number_format((float) ($cf['summary']['estimated_cost_usd'] ?? 0), 2) }}</div>
+              <div class="text-xs text-sky-100/60">Revenue: ${{ number_format((float) ($cf['monthly_revenue_usd'] ?? 0), 2) }}</div>
+              <div class="text-xs {{ (($cf['profit_usd'] ?? 0) < 0) ? 'text-rose-200' : 'text-emerald-200' }}">
+                Profit: ${{ number_format((float) ($cf['profit_usd'] ?? 0), 2) }}
+                @if(($cf['margin_percentage'] ?? null) !== null)
+                  / {{ $cf['margin_percentage'] }}%
+                @endif
+              </div>
+              <div class="mt-1 text-xs font-semibold {{ $tenant->is_vip ? 'text-cyan-200' : 'text-sky-100/45' }}">
+                {{ $tenant->is_vip ? 'VIP visible' : 'Hidden from customer' }}
+              </div>
+            </td>
+            <td>
               <div class="flex flex-wrap gap-2">
                 <a href="{{ route('admin.tenants.show', $tenant) }}" class="es-btn es-btn-secondary px-3 py-2 text-xs">Manage User</a>
                 <form method="POST" action="{{ route('admin.tenants.force_cycle_reset', $tenant) }}">
                   @csrf
                   <button class="es-btn px-3 py-2 text-xs" type="submit">Force Reset</button>
+                </form>
+                <form method="POST" action="{{ route('admin.tenants.vip.update', $tenant) }}">
+                  @csrf
+                  <input type="hidden" name="is_vip" value="{{ $tenant->is_vip ? 0 : 1 }}">
+                  <button class="es-btn es-btn-secondary px-3 py-2 text-xs" type="submit">{{ $tenant->is_vip ? 'Hide Cost' : 'VIP Cost' }}</button>
                 </form>
               </div>
               @if($billingAvailable)
@@ -105,7 +125,7 @@
           </tr>
         @empty
           <tr>
-            <td colspan="7" class="py-10 text-center text-sky-100/70">No users found.</td>
+            <td colspan="8" class="py-10 text-center text-sky-100/70">No users found.</td>
           </tr>
         @endforelse
         </tbody>

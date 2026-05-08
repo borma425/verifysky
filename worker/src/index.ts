@@ -60,6 +60,11 @@ import {
   verifyMeterToken,
   type MeteringState,
 } from "./metering";
+import {
+  bindUsageTenant,
+  createMeteredEnv,
+  flushUsageMeter,
+} from "./usage-meter";
 
 // Forward declarations — these modules will be created in Phases 4 and 5.
 // We import them dynamically to avoid circular dependency issues during build.
@@ -2087,20 +2092,27 @@ const worker: ExportedHandler<Env> = {
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
+    const meteredEnv = createMeteredEnv(env);
+    let response: Response;
+
     try {
-      return await handleWorkerRequest(request, env, ctx);
+      response = await handleWorkerRequest(request, meteredEnv, ctx);
     } catch (error) {
       console.error("Unhandled worker exception", {
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
 
-      return createErrorResponse(
+      response = createErrorResponse(
         "WORKER_EXCEPTION",
         "VerifySky edge runtime failed safely",
         500
       );
     }
+
+    flushUsageMeter(meteredEnv, response);
+
+    return response;
   },
 };
 
@@ -2150,6 +2162,8 @@ async function handleWorkerRequest(
       // No temp bans, no firewall rules, no risk scoring — just pass through.
       return safeOriginFetch(request);
     }
+
+    bindUsageTenant(env, domainConfig.tenant_id, domainConfig.domain_name || domain);
 
     // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
     const crawlerDecision = await evaluateCrawlerAllowDecision(meta, env);

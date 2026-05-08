@@ -6,6 +6,7 @@ use App\Models\Tenant;
 use App\Models\TenantSubscription;
 use App\Models\User;
 use App\Services\Billing\BillingPlanCatalogService;
+use App\Services\Billing\CloudflareCostAttributionService;
 use App\Services\Billing\Contracts\PaymentGatewayInterface;
 use App\Services\Billing\EffectiveTenantPlanService;
 use App\Services\Billing\TenantBillingStatusService;
@@ -23,7 +24,8 @@ class BillingController extends Controller
         private readonly PaymentGatewayInterface $payments,
         private readonly TenantBillingStatusService $tenantBillingStatus,
         private readonly PlanLimitsService $planLimits,
-        private readonly EffectiveTenantPlanService $effectivePlans
+        private readonly EffectiveTenantPlanService $effectivePlans,
+        private readonly CloudflareCostAttributionService $cloudflareCosts
     ) {}
 
     public function index(): View
@@ -36,6 +38,7 @@ class BillingController extends Controller
             'tenant' => $tenant,
             'currentPlan' => $this->planLimits->planDefinitionForTenant($tenant),
             'billingStatus' => $billingStatus,
+            'cloudflareCosts' => $this->cloudflareCostsForTenant($tenant, $billingStatus),
             'subscription' => $this->subscriptions->currentSubscriptionForTenant($tenant),
             'paidPlans' => $this->planCatalog->paidPlans(),
             'planCards' => $this->planCatalog->displayPlans(),
@@ -43,6 +46,19 @@ class BillingController extends Controller
             'billingStorageReady' => $this->subscriptions->storageReady(),
             'activeGrant' => $this->effectivePlans->activeGrantForTenant($tenant),
         ]);
+    }
+
+    private function cloudflareCostsForTenant(Tenant $tenant, ?array $billingStatus): ?array
+    {
+        if (! (bool) $tenant->is_vip || ! $this->cloudflareCosts->storageReady()) {
+            return null;
+        }
+
+        return $this->cloudflareCosts->summaryForTenant(
+            $tenant,
+            $billingStatus['current_cycle_start_at'] ?? null,
+            $billingStatus['current_cycle_end_at'] ?? null
+        );
     }
 
     public function checkout(Request $request, string $plan): RedirectResponse

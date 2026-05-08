@@ -12,6 +12,9 @@
     $fallbackPlanName = (string) $tenant->plan === 'starter' ? 'Free' : ucfirst((string) $tenant->plan);
     $currentPlanName = $currentPlan['name'] ?? $fallbackPlanName;
     $effectivePlanSource = $billingTerms->sourceLabel($billingStatus['effective_plan_source'] ?? 'baseline');
+    $formatCloudflareMoney = static function (float $amount): string {
+      return $amount > 0 && $amount < 0.01 ? '< $0.01' : '$'.number_format($amount, 2);
+    };
   @endphp
 
   <section class="vs-billing es-animate">
@@ -127,6 +130,80 @@
                   @include('partials.billing-limit-equation', ['equation' => $limitEquation])
                 </div>
               @endforeach
+            </div>
+          @endif
+
+          @if($cloudflareCosts)
+            @php
+              $costSummary = $cloudflareCosts['summary'] ?? [];
+              $domainCosts = $cloudflareCosts['domains'] ?? [];
+              $resourceCosts = $cloudflareCosts['resources'] ?? [];
+              $lastSyncedAt = $cloudflareCosts['last_synced_at'] ?? null;
+            @endphp
+            <div class="mt-6 rounded-lg border border-cyan-300/20 bg-white/[0.03] p-4">
+              <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 class="vs-billing-h2">Cloudflare Resource Cost</h2>
+                  <p class="vs-billing-subcopy" title="Estimated from edge usage; final invoice reconciliation may differ slightly.">
+                    Estimated from edge usage. Final invoice reconciliation may differ slightly.
+                  </p>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs font-bold uppercase tracking-[0.16em] text-[#7F8BA0]">This cycle</div>
+                  <div class="text-xl font-bold text-white">{{ $formatCloudflareMoney((float) ($costSummary['estimated_cost_usd'] ?? 0)) }}</div>
+                  @if($lastSyncedAt)
+                    <div class="text-xs text-sky-100/60">Synced {{ $lastSyncedAt->format('Y-m-d H:i') }} UTC</div>
+                  @endif
+                </div>
+              </div>
+
+              <div class="mt-4 grid gap-2 md:grid-cols-4">
+                <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div class="vs-billing-label">Workers</div>
+                  <div class="font-semibold text-white">{{ $resourceCosts['workers'] ?? '$0.00' }}</div>
+                </div>
+                <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div class="vs-billing-label">D1</div>
+                  <div class="font-semibold text-white">{{ $resourceCosts['d1'] ?? '$0.00' }}</div>
+                </div>
+                <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div class="vs-billing-label">KV</div>
+                  <div class="font-semibold text-white">{{ $resourceCosts['kv'] ?? '$0.00' }}</div>
+                </div>
+                <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div class="vs-billing-label">Telemetry</div>
+                  <div class="font-semibold text-white">{{ $resourceCosts['wae'] ?? '$0.00' }}</div>
+                </div>
+              </div>
+
+              <div class="mt-4 overflow-x-auto">
+                <table class="es-table min-w-[720px]">
+                  <thead>
+                  <tr>
+                    <th>Domain</th>
+                    <th>Requests</th>
+                    <th>D1 rows</th>
+                    <th>KV ops</th>
+                    <th>Estimated cost</th>
+                  </tr>
+                  </thead>
+                  <tbody>
+                  @forelse($domainCosts as $domainCost)
+                    <tr>
+                      <td class="font-semibold text-white">{{ $domainCost['domain_name'] }}</td>
+                      <td>{{ number_format((int) ($domainCost['requests'] ?? 0)) }}</td>
+                      <td>{{ number_format((int) ($domainCost['d1_rows_read'] ?? 0) + (int) ($domainCost['d1_rows_written'] ?? 0)) }}</td>
+                      <td>{{ number_format((int) ($domainCost['kv_operations'] ?? 0)) }}</td>
+                      <td class="font-semibold text-white">{{ $formatCloudflareMoney((float) ($domainCost['estimated_cost_usd'] ?? 0)) }}</td>
+                    </tr>
+                  @empty
+                    <tr>
+                      <td colspan="5" class="py-4 text-center text-sky-100/60">No Cloudflare cost data has synced for this billing cycle yet.</td>
+                    </tr>
+                  @endforelse
+                  </tbody>
+                </table>
+              </div>
             </div>
           @endif
 

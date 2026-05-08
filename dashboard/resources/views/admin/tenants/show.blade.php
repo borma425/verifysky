@@ -13,6 +13,10 @@
     $domainUsageLabel = $domainLimit === null ? $domainUsed.' / Unlimited' : $domainUsed.' / '.$domainLimit;
     $domainLimitEquation = $billingTerms->domainEquation($domainsUsage);
     $domainAssetSummaries = $domainAssetSummaries ?? [];
+    $cf = $row['cloudflare_cost'] ?? [];
+    $cfSummary = $cf['summary'] ?? [];
+    $cfDomains = $cf['domains'] ?? [];
+    $cfResources = $cf['resources'] ?? [];
   @endphp
 
   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -30,6 +34,68 @@
         <button class="es-btn" type="submit">Force Cycle Reset</button>
       </form>
     </div>
+  </div>
+
+  <div class="es-card mb-5 p-5">
+    <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div>
+        <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">VIP Cloudflare Cost Attribution</div>
+        <div class="mt-3 text-2xl font-bold text-white">${{ number_format((float) ($cfSummary['estimated_cost_usd'] ?? 0), 2) }}</div>
+        <div class="mt-1 text-sm text-sky-100/70">
+          Revenue ${{ number_format((float) ($cf['monthly_revenue_usd'] ?? 0), 2) }}
+          / Profit ${{ number_format((float) ($cf['profit_usd'] ?? 0), 2) }}
+          @if(($cf['margin_percentage'] ?? null) !== null)
+            / Margin {{ $cf['margin_percentage'] }}%
+          @endif
+        </div>
+        @if($cf['last_synced_at'] ?? null)
+          <div class="mt-1 text-xs text-sky-100/55">Last synced {{ $cf['last_synced_at']->format('Y-m-d H:i') }} UTC</div>
+        @endif
+      </div>
+      <form method="POST" action="{{ route('admin.tenants.vip.update', $tenant) }}" class="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+        @csrf
+        <label class="flex items-center gap-3 text-sm font-semibold text-white">
+          <input type="checkbox" name="is_vip" value="1" class="h-4 w-4 rounded border-white/20 bg-transparent" @checked($tenant->is_vip)>
+          Show Cloudflare cost panel to this customer
+        </label>
+        <p class="mt-2 max-w-md text-xs text-sky-100/60">Customer view shows estimated tenant/domain cost only. Admin keeps reconciled cost, profit, and margin context.</p>
+        <button class="es-btn mt-3" type="submit">Save VIP Visibility</button>
+      </form>
+    </div>
+    <div class="mt-4 grid gap-3 md:grid-cols-4">
+      <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3"><div class="text-xs text-sky-100/55">Workers</div><div class="font-semibold text-white">{{ $cfResources['workers'] ?? '$0.00' }}</div></div>
+      <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3"><div class="text-xs text-sky-100/55">D1</div><div class="font-semibold text-white">{{ $cfResources['d1'] ?? '$0.00' }}</div></div>
+      <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3"><div class="text-xs text-sky-100/55">KV</div><div class="font-semibold text-white">{{ $cfResources['kv'] ?? '$0.00' }}</div></div>
+      <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3"><div class="text-xs text-sky-100/55">Telemetry</div><div class="font-semibold text-white">{{ $cfResources['wae'] ?? '$0.00' }}</div></div>
+    </div>
+    @if($cfDomains !== [])
+      <div class="mt-4 overflow-x-auto">
+        <table class="es-table min-w-[760px]">
+          <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Requests</th>
+            <th>D1 rows</th>
+            <th>KV ops</th>
+            <th>Estimated</th>
+            <th>Final</th>
+          </tr>
+          </thead>
+          <tbody>
+          @foreach($cfDomains as $domainCost)
+            <tr>
+              <td class="font-semibold text-white">{{ $domainCost['domain_name'] }}</td>
+              <td>{{ number_format((int) ($domainCost['requests'] ?? 0)) }}</td>
+              <td>{{ number_format((int) ($domainCost['d1_rows_read'] ?? 0) + (int) ($domainCost['d1_rows_written'] ?? 0)) }}</td>
+              <td>{{ number_format((int) ($domainCost['kv_operations'] ?? 0)) }}</td>
+              <td>${{ number_format((float) ($domainCost['estimated_cost_usd'] ?? 0), 4) }}</td>
+              <td>{{ ($domainCost['final_reconciled_cost_usd'] ?? null) === null ? 'Pending' : '$'.number_format((float) $domainCost['final_reconciled_cost_usd'], 4) }}</td>
+            </tr>
+          @endforeach
+          </tbody>
+        </table>
+      </div>
+    @endif
   </div>
 
   @unless($billingAvailable)
