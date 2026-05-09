@@ -23,7 +23,7 @@ trait SaasHostnameOriginValidationConcern
             return ['ok' => false, 'error' => $resolvedOrigin['error']];
         }
 
-        $probeTarget = $this->originProbeTarget($origin);
+        $probeTarget = $this->originProbeTarget($domain, $origin);
         $headers = [
             'Host' => $domain,
             'User-Agent' => 'VerifySky-Origin-Validator/1.0',
@@ -36,11 +36,11 @@ trait SaasHostnameOriginValidationConcern
                 $request = Http::timeout(6)
                     ->connectTimeout(4)
                     ->withHeaders($headers)
-                    ->withOptions(['allow_redirects' => false, 'verify' => false]);
+                    ->withOptions($this->originProbeOptions($scheme, $domain, $origin));
 
-                $response = $request->head($scheme.$probeTarget);
+                $response = $request->head($scheme.$probeTarget['host']);
                 if ($response->status() === 405) {
-                    $response = $request->get($scheme.$probeTarget);
+                    $response = $request->get($scheme.$probeTarget['host']);
                 }
             } catch (\Throwable) {
                 continue;
@@ -61,6 +61,16 @@ trait SaasHostnameOriginValidationConcern
                     'resolved_target' => $resolvedOrigin['target'],
                 ];
             }
+        }
+
+        if ($probeTarget['is_ip'] && $this->originIpAppearsLocalAndListening($origin)) {
+            return [
+                'ok' => true,
+                'error' => null,
+                'status' => 0,
+                'scheme' => 'local',
+                'resolved_target' => $resolvedOrigin['target'],
+            ];
         }
 
         return ['ok' => false, 'error' => 'We could not reach the server for this domain. Enter a valid hosting IP or server domain before continuing.'];
@@ -201,12 +211,79 @@ trait SaasHostnameOriginValidationConcern
         return false;
     }
 
-    private function originProbeTarget(string $originServer): string
+    private function originProbeTarget(string $domainName, string $originServer): array
     {
         $origin = trim($originServer);
+        $isIp = filter_var($origin, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || filter_var($origin, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
 
-        return filter_var($origin, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || filter_var($origin, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)
-            ? $origin
-            : $this->normalizeDomain($origin);
+        return [
+            'host' => $isIp ? $domainName : $this->normalizeDomain($origin),
+            'is_ip' => $isIp,
+        ];
+    }
+
+    private function originProbeOptions(string $scheme, string $domainName, string $originServer): array
+    {
+        $options = ['allow_redirects' => false, 'verify' => false];
+        $origin = trim($originServer);
+        if (! (filter_var($origin, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || filter_var($origin, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6))) {
+            return $options;
+        }
+
+        $port = str_starts_with($scheme, 'https') ? 443 : 80;
+        if (defined('CURLOPT_RESOLVE')) {
+            $options['curl'] = [
+                CURLOPT_RESOLVE => [$domainName.':'.$port.':'.$origin],
+            ];
+        }
+
+        return $options;
+    }
+
+    private function originIpAppearsLocalAndListening(string $originServer): bool
+    {
+        $origin = trim($originServer);
+        if (! filter_var($origin, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+
+        if (! in_array($origin, $this->serverLocalIpAddresses(), true)) {
+            return false;
+        }
+
+        return $this->canOpenTcpConnection($origin, 443) || $this->canOpenTcpConnection($origin, 80);
+    }
+
+    protected function serverLocalIpAddresses(): array
+    {
+        $addresses = [];
+
+        foreach (@dns_get_record(gethostname() ?: '', DNS_A + DNS_AAAA) ?: [] as $record) {
+            $ip = trim((string) ($record['ip'] ?? $record['ipv6'] ?? ''));
+            if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                $addresses[] = $ip;
+            }
+        }
+
+        foreach (explode(' ', trim((string) @shell_exec('hostname -I 2>/dev/null'))) as $ip) {
+            $ip = trim($ip);
+            if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                $addresses[] = $ip;
+            }
+        }
+
+        return array_values(array_unique($addresses));
+    }
+
+    protected function canOpenTcpConnection(string $ipAddress, int $port): bool
+    {
+        $socket = @fsockopen($ipAddress, $port, $errno, $errstr, 1.5);
+        if (! is_resource($socket)) {
+            return false;
+        }
+
+        fclose($socket);
+
+        return true;
     }
 }
