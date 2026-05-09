@@ -1,0 +1,30 @@
+From 440dadf8e377920380d3ff9f4d2132d01db84312 Mon Sep 17 00:00:00 2001
+From: Yehia Elborma <borma425@gmail.com>
+Date: Wed, 22 Apr 2026 07:41:51 +0200
+Subject: [PATCH 3/4] chore: clarify tenant billing labels
+
+---
+ dashboard/resources/views/admin/tenants/index.blade.php | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/dashboard/resources/views/admin/tenants/index.blade.php b/dashboard/resources/views/admin/tenants/index.blade.php
+index 7f159b2..d15176a 100755
+--- a/dashboard/resources/views/admin/tenants/index.blade.php
++++ b/dashboard/resources/views/admin/tenants/index.blade.php
+@@ -21,10 +21,10 @@
+         <thead>
+         <tr>
+           <th>Tenant</th>
+-          <th>Baseline</th>
+-          <th>Effective</th>
++          <th>Plan Limit</th>
++          <th>Final Limit</th>
+           <th>Billing Cycle</th>
+-          <th>Grant</th>
++          <th>Extra/Bonus</th>
+           <th>Domains</th>
+           <th>Actions</th>
+         </tr>
+-- 
+2.53.0
+

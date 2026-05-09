@@ -1,0 +1,931 @@
+From c21f7a1381c367eea9a6188080cfb61a871649f8 Mon Sep 17 00:00:00 2001
+From: Yehia Elborma <borma425@gmail.com>
+Date: Tue, 21 Apr 2026 22:44:17 +0200
+Subject: [PATCH 2/4] chore: consolidate edge worker environments
+
+---
+ README.md                                     |  4 +-
+ dashboard/README_DASHBOARD.md                 |  3 +-
+ .../Http/Controllers/SettingsController.php   | 17 ++++
+ .../Services/EdgeShield/EdgeShieldConfig.php  | 29 +++++-
+ dashboard/config/edgeshield.php               |  2 +-
+ ...00003_backfill_edge_worker_script_name.php | 20 ++++
+ .../resources/views/settings/index.blade.php  |  2 +-
+ .../BackfillEdgeWorkerScriptNameTest.php      | 44 +++++++++
+ .../tests/Feature/WorkerSecretSyncTest.php    | 60 ++++++++++++
+ dashboard/tests/Unit/D1DatabaseClientTest.php |  8 +-
+ dashboard/tests/Unit/EdgeShieldConfigTest.php | 37 +++++++
+ docs/DEPLOYMENT_CHECKLIST.md                  |  5 +-
+ worker/package.json                           |  9 +-
+ worker/scripts/db-init.mjs                    | 24 +++++
+ worker/scripts/init-globals.mjs               | 18 ++--
+ worker/scripts/onboard-domain.mjs             | 38 ++++---
+ worker/scripts/purge-cache.mjs                | 12 +--
+ worker/scripts/runtime-target.mjs             | 98 +++++++++++++++++++
+ worker/scripts/seed-local-d1.mjs              |  7 +-
+ worker/wrangler.toml                          | 30 +++++-
+ 20 files changed, 411 insertions(+), 56 deletions(-)
+ create mode 100644 dashboard/database/migrations/2026_04_22_000003_backfill_edge_worker_script_name.php
+ create mode 100644 dashboard/tests/Feature/BackfillEdgeWorkerScriptNameTest.php
+ create mode 100644 dashboard/tests/Unit/EdgeShieldConfigTest.php
+ create mode 100644 worker/scripts/db-init.mjs
+ create mode 100644 worker/scripts/runtime-target.mjs
+
+diff --git a/README.md b/README.md
+index 1d4543f..9fe12d0 100755
+--- a/README.md
++++ b/README.md
+@@ -31,13 +31,15 @@ npm run -s build
+ 
+ - Dashboard-to-Worker sync is automatic on settings save.
+ - Worker runtime values are sourced from dashboard settings.
++- `worker/wrangler.toml` uses `verifysky-edge` as the production default and `[env.staging]` for CLI/CI staging deploys.
+ - Legacy path `/opt/lampp/htdocs/edge_shield_dashboard` can be symlinked to `dashboard/` for compatibility.
+ 
+ ## Architecture Direction
+ 
+ - Dashboard: Laravel control plane for Cloudflare Worker security operations.
+ - Worker: Cloudflare edge runtime for hostname resolution, challenge handling, and request policy enforcement.
+-- Production deploys must not reuse the staging Worker/D1/KV bindings from `worker/wrangler.toml`; use production-specific Wrangler configuration or CI/CD overrides.
++- Dashboard sync targets production only.
++- Staging is managed through `wrangler deploy --env staging` and the worker CLI scripts with `--env staging`.
+ 
+ ## Architecture Blueprint
+ 
+diff --git a/dashboard/README_DASHBOARD.md b/dashboard/README_DASHBOARD.md
+index 1960449..210c75b 100755
+--- a/dashboard/README_DASHBOARD.md
++++ b/dashboard/README_DASHBOARD.md
+@@ -15,7 +15,7 @@ ## What It Manages
+ - Domain management (`domain_configs` in remote D1)
+ - Security logs viewer (`security_logs` in remote D1)
+ - Settings/secrets vault (stored in dashboard local DB)
+-- Operational actions (`typecheck`, `build`, `deploy`, D1 init) against worker project
++- Operational actions (`typecheck`, `build`, `deploy`, D1 init) against the production worker project
+ 
+ ## Important Environment Variables
+ 
+@@ -37,6 +37,7 @@ ## Important Environment Variables
+ Important separation:
+ 
+ - `.env` configures Laravel, backend access to Cloudflare/Wrangler, and payment provider credentials.
++- The dashboard sync path deploys the default production worker only. Staging remains CLI/CI-managed through `worker/wrangler.toml` environments.
+ 
+ ## D1 Schema Bootstrap
+ 
+diff --git a/dashboard/app/Http/Controllers/SettingsController.php b/dashboard/app/Http/Controllers/SettingsController.php
+index b0058a1..7f0ff6b 100755
+--- a/dashboard/app/Http/Controllers/SettingsController.php
++++ b/dashboard/app/Http/Controllers/SettingsController.php
+@@ -10,6 +10,8 @@
+ 
+ class SettingsController extends Controller
+ {
++    private const DEFAULT_WORKER_SCRIPT_NAME = 'verifysky-edge';
++
+     private const SENSITIVE_SETTING_KEYS = [
+         'cf_api_token',
+         'openrouter_api_key',
+@@ -33,6 +35,8 @@ public function index(): View
+             unset($settings[$key]);
+         }
+ 
++        $settings['worker_script_name'] = $this->normalizeWorkerScriptName((string) ($settings['worker_script_name'] ?? ''));
++
+         return view('settings.index', [
+             'settings' => $settings,
+             'sensitiveConfigured' => $sensitiveConfigured,
+@@ -78,6 +82,9 @@ public function update(Request $request): RedirectResponse
+             if ($key === 'admin_login_path') {
+                 $value = $this->normalizeLoginPath((string) $value);
+             }
++            if ($key === 'worker_script_name') {
++                $value = $this->normalizeWorkerScriptName((string) $value);
++            }
+             if (in_array($key, self::SENSITIVE_SETTING_KEYS, true) && trim((string) ($value ?? '')) === '') {
+                 $existing = $existingSensitive->get($key);
+                 if ($existing instanceof DashboardSetting && trim((string) $existing->value) !== '') {
+@@ -137,6 +144,16 @@ private function stripAnsi(string $text): string
+         return trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
+     }
+ 
++    private function normalizeWorkerScriptName(string $value): string
++    {
++        $candidate = trim($value);
++
++        return match ($candidate) {
++            '', 'verifysky-edge-staging', 'verifysky-edge-production' => self::DEFAULT_WORKER_SCRIPT_NAME,
++            default => $candidate,
++        };
++    }
++
+     private function hasAlreadySyncedRoutes(array $sync): bool
+     {
+         $logs = $sync['logs'] ?? [];
+diff --git a/dashboard/app/Services/EdgeShield/EdgeShieldConfig.php b/dashboard/app/Services/EdgeShield/EdgeShieldConfig.php
+index 071073e..888d396 100755
+--- a/dashboard/app/Services/EdgeShield/EdgeShieldConfig.php
++++ b/dashboard/app/Services/EdgeShield/EdgeShieldConfig.php
+@@ -2,6 +2,8 @@
+ 
+ namespace App\Services\EdgeShield;
+ 
++use App\Models\DashboardSetting;
++
+ class EdgeShieldConfig
+ {
+     public function projectRoot(): string
+@@ -74,20 +76,28 @@ public function nodeBinDir(): ?string
+     public function cloudflareApiToken(): ?string
+     {
+         $value = trim((string) config('edgeshield.cloudflare_api_token', ''));
++        if ($value !== '') {
++            return $value;
++        }
+ 
+-        return $value !== '' ? $value : null;
++        return $this->dashboardSettingValue('cf_api_token');
+     }
+ 
+     public function cloudflareAccountId(): ?string
+     {
+         $value = trim((string) config('edgeshield.cloudflare_account_id', ''));
++        if ($value !== '') {
++            return $value;
++        }
+ 
+-        return $value !== '' ? $value : null;
++        return $this->dashboardSettingValue('cf_account_id');
+     }
+ 
+     public function workerScriptName(): string
+     {
+-        return trim((string) config('edgeshield.worker_name', 'verifysky-edge-staging'));
++        $value = trim((string) config('edgeshield.worker_name', ''));
++
++        return $value !== '' ? $value : 'verifysky-edge';
+     }
+ 
+     public function saasZoneId(): ?string
+@@ -181,4 +191,17 @@ private function normalizeDomain(string $domainName): string
+ 
+         return trim($domain);
+     }
++
++    private function dashboardSettingValue(string $key): ?string
++    {
++        try {
++            $setting = DashboardSetting::query()->where('key', $key)->first();
++        } catch (\Throwable) {
++            return null;
++        }
++
++        $value = trim((string) ($setting?->value ?? ''));
++
++        return $value !== '' ? $value : null;
++    }
+ }
+diff --git a/dashboard/config/edgeshield.php b/dashboard/config/edgeshield.php
+index 9cb9504..63e34d9 100755
+--- a/dashboard/config/edgeshield.php
++++ b/dashboard/config/edgeshield.php
+@@ -7,7 +7,7 @@
+     'cloudflare_api_token' => env('CLOUDFLARE_API_TOKEN', env('CF_API_TOKEN', '')),
+     'cloudflare_account_id' => env('CLOUDFLARE_ACCOUNT_ID', env('CF_ACCOUNT_ID', '')),
+     'runtime_kv_namespace_id' => env('CLOUDFLARE_KV_NAMESPACE_ID', env('SESSION_KV_NAMESPACE_ID', '')),
+-    'worker_name' => env('EDGE_SHIELD_WORKER_NAME', 'verifysky-edge-staging'),
++    'worker_name' => env('EDGE_SHIELD_WORKER_NAME', 'verifysky-edge'),
+     'saas_zone_id' => env('CLOUDFLARE_ZONE_ID', ''),
+     'saas_cname_target' => env('SAAS_CNAME_TARGET', 'customers.verifysky.com'),
+     'd1_mode' => env('EDGE_SHIELD_D1_MODE', 'remote'),
+diff --git a/dashboard/database/migrations/2026_04_22_000003_backfill_edge_worker_script_name.php b/dashboard/database/migrations/2026_04_22_000003_backfill_edge_worker_script_name.php
+new file mode 100644
+index 0000000..b69d6ec
+--- /dev/null
++++ b/dashboard/database/migrations/2026_04_22_000003_backfill_edge_worker_script_name.php
+@@ -0,0 +1,20 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Support\Facades\DB;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        DB::table('dashboard_settings')
++            ->where('key', 'worker_script_name')
++            ->whereIn('value', ['verifysky-edge-staging', 'verifysky-edge-production', ''])
++            ->update(['value' => 'verifysky-edge']);
++    }
++
++    public function down(): void
++    {
++        // Intentionally left blank. This is a forward-only operational backfill.
++    }
++};
+diff --git a/dashboard/resources/views/settings/index.blade.php b/dashboard/resources/views/settings/index.blade.php
+index 880af04..d8d1d72 100755
+--- a/dashboard/resources/views/settings/index.blade.php
++++ b/dashboard/resources/views/settings/index.blade.php
+@@ -11,7 +11,7 @@
+         <div><label class="mb-1 block text-sm text-sky-100">OpenRouter Fallback Models</label><input class="es-input" name="openrouter_fallback_models" value="{{ $settings['openrouter_fallback_models'] ?? '' }}" placeholder="openai/gpt-oss-120b:free,nvidia/nemotron-3-super:free"></div>
+       </div>
+       <div class="mt-3 grid gap-3 md:grid-cols-2">
+-        <div><label class="mb-1 block text-sm text-sky-100">Worker Script Name</label><input class="es-input" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'verifysky-edge-staging' }}" placeholder="verifysky-edge-staging"></div>
++        <div><label class="mb-1 block text-sm text-sky-100">Worker Script Name</label><input class="es-input" name="worker_script_name" value="{{ $settings['worker_script_name'] ?? 'verifysky-edge' }}" placeholder="verifysky-edge"></div>
+         <div>
+           <label class="mb-1 block text-sm text-sky-100">ES Admin Token</label>
+           <input class="es-input" type="password" autocomplete="new-password" name="es_admin_token" value="" placeholder="{{ ($sensitiveConfigured['es_admin_token'] ?? false) ? 'Configured (leave blank to keep)' : 'token used for /es-admin/* endpoints' }}">
+diff --git a/dashboard/tests/Feature/BackfillEdgeWorkerScriptNameTest.php b/dashboard/tests/Feature/BackfillEdgeWorkerScriptNameTest.php
+new file mode 100644
+index 0000000..69ec0e0
+--- /dev/null
++++ b/dashboard/tests/Feature/BackfillEdgeWorkerScriptNameTest.php
+@@ -0,0 +1,44 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\DashboardSetting;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Tests\TestCase;
++
++class BackfillEdgeWorkerScriptNameTest extends TestCase
++{
++    use RefreshDatabase;
++
++    public function test_migration_backfills_legacy_worker_script_names(): void
++    {
++        DashboardSetting::query()->create([
++            'key' => 'worker_script_name',
++            'value' => 'verifysky-edge-staging',
++        ]);
++
++        $migration = require database_path('migrations/2026_04_22_000003_backfill_edge_worker_script_name.php');
++        $migration->up();
++
++        $this->assertSame(
++            'verifysky-edge',
++            DashboardSetting::query()->where('key', 'worker_script_name')->value('value')
++        );
++    }
++
++    public function test_migration_preserves_custom_worker_script_names(): void
++    {
++        DashboardSetting::query()->create([
++            'key' => 'worker_script_name',
++            'value' => 'custom-enterprise-worker',
++        ]);
++
++        $migration = require database_path('migrations/2026_04_22_000003_backfill_edge_worker_script_name.php');
++        $migration->up();
++
++        $this->assertSame(
++            'custom-enterprise-worker',
++            DashboardSetting::query()->where('key', 'worker_script_name')->value('value')
++        );
++    }
++}
+diff --git a/dashboard/tests/Feature/WorkerSecretSyncTest.php b/dashboard/tests/Feature/WorkerSecretSyncTest.php
+index 9e166a8..2f22b0e 100755
+--- a/dashboard/tests/Feature/WorkerSecretSyncTest.php
++++ b/dashboard/tests/Feature/WorkerSecretSyncTest.php
+@@ -44,4 +44,64 @@ public function test_worker_secret_sync_rejects_missing_jwt_secret_before_deploy
+         $this->assertFalse($result['ok']);
+         $this->assertSame(['JWT_SECRET is required in Dashboard settings before sync.'], $result['errors']);
+     }
++
++    public function test_worker_secret_sync_deploys_to_default_production_script_without_env_override(): void
++    {
++        DashboardSetting::query()->create(['key' => 'cf_api_token', 'value' => 'cf-token']);
++        DashboardSetting::query()->create(['key' => 'jwt_secret', 'value' => str_repeat('a', 32)]);
++        DashboardSetting::query()->create(['key' => 'es_admin_token', 'value' => 'admin-token']);
++
++        $config = Mockery::mock(EdgeShieldConfig::class);
++        $config->shouldReceive('wranglerBin')->andReturn('npx wrangler');
++
++        $runner = Mockery::mock(WranglerProcessRunner::class);
++        $runner->shouldReceive('runInProject')
++            ->times(4)
++            ->andReturnUsing(function (string $command): array {
++                if (str_contains($command, 'deploy --keep-vars')) {
++                    $this->assertStringNotContainsString('--env staging', $command);
++                    $this->assertStringContainsString('OPENROUTER_MODEL:qwen/qwen3-next-80b-a3b-instruct:free', $command);
++
++                    return ['ok' => true, 'output' => 'deploy ok', 'error' => null, 'exit_code' => 0];
++                }
++
++                return ['ok' => true, 'output' => 'secret ok', 'error' => null, 'exit_code' => 0];
++            });
++
++        $domains = Mockery::mock(DomainConfigService::class);
++        $domains->shouldReceive('listActiveDomainsForRouteSync')
++            ->once()
++            ->andReturn([
++                'ok' => true,
++                'rows' => [
++                    ['domain_name' => 'example.com', 'zone_id' => 'zone-123'],
++                ],
++            ]);
++
++        $routes = Mockery::mock(WorkerRouteService::class);
++        $routes->shouldReceive('ensureWorkerRoute')
++            ->once()
++            ->with('zone-123', 'example.com', Mockery::type('array'))
++            ->andReturn([
++                'ok' => true,
++                'action' => 'example.com/*:updated',
++            ]);
++
++        $saas = Mockery::mock(SaasSecurityService::class);
++        $saas->shouldReceive('ensureCacheRuleForEdgeShield')
++            ->once()
++            ->with('zone-123', 'example.com')
++            ->andReturn([
++                'ok' => true,
++                'action' => 'created',
++            ]);
++
++        $sync = new WorkerSecretSyncService($config, $runner, $domains, $routes, $saas);
++
++        $result = $sync->syncFromDashboardSettings();
++
++        $this->assertTrue($result['ok']);
++        $this->assertEmpty($result['errors']);
++        $this->assertContains('deploy-with-vars exit=0', $result['logs']);
++    }
+ }
+diff --git a/dashboard/tests/Unit/D1DatabaseClientTest.php b/dashboard/tests/Unit/D1DatabaseClientTest.php
+index 3ef374a..02bdfbf 100755
+--- a/dashboard/tests/Unit/D1DatabaseClientTest.php
++++ b/dashboard/tests/Unit/D1DatabaseClientTest.php
+@@ -34,7 +34,7 @@ public function wranglerBin(): string
+ 
+             public function d1DatabaseName(): string
+             {
+-                return 'VERIFY_SKY_STAGING_DB';
++                return 'VERIFY_SKY_TEST_DB';
+             }
+ 
+             public function cloudflareAccountId(): ?string
+@@ -73,7 +73,7 @@ public function runInProject(string $command, int $timeout = 60): array
+         $this->assertSame(10, $runner->timeout);
+         $this->assertStringContainsString('--local', $runner->command);
+         $this->assertStringNotContainsString('--remote', $runner->command);
+-        $this->assertStringContainsString('VERIFY_SKY_STAGING_DB', $runner->command);
++        $this->assertStringContainsString('VERIFY_SKY_TEST_DB', $runner->command);
+         $this->assertFalse($config->remoteCredentialsWereRead);
+     }
+ 
+@@ -93,7 +93,7 @@ public function wranglerBin(): string
+ 
+             public function d1DatabaseName(): string
+             {
+-                return 'VERIFY_SKY_STAGING_DB';
++                return 'VERIFY_SKY_TEST_DB';
+             }
+ 
+             public function d1ReadCacheTtl(): int
+@@ -141,7 +141,7 @@ public function wranglerBin(): string
+ 
+             public function d1DatabaseName(): string
+             {
+-                return 'VERIFY_SKY_STAGING_DB';
++                return 'VERIFY_SKY_TEST_DB';
+             }
+ 
+             public function d1ReadCacheTtl(): int
+diff --git a/dashboard/tests/Unit/EdgeShieldConfigTest.php b/dashboard/tests/Unit/EdgeShieldConfigTest.php
+new file mode 100644
+index 0000000..355f27a
+--- /dev/null
++++ b/dashboard/tests/Unit/EdgeShieldConfigTest.php
+@@ -0,0 +1,37 @@
++<?php
++
++namespace Tests\Unit;
++
++use App\Models\DashboardSetting;
++use App\Services\EdgeShield\EdgeShieldConfig;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Facades\Config;
++use Tests\TestCase;
++
++class EdgeShieldConfigTest extends TestCase
++{
++    use RefreshDatabase;
++
++    public function test_worker_script_name_defaults_to_production_script(): void
++    {
++        Config::set('edgeshield.worker_name', null);
++
++        $config = new EdgeShieldConfig;
++
++        $this->assertSame('verifysky-edge', $config->workerScriptName());
++    }
++
++    public function test_cloudflare_credentials_fall_back_to_dashboard_settings(): void
++    {
++        Config::set('edgeshield.cloudflare_api_token', '');
++        Config::set('edgeshield.cloudflare_account_id', '');
++
++        DashboardSetting::query()->create(['key' => 'cf_api_token', 'value' => 'token-from-settings']);
++        DashboardSetting::query()->create(['key' => 'cf_account_id', 'value' => 'account-from-settings']);
++
++        $config = new EdgeShieldConfig;
++
++        $this->assertSame('token-from-settings', $config->cloudflareApiToken());
++        $this->assertSame('account-from-settings', $config->cloudflareAccountId());
++    }
++}
+diff --git a/docs/DEPLOYMENT_CHECKLIST.md b/docs/DEPLOYMENT_CHECKLIST.md
+index b62d6e2..6ecdd8a 100755
+--- a/docs/DEPLOYMENT_CHECKLIST.md
++++ b/docs/DEPLOYMENT_CHECKLIST.md
+@@ -65,7 +65,7 @@ scripts/setup_edge_shield_runtime.sh verify
+ 
+ - Confirm the Cloudflare KV namespace used for runtime bundle caching exists and matches `CLOUDFLARE_KV_NAMESPACE_ID`.
+ - Confirm the Worker project resolves the correct D1 production database through `D1_DATABASE_ID` and/or `worker/wrangler.toml`.
+-- Confirm Worker deploys are pointed at production resources. The checked-in `worker/wrangler.toml` currently names the staging worker/database; production launch requires either a production-specific Wrangler environment/config or explicit CI/CD overrides for worker name, D1 database, KV namespace, and account bindings.
++- Confirm the default `worker/wrangler.toml` target is production (`verifysky-edge`) and that `[env.staging]` points to isolated staging D1/KV resources.
+ 
+ ## 3. Required `.env` for Dashboard Production
+ 
+@@ -106,7 +106,7 @@ The dashboard `.env` is responsible for Laravel runtime, worker backend access,
+ - `D1_DATABASE_NAME`
+ - `D1_DATABASE_ID`
+ - `SAAS_CNAME_TARGET`
+-- `EDGE_SHIELD_WORKER_NAME`
++- `EDGE_SHIELD_WORKER_NAME=verifysky-edge`
+ 
+ ### PayPal live mode
+ 
+@@ -202,6 +202,7 @@ Pass condition:
+ 
+ - deploy succeeds
+ - route sync succeeds
++- production sync does not use `--env staging`
+ 
+ ### Check 2: Queue path
+ 
+diff --git a/worker/package.json b/worker/package.json
+index 26b8563..8988baf 100755
+--- a/worker/package.json
++++ b/worker/package.json
+@@ -9,12 +9,17 @@
+     "build": "wrangler deploy --dry-run --outdir dist",
+     "prebuild": "npm run build:slider",
+     "deploy": "wrangler deploy && npm run purge:cache",
++    "deploy:staging": "npm run build:slider && wrangler deploy --env staging && npm run purge:cache:staging",
+     "predeploy": "npm run build:slider",
+     "purge:cache": "node scripts/purge-cache.mjs",
++    "purge:cache:staging": "node scripts/purge-cache.mjs --env staging",
+     "openrouter:smoke": "node scripts/openrouter-smoke-test.mjs",
+-    "db:init": "wrangler d1 execute ${D1_DATABASE_NAME:-VERIFY_SKY_STAGING_DB} --file=./schema.sql",
+-    "db:init:local": "wrangler d1 execute ${D1_DATABASE_NAME:-VERIFY_SKY_STAGING_DB} --local --file=./schema.sql",
++    "db:init": "node scripts/db-init.mjs",
++    "db:init:staging": "node scripts/db-init.mjs --env staging",
++    "db:init:local": "node scripts/db-init.mjs --local",
++    "db:init:local:staging": "node scripts/db-init.mjs --env staging --local",
+     "db:seed:local": "node scripts/seed-local-d1.mjs",
++    "db:seed:local:staging": "node scripts/seed-local-d1.mjs --env staging",
+     "typecheck": "tsc --noEmit"
+   },
+   "devDependencies": {
+diff --git a/worker/scripts/db-init.mjs b/worker/scripts/db-init.mjs
+new file mode 100644
+index 0000000..acf04b0
+--- /dev/null
++++ b/worker/scripts/db-init.mjs
+@@ -0,0 +1,24 @@
++#!/usr/bin/env node
++import { execFileSync } from "node:child_process";
++import { resolveRuntimeTarget } from "./runtime-target.mjs";
++
++const { envName, forwardedArgs, d1DatabaseName, wranglerEnvArgs } = resolveRuntimeTarget();
++const useLocal = forwardedArgs.includes("--local");
++
++const wranglerArgs = [
++  "wrangler",
++  "d1",
++  "execute",
++  d1DatabaseName,
++  ...wranglerEnvArgs,
++  useLocal ? "--local" : "--remote",
++  "--file",
++  "./schema.sql",
++];
++
++console.log(`[db:init] Applying schema to ${envName} (${useLocal ? "local" : "remote"}) D1: ${d1DatabaseName}`);
++execFileSync("npx", wranglerArgs, {
++  cwd: process.cwd(),
++  stdio: "inherit",
++  timeout: 120000,
++});
+diff --git a/worker/scripts/init-globals.mjs b/worker/scripts/init-globals.mjs
+index 3c5113e..d9a2a92 100755
+--- a/worker/scripts/init-globals.mjs
++++ b/worker/scripts/init-globals.mjs
+@@ -16,9 +16,10 @@
+ //   - Worker already created via `wrangler deploy` or `wrangler publish`
+ // ============================================================================
+ 
+-import { execSync } from "node:child_process";
++import { execFileSync } from "node:child_process";
+ import { createInterface } from "node:readline";
+ import { randomBytes } from "node:crypto";
++import { resolveRuntimeTarget } from "./runtime-target.mjs";
+ 
+ // ---------------------------------------------------------------------------
+ // Utilities
+@@ -53,9 +54,10 @@ function prompt(question) {
+  * Pushes a secret to Wrangler by piping the value via stdin.
+  * This avoids exposing the secret in shell history or process arguments.
+  */
+-function pushSecret(name, value) {
++function pushSecret(name, value, wranglerEnvArgs) {
+   try {
+-    execSync(`echo "${value}" | npx wrangler secret put ${name}`, {
++    execFileSync("npx", ["wrangler", "secret", "put", name, ...wranglerEnvArgs], {
++      input: value,
+       stdio: ["pipe", "inherit", "inherit"],
+       timeout: 30000,
+     });
+@@ -72,11 +74,13 @@ function pushSecret(name, value) {
+ // ---------------------------------------------------------------------------
+ 
+ async function main() {
++  const { envName, wranglerEnvArgs } = resolveRuntimeTarget();
+   console.log("\n" + "═".repeat(60));
+   console.log("  Ultimate Edge Shield — Global Secrets Bootstrap");
+   console.log("═".repeat(60));
+   console.log("  This script will configure the global secrets");
+   console.log("  required by the Edge Shield Worker.");
++  console.log(`  Target environment: ${envName}`);
+   console.log("═".repeat(60) + "\n");
+ 
+   // Step 1: Generate JWT_SECRET + METER_SECRET
+@@ -122,10 +126,10 @@ async function main() {
+   console.log("═".repeat(60) + "\n");
+ 
+   const results = [
+-    pushSecret("JWT_SECRET", jwtSecret),
+-    pushSecret("METER_SECRET", meterSecret),
+-    pushSecret("CF_API_TOKEN", cfApiToken),
+-    pushSecret("OPENROUTER_API_KEY", openRouterKey),
++    pushSecret("JWT_SECRET", jwtSecret, wranglerEnvArgs),
++    pushSecret("METER_SECRET", meterSecret, wranglerEnvArgs),
++    pushSecret("CF_API_TOKEN", cfApiToken, wranglerEnvArgs),
++    pushSecret("OPENROUTER_API_KEY", openRouterKey, wranglerEnvArgs),
+   ];
+ 
+   const allSuccess = results.every(Boolean);
+diff --git a/worker/scripts/onboard-domain.mjs b/worker/scripts/onboard-domain.mjs
+index caed2b2..6463a3b 100755
+--- a/worker/scripts/onboard-domain.mjs
++++ b/worker/scripts/onboard-domain.mjs
+@@ -1,22 +1,15 @@
+ #!/usr/bin/env node
+-// ============================================================================
+-// Ultimate Edge Shield — Domain Onboarding Script
+-// Provisions a new domain into the multi-tenant bot protection system.
+-// ============================================================================
++import { execFileSync } from "node:child_process";
++import { resolveRuntimeTarget } from "./runtime-target.mjs";
+ 
+-import { execSync } from "node:child_process";
+-
+-// ---------------------------------------------------------------------------
+-// Configuration
+-// ---------------------------------------------------------------------------
+ const CF_API_BASE = "https://api.cloudflare.com/client/v4";
+-const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
+ 
+ // ---------------------------------------------------------------------------
+ // CLI Argument Parsing
+ // ---------------------------------------------------------------------------
+-const domain = process.argv[2];
+-const apiToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || process.argv[3];
++const { envName, forwardedArgs, d1DatabaseName, workerScriptName, wranglerEnvArgs } = resolveRuntimeTarget();
++const domain = forwardedArgs[0];
++const apiToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || forwardedArgs[1];
+ 
+ if (!domain) {
+   console.error("\n╔══════════════════════════════════════════════════════════╗");
+@@ -24,6 +17,7 @@ if (!domain) {
+   console.error("╠══════════════════════════════════════════════════════════╣");
+   console.error("║  Usage: node scripts/onboard-domain.mjs <domain>       ║");
+   console.error("║  Example: node scripts/onboard-domain.mjs example.com  ║");
++  console.error("║  Staging: node scripts/onboard-domain.mjs --env staging example.com ║");
+   console.error("║                                                        ║");
+   console.error("║  Required env: CLOUDFLARE_API_TOKEN                    ║");
+   console.error("╚══════════════════════════════════════════════════════════╝\n");
+@@ -122,24 +116,25 @@ async function createTurnstileWidget(accountId, domainName) {
+ // ---------------------------------------------------------------------------
+ 
+ function insertDomainConfig(domainName, zoneId, sitekey, secret) {
+-  console.log(`\n[3/4] Writing domain configuration to D1 (${D1_DATABASE_NAME})`);
++  console.log(`\n[3/4] Writing domain configuration to D1 (${d1DatabaseName})`);
+ 
+   const escapeSql = (val) => val.replace(/'/g, "''");
+ 
+   const sql = `INSERT OR REPLACE INTO domain_configs (domain_name, zone_id, turnstile_sitekey, turnstile_secret, status) VALUES ('${escapeSql(domainName)}', '${escapeSql(zoneId)}', '${escapeSql(sitekey)}', '${escapeSql(secret)}', 'active');`;
+ 
+   try {
+-    // Added --remote flag to ensure it writes to Cloudflare servers, not locally
+-    execSync(
+-      `npx wrangler d1 execute ${D1_DATABASE_NAME} --remote --command="${sql}"`,
++    execFileSync(
++      "npx",
++      ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--remote", "--command", sql],
+       { stdio: "inherit", timeout: 30000 }
+     );
+     console.log(`  ✓ Domain configuration saved to remote D1`);
+   } catch (error) {
+     console.warn(`  ⚠ Remote D1 insert failed. Attempting local D1 fallback...`);
+     try {
+-      execSync(
+-        `npx wrangler d1 execute ${D1_DATABASE_NAME} --local --command="${sql}"`,
++      execFileSync(
++        "npx",
++        ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--local", "--command", sql],
+         { stdio: "inherit", timeout: 30000 }
+       );
+       console.log(`  ✓ Domain configuration saved to local D1`);
+@@ -158,12 +153,12 @@ function insertDomainConfig(domainName, zoneId, sitekey, secret) {
+ // ---------------------------------------------------------------------------
+ 
+ async function deployWorkerRoute(zoneId, domainName) {
+-  console.log(`\n[4/4] Deploying Worker route for: ${domainName}`);
++  console.log(`\n[4/4] Deploying Worker route for: ${domainName} via ${workerScriptName}`);
+ 
+   try {
+     const data = await cfApiRequest("POST", `/zones/${zoneId}/workers/routes`, {
+       pattern: `${domainName}/*`,
+-      script: "edge-shield",
++      script: workerScriptName,
+     });
+ 
+     console.log(`  ✓ Worker route deployed: ${domainName}/*`);
+@@ -187,6 +182,7 @@ async function main() {
+   console.log("  Ultimate Edge Shield — Domain Onboarding");
+   console.log("═".repeat(60));
+   console.log(`  Domain: ${domain}`);
++  console.log(`  Env:    ${envName}`);
+   console.log(`  Time:   ${new Date().toISOString()}`);
+   console.log("═".repeat(60));
+ 
+@@ -208,9 +204,11 @@ async function main() {
+     console.log("  ✅ ONBOARDING COMPLETE");
+     console.log("═".repeat(60));
+     console.log(`  Domain:          ${domain}`);
++    console.log(`  Environment:     ${envName}`);
+     console.log(`  Zone ID:         ${zoneId}`);
+     console.log(`  Turnstile Key:   ${turnstile.sitekey}`);
+     console.log(`  Status:          active`);
++    console.log(`  Worker Script:   ${workerScriptName}`);
+     console.log(`  Worker Route:    ${domain}/*`);
+     console.log("═".repeat(60));
+     console.log("\n  The domain is now protected by Edge Shield.\n");
+diff --git a/worker/scripts/purge-cache.mjs b/worker/scripts/purge-cache.mjs
+index 10662e7..a795e5b 100755
+--- a/worker/scripts/purge-cache.mjs
++++ b/worker/scripts/purge-cache.mjs
+@@ -1,10 +1,11 @@
+ #!/usr/bin/env node
+ import fs from "node:fs";
+ import path from "node:path";
+-import { execSync } from "node:child_process";
++import { execFileSync } from "node:child_process";
++import { resolveRuntimeTarget } from "./runtime-target.mjs";
+ 
+ const CF_API_BASE = "https://api.cloudflare.com/client/v4";
+-const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
++const { envName, d1DatabaseName, wranglerEnvArgs } = resolveRuntimeTarget();
+ 
+ function loadDotEnvIfNeeded() {
+   if (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN) return;
+@@ -39,8 +40,7 @@ function extractJsonPayload(stdout) {
+ 
+ function getActiveZoneIds() {
+   const sql = "SELECT DISTINCT zone_id FROM domain_configs WHERE status = 'active' AND zone_id IS NOT NULL AND zone_id != ''";
+-  const cmd = `npx wrangler d1 execute ${D1_DATABASE_NAME} --remote --json --command="${sql}"`;
+-  const raw = execSync(cmd, {
++  const raw = execFileSync("npx", ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--remote", "--json", "--command", sql], {
+     cwd: process.cwd(),
+     stdio: ["ignore", "pipe", "pipe"],
+     timeout: 60000,
+@@ -98,11 +98,11 @@ async function main() {
+   }
+ 
+   if (!zoneIds.length) {
+-    console.log("[purge] No active zones found. Nothing to purge.");
++    console.log(`[purge] No active zones found in ${envName}. Nothing to purge.`);
+     return;
+   }
+ 
+-  console.log(`[purge] Purging cache for ${zoneIds.length} zone(s)...`);
++  console.log(`[purge] Purging cache for ${zoneIds.length} zone(s) in ${envName}...`);
+   let failures = 0;
+   for (const zoneId of zoneIds) {
+     try {
+diff --git a/worker/scripts/runtime-target.mjs b/worker/scripts/runtime-target.mjs
+new file mode 100644
+index 0000000..09175e9
+--- /dev/null
++++ b/worker/scripts/runtime-target.mjs
+@@ -0,0 +1,98 @@
++#!/usr/bin/env node
++import fs from "node:fs";
++import path from "node:path";
++
++export function resolveRuntimeTarget(argv = process.argv.slice(2)) {
++  loadDotEnvIfNeeded();
++  let envName = "production";
++  const forwardedArgs = [];
++
++  for (let index = 0; index < argv.length; index += 1) {
++    const arg = argv[index];
++    if (arg === "--env") {
++      const next = argv[index + 1];
++      if (!next) {
++        throw new Error("Missing value for --env. Supported values: production, staging.");
++      }
++      envName = normalizeEnvName(next);
++      index += 1;
++      continue;
++    }
++
++    if (arg.startsWith("--env=")) {
++      envName = normalizeEnvName(arg.slice("--env=".length));
++      continue;
++    }
++
++    forwardedArgs.push(arg);
++  }
++
++  return {
++    envName,
++    forwardedArgs,
++    d1DatabaseName: defaultTargets()[envName].d1DatabaseName,
++    workerScriptName: defaultTargets()[envName].workerScriptName,
++    wranglerEnvArgs: [...defaultTargets()[envName].wranglerEnvArgs],
++  };
++}
++
++function defaultTargets() {
++  return {
++    production: {
++      d1DatabaseName: process.env.D1_DATABASE_NAME || "VERIFY_SKY_PRODUCTION_DB",
++      workerScriptName: process.env.EDGE_SHIELD_WORKER_NAME || "verifysky-edge",
++      wranglerEnvArgs: [],
++    },
++    staging: {
++      d1DatabaseName: process.env.STAGING_D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB_V2",
++      workerScriptName: process.env.STAGING_EDGE_SHIELD_WORKER_NAME || "verifysky-edge-staging",
++      wranglerEnvArgs: ["--env", "staging"],
++    },
++  };
++}
++
++function loadDotEnvIfNeeded() {
++  const candidates = [
++    process.env.EDGE_SHIELD_DOTENV_PATH || "",
++    path.resolve(process.cwd(), ".env"),
++    path.resolve(process.cwd(), "../dashboard/.env"),
++  ].filter(Boolean);
++
++  for (const envPath of candidates) {
++    if (!fs.existsSync(envPath)) {
++      continue;
++    }
++
++    const raw = fs.readFileSync(envPath, "utf8");
++    for (const line of raw.split(/\r?\n/)) {
++      const trimmed = line.trim();
++      if (!trimmed || trimmed.startsWith("#")) {
++        continue;
++      }
++      const index = trimmed.indexOf("=");
++      if (index <= 0) {
++        continue;
++      }
++      const key = trimmed.slice(0, index).trim();
++      let value = trimmed.slice(index + 1).trim();
++      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
++        value = value.slice(1, -1);
++      }
++      if (!(key in process.env)) {
++        process.env[key] = value;
++      }
++    }
++  }
++}
++
++function normalizeEnvName(value) {
++  const normalized = String(value || "").trim().toLowerCase();
++  if (normalized === "" || normalized === "production" || normalized === "prod") {
++    return "production";
++  }
++  if (normalized === "staging" || normalized === "stage") {
++    return "staging";
++  }
++
++  throw new Error(`Unsupported runtime environment "${value}". Supported values: production, staging.`);
++}
+diff --git a/worker/scripts/seed-local-d1.mjs b/worker/scripts/seed-local-d1.mjs
+index 8a06292..23fd829 100755
+--- a/worker/scripts/seed-local-d1.mjs
++++ b/worker/scripts/seed-local-d1.mjs
+@@ -3,8 +3,9 @@ import fs from "node:fs";
+ import os from "node:os";
+ import path from "node:path";
+ import { execFileSync } from "node:child_process";
++import { resolveRuntimeTarget } from "./runtime-target.mjs";
+ 
+-const D1_DATABASE_NAME = process.env.D1_DATABASE_NAME || "VERIFY_SKY_STAGING_DB";
++const { envName, d1DatabaseName, wranglerEnvArgs } = resolveRuntimeTarget();
+ const LOCAL_DOMAIN = process.env.ES_LOCAL_TEST_DOMAIN || "www.cashup.cash";
+ const LOCAL_TENANT_ID = process.env.ES_LOCAL_TEST_TENANT_ID || "1";
+ const SAMPLE_MARKER = "[LOCAL-E2E]";
+@@ -103,12 +104,12 @@ const sqlFile = path.join(tempDir, "local-seed.sql");
+ 
+ try {
+   fs.writeFileSync(sqlFile, sql, "utf8");
+-  execFileSync("npx", ["wrangler", "d1", "execute", D1_DATABASE_NAME, "--local", "--file", sqlFile], {
++  execFileSync("npx", ["wrangler", "d1", "execute", d1DatabaseName, ...wranglerEnvArgs, "--local", "--file", sqlFile], {
+     cwd: process.cwd(),
+     stdio: "inherit",
+     timeout: 60000,
+   });
+-  console.log(`[seed-local-d1] Seeded local D1 "${D1_DATABASE_NAME}" for ${LOCAL_DOMAIN}`);
++  console.log(`[seed-local-d1] Seeded ${envName} local D1 "${d1DatabaseName}" for ${LOCAL_DOMAIN}`);
+ } finally {
+   fs.rmSync(tempDir, { recursive: true, force: true });
+ }
+diff --git a/worker/wrangler.toml b/worker/wrangler.toml
+index 748c639..f43ec2e 100755
+--- a/worker/wrangler.toml
++++ b/worker/wrangler.toml
+@@ -3,7 +3,7 @@
+ # Enterprise-Grade Zero-Trust Bot Protection System
+ # ============================================================================
+ 
+-name = "verifysky-edge-staging"
++name = "verifysky-edge"
+ main = "src/index.ts"
+ compatibility_date = "2024-09-23"
+ compatibility_flags = ["nodejs_compat"]
+@@ -20,12 +20,12 @@ workers_dev = false
+ # ---------------------------------------------------------------------------
+ # D1 Database Binding
+ # Stores challenges, device fingerprints, and security event logs.
+-# Create with: wrangler d1 create EDGE_SHIELD_DB
++# Create with: wrangler d1 create VERIFY_SKY_PRODUCTION_DB
+ # ---------------------------------------------------------------------------
+ [[d1_databases]]
+ binding = "DB"
+-database_name = "VERIFY_SKY_STAGING_DB"
+-database_id = "d923830f-391f-4c6a-a919-dd3552e9bccd"
++database_name = "VERIFY_SKY_PRODUCTION_DB"
++database_id = "b7cc89c4-c6de-4353-b438-e10ca956d566"
+ 
+ # ---------------------------------------------------------------------------
+ # KV Namespace Binding
+@@ -34,7 +34,7 @@ database_id = "d923830f-391f-4c6a-a919-dd3552e9bccd"
+ # ---------------------------------------------------------------------------
+ [[kv_namespaces]]
+ binding = "SESSION_KV"
+-id = "c8105e6570f24c58bbe137b10b1c0b82"
++id = "effdc34b66704947bc30dce9a7644571"
+ 
+ # ---------------------------------------------------------------------------
+ # Environment Variables (Secrets) — GLOBAL ONLY
+@@ -75,3 +75,23 @@ ES_TEST_MODE = "off"
+ ES_DISABLE_WAF_AUTODEPLOY = "on"
+ ES_TURNSTILE_STRICT = "on"
+ ES_STRICT_CONTEXT_BINDING = "off"
++
++[env.staging]
++name = "verifysky-edge-staging"
++
++[[env.staging.d1_databases]]
++binding = "DB"
++database_name = "VERIFY_SKY_STAGING_DB_V2"
++database_id = "57656d70-8d1a-4fff-b38b-fe705303bac1"
++
++[[env.staging.kv_namespaces]]
++binding = "SESSION_KV"
++id = "230e5e4702d24cf8b84abd0c6dddad43"
++
++[env.staging.vars]
++OPENROUTER_MODEL = "z-ai/glm-4.5-air:free"
++OPENROUTER_FALLBACK_MODELS = "openai/gpt-4o-mini"
++ES_TEST_MODE = "off"
++ES_DISABLE_WAF_AUTODEPLOY = "on"
++ES_TURNSTILE_STRICT = "on"
++ES_STRICT_CONTEXT_BINDING = "off"
+-- 
+2.53.0
+

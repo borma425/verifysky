@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>VerifySky - Users</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "surface-container-lowest": "#120d05",
+                "primary": "#ffdc9c",
+                "background": "#0E131D",
+                "inverse-primary": "#7b5800",
+                "secondary-fixed-dim": "#e3c284",
+                "on-background": "#D7E1F5",
+                "tertiary-fixed": "#b3ebff",
+                "on-tertiary-fixed": "#001f27",
+                "inverse-on-surface": "#362f24",
+                "surface-variant": "#252A34",
+                "on-tertiary-fixed-variant": "#004e5f",
+                "tertiary-container": "#22d6ff",
+                "primary-container": "#FCB900",
+                "surface-container-highest": "#303540",
+                "secondary-container": "#5a4311",
+                "surface": "#1B202A",
+                "on-secondary": "#412d00",
+                "on-error-container": "#ffdad6",
+                "error": "#D47B78",
+                "surface-container": "#1B202A",
+                "surface-tint": "#febb06",
+                "outline": "#7F8BA0",
+                "surface-dim": "#090E18",
+                "on-error": "#690005",
+                "primary-fixed-dim": "#febb06",
+                "outline-variant": "#303540",
+                "on-secondary-container": "#d1b175",
+                "on-surface-variant": "#AEB9CC",
+                "surface-container-low": "#1B202A",
+                "on-primary-container": "#6a4c00",
+                "on-primary-fixed-variant": "#5d4200",
+                "on-primary": "#412d00",
+                "primary-fixed": "#ffdea4",
+                "surface-container-high": "#252A34",
+                "on-secondary-fixed": "#261900",
+                "secondary-fixed": "#ffdea3",
+                "error-container": "#93000a",
+                "on-surface": "#D7E1F5",
+                "tertiary": "#adeaff",
+                "tertiary-fixed-dim": "#35d7ff",
+                "inverse-surface": "#ede1d0",
+                "on-tertiary": "#003642",
+                "on-primary-fixed": "#261900",
+                "secondary": "#e3c284",
+                "surface-bright": "#3f382d",
+                "on-secondary-fixed-variant": "#5a4311",
+                "on-tertiary-container": "#00596c"
+        },
+        "borderRadius": {
+                "DEFAULT": "4px",
+                "lg": "8px",
+                "xl": "8px",
+                "full": "9999px"
+        },
+        "spacing": {
+                "container_padding": "24px",
+                "table_cell_padding_x": "16px",
+                "unit": "4px",
+                "gutter": "16px",
+                "table_cell_padding_y": "12px",
+                "sidebar_width": "256px"
+        },
+        "fontFamily": {
+                "table-data": [
+                        "Hanken Grotesk"
+                ],
+                "label-caps": [
+                        "Hanken Grotesk"
+                ],
+                "body-md": [
+                        "Hanken Grotesk"
+                ],
+                "body-lg": [
+                        "Hanken Grotesk"
+                ],
+                "display": [
+                        "Hanken Grotesk"
+                ],
+                "mono-data": [
+                        "JetBrains Mono"
+                ],
+                "header-section": [
+                        "Hanken Grotesk"
+                ]
+        },
+        "fontSize": {
+                "table-data": [
+                        "13px",
+                        {
+                                "lineHeight": "18px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "label-caps": [
+                        "11px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "body-md": [
+                        "13px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "body-lg": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "500"
+                        }
+                ],
+                "display": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "mono-data": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "header-section": [
+                        "18px",
+                        {
+                                "lineHeight": "24px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "600"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>
+        /* Base styles to ensure consistency if tokens miss */
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #FCB900;
+            box-shadow: 0 0 0 1px #FCB900;
+        }
+        
+        /* Duotone Icon Utility */
+        .material-symbols-outlined.duotone {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            color: #7F8BA0;
+            position: relative;
+        }
+        .material-symbols-outlined.duotone::after {
+            content: attr(data-icon);
+            font-family: 'Material Symbols Outlined';
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: #FCB900;
+            opacity: 0.4;
+        }
+    </style>
+</head>
+<body class="bg-[#0E131D] text-on-background font-body-md flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col z-40 bg-[#1B202A] w-sidebar_width border-r border-[#303540]">
+<div class="px-6 py-6 border-b border-[#303540] flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-[#FCB900] flex items-center justify-center text-[#0E131D] font-bold">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">cruelty_free</span>
+</div>
+<div>
+<h1 class="font-display text-[20px] font-bold text-[#FCB900] leading-tight">VerifySky</h1>
+<p class="font-label-caps text-[10px] text-[#D4C4AB] uppercase tracking-wider">Dashboard</p>
+</div>
+</div>
+<nav class="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="dashboard">dashboard</span>
+                Overview
+            </a>
+<a class="flex items-center gap-3 bg-[#252A34] text-white px-3 py-2 rounded-lg font-body-lg shadow-sm border border-[#303540]" href="#">
+<span class="material-symbols-outlined duotone text-[#FCB900]" data-icon="group" style="color: #FCB900;">group</span>
+                Clients
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="payments">payments</span>
+                Billing
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="domain">domain</span>
+                Domains
+            </a>
+<div class="pt-4 pb-2 px-3 font-label-caps text-outline uppercase tracking-wider text-[10px]">Protection</div>
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="security">security</span>
+                Firewall
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="shield_lock">shield_lock</span>
+                Protected Paths
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="list_alt">list_alt</span>
+                Security Logs
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container-highest transition-colors duration-200 font-body-lg" href="#">
+<span class="material-symbols-outlined duotone" data-icon="block">block</span>
+                Blocked IPs
+            </a>
+</nav>
+<div class="border-t border-[#303540] p-4">
+<button class="w-full flex items-center justify-center gap-2 bg-[#FCB900] text-[#0E131D] font-bold py-2 px-4 rounded-lg hover:bg-[#FFDC9C] transition-colors mb-4 text-sm">
+<span class="material-symbols-outlined text-[18px]">add</span> Add Domain
+        </button>
+<div class="flex items-center gap-3 p-2 rounded-lg bg-[#0E131D] border border-[#303540]">
+<img alt="Admin Profile" class="w-8 h-8 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCEX3ADeT28SJ_itXyUYAXNQr5l2z1IPQxN8h9TQjGqvHT7V-umFEfmbGncce7RnuGdmnbE66iWyMm2qwHMOkfVZUiclw3cVbopm8g4TVg2tf67zWx9Vru3nxZkXeaP5TrHByoULQsJxshZoZt8kUZ-pyCzJi-oYhiUuRVJBnNnuIAd8sO6eGocva_sqzFql86AmDMSKF0f9Qlsp3ZW6ugzUkGhAe5JrhQ0eSnSBKYdxI_GMTvFgBwY2WwpxsFgW9yIfZID-bp0MG8"/>
+<div class="flex-1 min-w-0">
+<div class="text-sm font-medium text-white truncate">Admin User</div>
+<div class="text-xs text-on-surface-variant truncate">admin@verifysky.com</div>
+</div>
+<button class="text-on-surface-variant hover:text-white">
+<span class="material-symbols-outlined text-[18px]">logout</span>
+</button>
+</div>
+</div>
+</aside>
+<!-- Main Workspace -->
+<div class="flex-1 md:pl-sidebar_width flex flex-col min-h-screen">
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 md:left-sidebar_width left-0 flex justify-between items-center px-container_padding py-3 z-30 bg-[#0E131D]/95 backdrop-blur-sm border-b border-[#303540]/70 h-[64px]">
+<div class="flex items-center gap-4">
+<button class="md:hidden text-on-surface-variant hover:text-white">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<div class="hidden sm:flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full bg-[#1B202A] border border-[#303540] text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-green-400">check_circle</span>
+            All systems secure
+        </div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden md:flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full bg-[#FCB900]/10 border border-[#FCB900]/20 text-[#FCB900]">
+<span class="material-symbols-outlined text-[14px]">bolt</span>
+            Operational Mode
+        </div>
+<div class="flex items-center gap-2 text-on-surface-variant bg-[#1B202A] px-3 py-1.5 rounded-lg border border-[#303540] w-64 focus-within:border-[#FCB900] transition-colors hidden lg:flex">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<input class="bg-transparent border-none text-sm w-full focus:ring-0 p-0 text-white placeholder:text-outline" placeholder="Search users, domains..." type="text"/>
+</div>
+<button class="text-on-surface-variant hover:text-white relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-[#D47B78] rounded-full"></span>
+</button>
+<button class="text-on-surface-variant hover:text-white">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-1 pt-[88px] p-container_padding space-y-6 max-w-[1600px]">
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+<div>
+<div class="font-label-caps text-[11px] text-[#FCB900] uppercase tracking-wider mb-1">Clients</div>
+<h2 class="font-display text-display text-white">Users</h2>
+<p class="text-on-surface-variant mt-1 font-body-md">Manage users, domains, billing, bonuses, and usage.</p>
+</div>
+<button class="bg-[#1B202A] border border-[#303540] text-white px-4 py-2 rounded-lg font-body-lg hover:bg-[#252A34] transition-colors flex items-center gap-2 text-sm">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+                Overview
+            </button>
+</div>
+<!-- Metrics Strip -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<div class="bg-[#1B202A] border border-[#303540] rounded-lg p-4 flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+<span class="material-symbols-outlined duotone" data-icon="group">group</span>
+</div>
+<div>
+<div class="text-sm text-on-surface-variant">Total Users</div>
+<div class="text-xl font-bold text-white">245</div>
+</div>
+</div>
+<div class="bg-[#1B202A] border border-[#303540] rounded-lg p-4 flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
+<span class="material-symbols-outlined duotone" data-icon="domain">domain</span>
+</div>
+<div>
+<div class="text-sm text-on-surface-variant">Total Domains</div>
+<div class="text-xl font-bold text-white">1,432</div>
+</div>
+</div>
+<div class="bg-[#1B202A] border border-[#303540] rounded-lg p-4 flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-[#FCB900]/10 flex items-center justify-center text-[#FCB900]">
+<span class="material-symbols-outlined duotone" data-icon="stars">stars</span>
+</div>
+<div>
+<div class="text-sm text-on-surface-variant">Active Bonuses</div>
+<div class="text-xl font-bold text-white">18</div>
+</div>
+</div>
+<div class="bg-[#1B202A] border border-[#303540] rounded-lg p-4 flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400">
+<span class="material-symbols-outlined duotone" data-icon="attach_money">attach_money</span>
+</div>
+<div>
+<div class="text-sm text-on-surface-variant">Est. Cloudflare Cost</div>
+<div class="text-xl font-bold text-white">$4,250.00</div>
+</div>
+</div>
+</div>
+<!-- Alert -->
+<div class="bg-[#D47B78]/10 border border-[#D47B78]/30 rounded-lg p-4 flex items-start gap-3">
+<span class="material-symbols-outlined text-[#D47B78] mt-0.5">warning</span>
+<div>
+<h3 class="font-header-section text-sm font-semibold text-[#D47B78]">Billing Setup Pending</h3>
+<p class="text-[#D47B78]/80 mt-1 text-sm">Billing setup is pending. Run billing migrations before changing bonuses, subscriptions, or usage.</p>
+</div>
+</div>
+<!-- Toolbar -->
+<div class="flex items-center justify-between bg-[#1B202A] p-3 rounded-t-lg border-x border-t border-[#303540]">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm font-medium">
+<span class="material-symbols-outlined text-[18px]">admin_panel_settings</span>
+    Tenant control plane
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-green-500/10 text-green-400 border border-green-500/20 px-2 py-1 rounded text-xs font-medium">Billing Ready</span>
+<span class="bg-[#252A34] text-outline border border-[#303540] px-2 py-1 rounded text-xs font-medium">25 per page</span>
+</div>
+</div>
+<!-- Table Section -->
+<div class="bg-[#0E131D] border border-[#303540] rounded-b-lg overflow-hidden shadow-sm">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[1280px]">
+<thead>
+<tr class="bg-[#1B202A] border-b border-[#303540]">
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="person">person</span> User
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="tune">tune</span> Plan Limit
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="data_usage">data_usage</span> Total Limit
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider w-64 whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="update">update</span> Billing Cycle
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="card_giftcard">card_giftcard</span> Bonus
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="public">public</span> Domains
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="cloud">cloud</span> Cloudflare Cost
+    </div>
+</th>
+<th class="py-3 px-4 font-label-caps text-[10px] text-outline uppercase tracking-wider w-[340px] whitespace-nowrap">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined duotone text-[14px]" data-icon="settings">settings</span> Actions
+    </div>
+</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#303540] font-table-data text-sm">
+<!-- Row 1: Active User -->
+<tr class="hover:bg-[#1B202A]/50 transition-colors group">
+<td class="py-4 px-4 align-top">
+<div class="font-semibold text-white">Acme Corporation</div>
+<div class="font-mono-data text-[11px] text-outline mt-1">ID: tnt_9876543210</div>
+<div class="font-mono-data text-[11px] text-outline">acme-corp</div>
+</td>
+<td class="py-4 px-4 align-top text-on-surface-variant">
+                                    Pro Tier
+                                </td>
+<td class="py-4 px-4 align-top">
+<div class="flex items-center gap-2">
+<span class="text-white">Enterprise</span>
+<span class="bg-[#FCB900]/10 text-[#FCB900] font-label-caps text-[9px] px-1.5 py-0.5 rounded border border-[#FCB900]/20">BONUS</span>
+</div>
+</td>
+<td class="py-4 px-4 align-top">
+<div class="space-y-3 bg-[#1B202A] p-2.5 rounded border border-[#303540]">
+<div>
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-on-surface-variant">Protected Sessions</span>
+<span class="text-white font-mono-data">45k / 100k</span>
+</div>
+<div class="w-full h-1.5 bg-[#0E131D] rounded-full overflow-hidden border border-[#303540]">
+<div class="h-full bg-amber-400 w-[45%] rounded-full"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-on-surface-variant">Bot Requests</span>
+<span class="text-white font-mono-data">1.2M / 5M</span>
+</div>
+<div class="w-full h-1.5 bg-[#0E131D] rounded-full overflow-hidden border border-[#303540]">
+<div class="h-full bg-green-400 w-[24%] rounded-full"></div>
+</div>
+</div>
+</div>
+</td>
+<td class="py-4 px-4 align-top">
+<div class="font-mono-data text-white text-[11px] mb-1 px-1.5 py-0.5 bg-[#252A34] rounded inline-block border border-[#303540]">ENTERPRISE_BETA</div>
+<div class="text-[11px] text-on-surface-variant mb-2">Bonus allowance</div>
+<button class="text-[#D47B78] border border-[#D47B78]/30 hover:bg-[#D47B78]/10 hover:border-[#D47B78] px-2 py-1 rounded text-[11px] transition-colors w-full text-center">
+                                        Revoke Bonus
+                                    </button>
+</td>
+<td class="py-4 px-4 align-top text-on-surface-variant text-xs">
+<div>12 Domains</div>
+<div class="mt-1">5 Members</div>
+</td>
+<td class="py-4 px-4 align-top">
+<div class="bg-[#1B202A] p-2 rounded border border-[#303540]">
+<div class="flex items-center justify-between mb-1">
+<span class="text-white font-semibold">$145.00</span>
+<span class="text-[10px] text-green-400 bg-green-400/10 px-1 rounded">+24% margin</span>
+</div>
+<div class="text-[10px] text-outline mb-2">Rev: $180.00 | Profit: $35.00</div>
+<span class="inline-flex items-center gap-1 bg-[#0E131D] text-on-surface-variant px-1.5 py-0.5 rounded text-[9px] uppercase font-bold border border-[#303540] w-full justify-center">
+<span class="material-symbols-outlined text-[12px]">visibility</span>
+                                        VIP Visible
+                                    </span>
+</div>
+</td>
+<td class="py-4 px-4 align-top">
+<div class="flex items-center justify-between mb-2 pb-2 border-b border-[#303540]">
+<a class="text-[#FCB900] hover:text-[#FFDC9C] text-sm font-medium flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]">edit</span> Manage User
+    </a>
+<div class="flex gap-1.5">
+<button class="bg-[#1B202A] border border-[#303540] text-on-surface-variant px-2 py-1 rounded text-[11px] hover:text-white transition-colors">Force Reset</button>
+<button class="bg-[#1B202A] border border-[#303540] text-on-surface-variant px-2 py-1 rounded text-[11px] hover:text-white transition-colors">Hide Cost</button>
+</div>
+</div>
+<div class="flex flex-wrap gap-1.5 items-center">
+<select class="bg-[#1B202A] border border-[#303540] text-white text-[11px] rounded px-2 py-1 focus:ring-[#FCB900] w-20 h-7">
+<option>Pro</option>
+<option>Business</option>
+<option>Enterprise</option>
+</select>
+<input class="bg-[#1B202A] border border-[#303540] text-white text-[11px] rounded px-2 py-1 w-12 h-7 focus:ring-[#FCB900]" placeholder="Days" type="number" value="14"/>
+<input class="bg-[#1B202A] border border-[#303540] text-white text-[11px] rounded px-2 py-1 flex-1 min-w-[80px] h-7 focus:ring-[#FCB900] placeholder:text-outline" placeholder="Reason..." type="text"/>
+<button class="bg-[#FCB900] text-[#0E131D] px-2 py-1 rounded text-[11px] font-bold hover:bg-[#FFDC9C] transition-colors h-7 whitespace-nowrap">Add Bonus</button>
+</div>
+</td>
+</tr>
+<!-- Row 2: Inactive/Pending User -->
+<tr class="hover:bg-[#1B202A]/50 transition-colors group">
+<td class="py-4 px-4 align-top">
+<div class="font-semibold text-white">Beta Startup LLC</div>
+<div class="font-mono-data text-[11px] text-outline mt-1">ID: tnt_1234567890</div>
+<div class="font-mono-data text-[11px] text-outline">beta-startup</div>
+</td>
+<td class="py-4 px-4 align-top text-on-surface-variant">
+                                    Free Tier
+                                </td>
+<td class="py-4 px-4 align-top">
+<div class="flex items-center gap-2">
+<span class="text-white">Free Tier</span>
+<span class="bg-[#252A34] text-outline font-label-caps text-[9px] px-1.5 py-0.5 rounded border border-[#303540]">BASE</span>
+</div>
+</td>
+<td class="py-4 px-4 align-top">
+<span class="text-[#D47B78]/80 text-xs italic bg-[#D47B78]/10 px-2 py-1 rounded inline-block">Run billing migrations first</span>
+</td>
+<td class="py-4 px-4 align-top">
+<span class="bg-[#1B202A] text-outline px-2 py-1 rounded text-xs border border-[#303540] inline-block">None</span>
+</td>
+<td class="py-4 px-4 align-top text-on-surface-variant text-xs">
+<div>1 Domain</div>
+<div class="mt-1">1 Member</div>
+</td>
+<td class="py-4 px-4 align-top">
+<div class="bg-[#1B202A] p-2 rounded border border-[#303540] opacity-70">
+<div class="flex items-center justify-between mb-1">
+<span class="text-white font-semibold">$0.00</span>
+<span class="text-[10px] text-outline">0% margin</span>
+</div>
+<div class="text-[10px] text-outline mb-2">Rev: $0.00 | Profit: $0.00</div>
+<span class="inline-flex items-center gap-1 bg-[#0E131D] text-outline px-1.5 py-0.5 rounded text-[9px] uppercase font-bold border border-[#303540] w-full justify-center">
+<span class="material-symbols-outlined text-[12px]">visibility_off</span>
+                                        Hidden from customer
+                                    </span>
+</div>
+</td>
+<td class="py-4 px-4 align-top">
+<div class="flex items-center justify-between mb-2 pb-2 border-b border-[#303540]">
+<a class="text-[#FCB900] hover:text-[#FFDC9C] text-sm font-medium flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]">edit</span> Manage User
+    </a>
+<div class="flex gap-1.5">
+<button class="bg-[#1B202A] border border-[#303540] text-on-surface-variant px-2 py-1 rounded text-[11px] hover:text-white transition-colors">Force Reset</button>
+<button class="bg-[#1B202A] border border-[#303540] text-on-surface-variant px-2 py-1 rounded text-[11px] hover:text-white transition-colors">VIP Cost</button>
+</div>
+</div>
+<div class="flex flex-wrap gap-1.5 items-center opacity-50 pointer-events-none" title="Pending Migration">
+<select class="bg-[#1B202A] border border-[#303540] text-white text-[11px] rounded px-2 py-1 w-20 h-7">
+<option>Pro</option>
+</select>
+<input class="bg-[#1B202A] border border-[#303540] text-white text-[11px] rounded px-2 py-1 w-12 h-7" type="number" value="14"/>
+<input class="bg-[#1B202A] border border-[#303540] text-white text-[11px] rounded px-2 py-1 flex-1 min-w-[80px] h-7" placeholder="Reason..." type="text"/>
+<button class="bg-[#252A34] text-outline border border-[#303540] px-2 py-1 rounded text-[11px] font-bold h-7 whitespace-nowrap">Add Bonus</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="border-t border-[#303540] bg-[#1B202A] px-container_padding py-3 flex items-center justify-between text-sm text-on-surface-variant">
+<div>
+                        Showing <span class="font-medium text-white">1</span> to <span class="font-medium text-white">2</span> of <span class="font-medium text-white">245</span> users
+                    </div>
+<div class="flex items-center gap-1">
+<button class="px-2.5 py-1 border border-[#303540] rounded bg-[#0E131D] hover:bg-[#252A34] hover:text-white transition-colors disabled:opacity-50 text-xs">Previous</button>
+<button class="px-2.5 py-1 bg-[#FCB900] text-[#0E131D] font-medium rounded text-xs">1</button>
+<button class="px-2.5 py-1 border border-[#303540] rounded bg-[#0E131D] hover:bg-[#252A34] hover:text-white transition-colors text-xs">2</button>
+<button class="px-2.5 py-1 border border-[#303540] rounded bg-[#0E131D] hover:bg-[#252A34] hover:text-white transition-colors text-xs">3</button>
+<span class="px-1 text-xs">...</span>
+<button class="px-2.5 py-1 border border-[#303540] rounded bg-[#0E131D] hover:bg-[#252A34] hover:text-white transition-colors text-xs">25</button>
+<button class="px-2.5 py-1 border border-[#303540] rounded bg-[#0E131D] hover:bg-[#252A34] hover:text-white transition-colors text-xs">Next</button>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

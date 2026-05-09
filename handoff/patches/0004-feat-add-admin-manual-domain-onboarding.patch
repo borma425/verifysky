@@ -1,0 +1,860 @@
+From e0cb852739246a0db7b4cbf52356f637da58748b Mon Sep 17 00:00:00 2001
+From: Yehia Elborma <borma425@gmail.com>
+Date: Wed, 22 Apr 2026 08:37:23 +0200
+Subject: [PATCH 4/4] feat: add admin manual domain onboarding
+
+---
+ .../Admin/AdminTenantsController.php          | 26 ++++++
+ .../Domains/AdminStoreTenantDomainRequest.php | 46 +++++++++++
+ .../app/Services/Plans/PlanLimitsService.php  | 33 +++++++-
+ .../admin/customer/billing/index.blade.php    |  2 +-
+ .../admin/customer/domains/index.blade.php    |  4 +-
+ .../admin/customer/firewall/index.blade.php   |  2 +-
+ .../views/admin/customer/overview.blade.php   |  4 +-
+ .../resources/views/admin/overview.blade.php  |  6 +-
+ .../admin/tenants/console/firewall.blade.php  |  4 +-
+ .../tenants/console/sensitive-paths.blade.php |  8 +-
+ .../admin/tenants/domains/firewall.blade.php  |  2 +-
+ .../admin/tenants/domains/show.blade.php      |  2 +-
+ .../views/admin/tenants/index.blade.php       |  8 +-
+ .../views/admin/tenants/show.blade.php        | 59 +++++++++++--
+ .../resources/views/billing/index.blade.php   |  6 +-
+ .../emails/manual-grant-activated.blade.php   |  2 +-
+ .../views/emails/welcome-customer.blade.php   |  4 +-
+ .../views/logs/partials/filters.blade.php     |  2 +-
+ .../views/logs/partials/table.blade.php       |  2 +-
+ .../views/partials/sidebar-admin.blade.php    |  2 +-
+ dashboard/routes/web.php                      |  1 +
+ .../tests/Feature/AdminCommandCenterTest.php  |  2 +-
+ .../tests/Feature/AdminCustomerMirrorTest.php |  2 +-
+ .../AdminTenantBillingOperationsTest.php      | 82 ++++++++++++++++++-
+ dashboard/tests/Feature/BillingPortalTest.php |  2 +-
+ .../tests/Unit/PlanLimitsServiceTest.php      | 30 +++++++
+ 26 files changed, 302 insertions(+), 41 deletions(-)
+ create mode 100644 dashboard/app/Http/Requests/Domains/AdminStoreTenantDomainRequest.php
+
+diff --git a/dashboard/app/Http/Controllers/Admin/AdminTenantsController.php b/dashboard/app/Http/Controllers/Admin/AdminTenantsController.php
+index cee6f0e..b6dc278 100755
+--- a/dashboard/app/Http/Controllers/Admin/AdminTenantsController.php
++++ b/dashboard/app/Http/Controllers/Admin/AdminTenantsController.php
+@@ -5,12 +5,15 @@
+ use App\Actions\Billing\ForceResetTenantBillingCycleAction;
+ use App\Actions\Billing\GrantTenantPlanAction;
+ use App\Actions\Billing\RevokeTenantPlanGrantAction;
++use App\Actions\Domains\ProvisionTenantDomainAction;
+ use App\Http\Controllers\Controller;
++use App\Http\Requests\Domains\AdminStoreTenantDomainRequest;
+ use App\Models\Tenant;
+ use App\Models\TenantPlanGrant;
+ use App\Models\User;
+ use App\Services\Billing\BillingPlanCatalogService;
+ use App\Services\Billing\TenantBillingStatusService;
++use App\Services\Plans\PlanLimitsService;
+ use App\ViewData\Admin\AdminTenantRowViewData;
+ use Carbon\CarbonImmutable;
+ use Illuminate\Http\RedirectResponse;
+@@ -25,7 +28,9 @@ public function __construct(
+         private readonly ForceResetTenantBillingCycleAction $forceResetTenantBillingCycle,
+         private readonly GrantTenantPlanAction $grantTenantPlan,
+         private readonly RevokeTenantPlanGrantAction $revokeTenantPlanGrant,
++        private readonly ProvisionTenantDomainAction $provisionTenantDomain,
+         private readonly BillingPlanCatalogService $planCatalog,
++        private readonly PlanLimitsService $planLimits,
+         private readonly AdminTenantRowViewData $rowViewData
+     ) {}
+ 
+@@ -83,11 +88,32 @@ public function show(Tenant $tenant): View
+         return view('admin.tenants.show', [
+             'tenant' => $tenant,
+             'row' => $this->rowViewData->fromTenant($tenant, $billingAvailable),
++            'domainsUsage' => $this->planLimits->getDomainsUsage($tenant),
+             'billingAvailable' => $billingAvailable,
+             'grantablePlans' => $this->planCatalog->paidPlans(),
+         ]);
+     }
+ 
++    public function storeDomain(AdminStoreTenantDomainRequest $request, Tenant $tenant): RedirectResponse
++    {
++        $result = $this->provisionTenantDomain->execute($request->validated(), (string) $tenant->getKey());
++        if (! $result['ok']) {
++            $response = back()->withInput()->with('error', $result['error']);
++            if (($result['origin_detection_failed'] ?? false) === true) {
++                $response->with('domain_origin_detection_failed', true);
++            }
++
++            return $response;
++        }
++
++        $message = 'Domain setup started for '.implode(', ', $result['created']).'. VerifySky is now activating protection for this client.';
++        if (($result['origin_mode'] ?? 'manual') === 'auto') {
++            $message .= ' The server IP was detected automatically.';
++        }
++
++        return back()->with('status', $message);
++    }
++
+     public function forceCycleReset(Tenant $tenant): RedirectResponse
+     {
+         if ($this->tenantBillingStatus->forTenant($tenant) === null) {
+diff --git a/dashboard/app/Http/Requests/Domains/AdminStoreTenantDomainRequest.php b/dashboard/app/Http/Requests/Domains/AdminStoreTenantDomainRequest.php
+new file mode 100644
+index 0000000..33d1b30
+--- /dev/null
++++ b/dashboard/app/Http/Requests/Domains/AdminStoreTenantDomainRequest.php
+@@ -0,0 +1,46 @@
++<?php
++
++namespace App\Http\Requests\Domains;
++
++use App\Models\Tenant;
++use App\Services\Plans\PlanLimitsService;
++use Illuminate\Foundation\Http\FormRequest;
++use Illuminate\Validation\Validator;
++
++class AdminStoreTenantDomainRequest extends FormRequest
++{
++    public const DOMAIN_LIMIT_MESSAGE = 'عفواً، لقد وصل هذا المستخدم للحد الأقصى لخطته. يرجى ترقية الخطة أو إضافة مساحة إضافية أولاً';
++
++    public function authorize(): bool
++    {
++        return (bool) session('is_admin');
++    }
++
++    public function rules(): array
++    {
++        return [
++            'domain_name' => ['required', 'string', 'max:255'],
++            'origin_server' => ['nullable', 'string', 'max:255'],
++            'security_mode' => ['nullable', 'in:monitor,balanced,aggressive'],
++        ];
++    }
++
++    public function withValidator($validator): void
++    {
++        $validator->after(function (Validator $validator): void {
++            if ($validator->errors()->isNotEmpty()) {
++                return;
++            }
++
++            $tenant = $this->route('tenant');
++            if (! $tenant instanceof Tenant) {
++                return;
++            }
++
++            $usage = app(PlanLimitsService::class)->getDomainsUsage($tenant);
++            if (! (bool) ($usage['can_add'] ?? false)) {
++                $validator->errors()->add('domain_name', self::DOMAIN_LIMIT_MESSAGE);
++            }
++        });
++    }
++}
+diff --git a/dashboard/app/Services/Plans/PlanLimitsService.php b/dashboard/app/Services/Plans/PlanLimitsService.php
+index 5283fda..4a686c5 100755
+--- a/dashboard/app/Services/Plans/PlanLimitsService.php
++++ b/dashboard/app/Services/Plans/PlanLimitsService.php
+@@ -9,6 +9,15 @@
+ 
+ class PlanLimitsService
+ {
++    private const EXTRA_DOMAIN_ALLOWANCE_SETTING_KEYS = [
++        'extra_domains',
++        'bonus_domains',
++        'extra_domain_slots',
++        'bonus_domain_slots',
++        'extra_domain_limit',
++        'bonus_domain_limit',
++    ];
++
+     public function __construct(
+         private readonly D1DatabaseClient $d1,
+         private readonly ?EffectiveTenantPlanService $effectivePlans = null
+@@ -48,7 +57,9 @@ public function getDomainsUsage(Tenant $tenant): array
+     {
+         $plan = $this->planDefinitionForTenant($tenant);
+         $rawLimit = $plan['limits']['domains'] ?? null;
+-        $limit = is_numeric($rawLimit) ? max(0, (int) $rawLimit) : null;
++        $includedLimit = is_numeric($rawLimit) ? max(0, (int) $rawLimit) : null;
++        $extraAllowance = $this->extraDomainAllowance($tenant);
++        $limit = $includedLimit === null ? null : $includedLimit + $extraAllowance;
+         $used = $this->tenantDomainsQuery((string) $tenant->getKey())->count();
+         $remaining = $limit === null ? null : max(0, $limit - $used);
+         $canAdd = $limit === null || $used < $limit;
+@@ -56,6 +67,8 @@ public function getDomainsUsage(Tenant $tenant): array
+         return [
+             'used' => $used,
+             'limit' => $limit,
++            'included_limit' => $includedLimit,
++            'extra_allowance' => $extraAllowance,
+             'remaining' => $remaining,
+             'can_add' => $canAdd,
+             'plan_key' => $plan['key'],
+@@ -267,6 +280,24 @@ private function tenantDomainsQuery(?string $tenantId)
+         return TenantDomain::query()->where('tenant_id', trim((string) $tenantId));
+     }
+ 
++    private function extraDomainAllowance(Tenant $tenant): int
++    {
++        $settings = $tenant->settings;
++        if (! is_array($settings)) {
++            return 0;
++        }
++
++        $allowance = 0;
++        foreach (self::EXTRA_DOMAIN_ALLOWANCE_SETTING_KEYS as $key) {
++            $value = $settings[$key] ?? null;
++            if (is_numeric($value)) {
++                $allowance += max(0, (int) $value);
++            }
++        }
++
++        return $allowance;
++    }
++
+     private function normalizeDomain(string $domain): string
+     {
+         return strtolower(trim($domain));
+diff --git a/dashboard/resources/views/admin/customer/billing/index.blade.php b/dashboard/resources/views/admin/customer/billing/index.blade.php
+index c6c3144..d4c6714 100755
+--- a/dashboard/resources/views/admin/customer/billing/index.blade.php
++++ b/dashboard/resources/views/admin/customer/billing/index.blade.php
+@@ -59,7 +59,7 @@
+           </div>
+         @else
+           <div class="mt-4 rounded-xl border border-white/10 bg-[#202632] p-4 text-sm text-[#D7E1F5]">
+-            No active manual grant for this tenant.
++            No active manual grant for this client.
+           </div>
+         @endif
+       </div>
+diff --git a/dashboard/resources/views/admin/customer/domains/index.blade.php b/dashboard/resources/views/admin/customer/domains/index.blade.php
+index 0752cc9..a6ff520 100755
+--- a/dashboard/resources/views/admin/customer/domains/index.blade.php
++++ b/dashboard/resources/views/admin/customer/domains/index.blade.php
+@@ -11,7 +11,7 @@
+       <div>
+         <p class="text-[10px] font-bold uppercase tracking-[0.24em] text-[#FCB900]">Customer Domains</p>
+         <h1 class="es-page-title mt-1 font-black tracking-[-0.03em] text-[#FFFFFF]">Domain Management</h1>
+-        <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Rendered from explicit tenant context without session impersonation.</p>
++        <p class="mt-2 max-w-2xl text-sm leading-relaxed text-[#D7E1F5]">Rendered from the selected client account without session impersonation.</p>
+       </div>
+       <div class="es-header-pill min-w-[7rem] text-center">
+         <div class="text-[10px] uppercase tracking-[0.2em] text-[#959BA7]">Plan</div>
+@@ -42,7 +42,7 @@
+         </div>
+       </div>
+     @empty
+-      <div class="es-card p-5 text-sm text-sky-100/70">No protected domains are assigned to this tenant yet.</div>
++      <div class="es-card p-5 text-sm text-sky-100/70">No protected domains are assigned to this client yet.</div>
+     @endforelse
+   </div>
+ @endsection
+diff --git a/dashboard/resources/views/admin/customer/firewall/index.blade.php b/dashboard/resources/views/admin/customer/firewall/index.blade.php
+index f4ec1b7..112c4a4 100755
+--- a/dashboard/resources/views/admin/customer/firewall/index.blade.php
++++ b/dashboard/resources/views/admin/customer/firewall/index.blade.php
+@@ -48,7 +48,7 @@
+           </tr>
+         @empty
+           <tr>
+-            <td colspan="6" class="py-8 text-center text-sky-100/70">No firewall rules exist for this tenant.</td>
++            <td colspan="6" class="py-8 text-center text-sky-100/70">No firewall rules exist for this client.</td>
+           </tr>
+         @endforelse
+         </tbody>
+diff --git a/dashboard/resources/views/admin/customer/overview.blade.php b/dashboard/resources/views/admin/customer/overview.blade.php
+index 5f221ff..3b499bf 100755
+--- a/dashboard/resources/views/admin/customer/overview.blade.php
++++ b/dashboard/resources/views/admin/customer/overview.blade.php
+@@ -27,7 +27,7 @@
+   <div class="es-card p-0">
+     <div class="border-b border-white/10 p-5">
+       <h2 class="text-lg font-bold text-white">Recent Security Events</h2>
+-      <p class="mt-1 text-sm text-sky-100/65">Latest tenant-scoped events from the customer-facing security feed.</p>
++      <p class="mt-1 text-sm text-sky-100/65">Latest client account events from the customer-facing security feed.</p>
+     </div>
+     <div class="overflow-x-auto">
+       <table class="es-table min-w-[980px]">
+@@ -53,7 +53,7 @@
+           </tr>
+         @empty
+           <tr>
+-            <td colspan="6" class="py-8 text-center text-sky-100/70">No recent tenant events.</td>
++            <td colspan="6" class="py-8 text-center text-sky-100/70">No recent client events.</td>
+           </tr>
+         @endforelse
+         </tbody>
+diff --git a/dashboard/resources/views/admin/overview.blade.php b/dashboard/resources/views/admin/overview.blade.php
+index 5e490e5..62703fa 100755
+--- a/dashboard/resources/views/admin/overview.blade.php
++++ b/dashboard/resources/views/admin/overview.blade.php
+@@ -3,12 +3,12 @@
+ @section('content')
+   <div class="mb-6">
+     <h1 class="es-title">Admin Command Center</h1>
+-    <p class="es-subtitle mt-2">Platform operations, tenant management, and security telemetry.</p>
++    <p class="es-subtitle mt-2">Platform operations, client management, and security telemetry.</p>
+   </div>
+ 
+   <div class="grid gap-4 md:grid-cols-4">
+     <div class="es-card p-5">
+-      <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Tenants</div>
++      <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Clients</div>
+       <div class="mt-3 text-3xl font-extrabold text-white">{{ number_format($stats['tenants'] ?? 0) }}</div>
+     </div>
+     <div class="es-card p-5">
+@@ -27,7 +27,7 @@
+ 
+   <div class="mt-6 grid gap-4 md:grid-cols-3">
+     <a href="{{ route('admin.tenants.index') }}" class="es-card block p-5 hover:border-cyan-300/35">
+-      <div class="text-lg font-bold text-white">Tenant Operations</div>
++      <div class="text-lg font-bold text-white">Client Operations</div>
+       <p class="mt-2 text-sm text-sky-100/70">Open billing, grants, subscriptions, usage cycles, memberships, and domains.</p>
+     </a>
+     <a href="{{ route('admin.logs.security') }}" class="es-card block p-5 hover:border-cyan-300/35">
+diff --git a/dashboard/resources/views/admin/tenants/console/firewall.blade.php b/dashboard/resources/views/admin/tenants/console/firewall.blade.php
+index 23d2564..b5b24a2 100644
+--- a/dashboard/resources/views/admin/tenants/console/firewall.blade.php
++++ b/dashboard/resources/views/admin/tenants/console/firewall.blade.php
+@@ -80,7 +80,7 @@
+       <div class="es-card p-5 text-sm text-sky-100/70">
+         <div class="font-semibold text-white">{{ $firewallUsage['plan_name'] ?? 'Plan' }}</div>
+         <div class="mt-1">{{ $firewallUsage['used'] ?? 0 }} / {{ $firewallUsage['limit'] ?? 0 }} customer rules used.</div>
+-        <div class="mt-2 text-xs text-emerald-200">Admin can exceed plan limits when managing this tenant.</div>
++        <div class="mt-2 text-xs text-emerald-200">Admin can exceed firewall rule limits when managing this client.</div>
+       </div>
+     </div>
+ 
+@@ -178,7 +178,7 @@
+               </td>
+             </tr>
+           @empty
+-            <tr><td colspan="9" class="py-8 text-center text-sky-100/70">No firewall rules for this tenant.</td></tr>
++            <tr><td colspan="9" class="py-8 text-center text-sky-100/70">No firewall rules for this client.</td></tr>
+           @endforelse
+           </tbody>
+         </table>
+diff --git a/dashboard/resources/views/admin/tenants/console/sensitive-paths.blade.php b/dashboard/resources/views/admin/tenants/console/sensitive-paths.blade.php
+index 5a16327..d42c728 100644
+--- a/dashboard/resources/views/admin/tenants/console/sensitive-paths.blade.php
++++ b/dashboard/resources/views/admin/tenants/console/sensitive-paths.blade.php
+@@ -5,7 +5,7 @@
+     <div>
+       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
+       <h1 class="es-title mt-2">Sensitive Paths</h1>
+-      <p class="es-subtitle mt-2">Protect sensitive routes for every tenant domain or one specific hostname.</p>
++      <p class="es-subtitle mt-2">Protect sensitive routes for every client domain or one specific hostname.</p>
+     </div>
+     <div class="flex gap-2">
+       <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Firewall</a>
+@@ -28,7 +28,7 @@
+         @csrf
+         <label class="block text-sm text-sky-100">Scope
+           <select class="es-input mt-1" name="scope">
+-            <option value="tenant">All tenant domains</option>
++            <option value="tenant">All client domains</option>
+             <option value="domain">Specific domain</option>
+           </select>
+         </label>
+@@ -77,7 +77,7 @@
+             @php $scope = ($path['scope'] ?? '') === 'tenant' || ($path['domain_name'] ?? '') === 'global' ? 'tenant' : 'domain'; @endphp
+             <tr>
+               <td>#{{ $path['id'] ?? '' }}</td>
+-              <td>{{ $scope === 'tenant' ? 'All tenant domains' : 'Specific domain' }}</td>
++              <td>{{ $scope === 'tenant' ? 'All client domains' : 'Specific domain' }}</td>
+               <td>{{ $scope === 'tenant' ? 'All domains' : ($path['domain_name'] ?? '') }}</td>
+               <td class="font-mono text-sky-100">{{ $path['path_pattern'] ?? '' }}</td>
+               <td>{{ $path['match_type'] ?? '' }}</td>
+@@ -91,7 +91,7 @@
+               </td>
+             </tr>
+           @empty
+-            <tr><td colspan="7" class="py-8 text-center text-sky-100/70">No sensitive paths for this tenant.</td></tr>
++            <tr><td colspan="7" class="py-8 text-center text-sky-100/70">No sensitive paths for this client.</td></tr>
+           @endforelse
+           </tbody>
+         </table>
+diff --git a/dashboard/resources/views/admin/tenants/domains/firewall.blade.php b/dashboard/resources/views/admin/tenants/domains/firewall.blade.php
+index 462d662..87b644d 100755
+--- a/dashboard/resources/views/admin/tenants/domains/firewall.blade.php
++++ b/dashboard/resources/views/admin/tenants/domains/firewall.blade.php
+@@ -5,7 +5,7 @@
+     <div>
+       <a href="{{ route('admin.tenants.domains.show', [$tenant, $domainRecord->hostname]) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to domain</a>
+       <h1 class="es-title mt-2">Firewall: {{ $domainRecord->hostname }}</h1>
+-      <p class="es-subtitle mt-2">Rules are scoped to tenant #{{ $tenant->id }} and purge runtime cache through existing actions.</p>
++      <p class="es-subtitle mt-2">Rules are scoped to client #{{ $tenant->id }} and purge runtime cache through existing actions.</p>
+     </div>
+     <div class="text-sm text-sky-100/70">
+       {{ number_format($usage['used'] ?? count($rules)) }} / {{ number_format($usage['limit'] ?? 0) }} rules
+diff --git a/dashboard/resources/views/admin/tenants/domains/show.blade.php b/dashboard/resources/views/admin/tenants/domains/show.blade.php
+index 7981af4..0ba0bbc 100755
+--- a/dashboard/resources/views/admin/tenants/domains/show.blade.php
++++ b/dashboard/resources/views/admin/tenants/domains/show.blade.php
+@@ -11,7 +11,7 @@
+     <div>
+       <a href="{{ route('admin.tenants.show', $tenant) }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to {{ $tenant->name }}</a>
+       <h1 class="es-title mt-2">{{ $domainRecord->hostname }}</h1>
+-      <p class="es-subtitle mt-2">Admin-scoped domain management for tenant #{{ $tenant->id }}.</p>
++      <p class="es-subtitle mt-2">Admin-scoped domain management for client #{{ $tenant->id }}.</p>
+     </div>
+     <div class="flex flex-wrap gap-2">
+       <form method="POST" action="{{ route('admin.tenants.domains.sync_route', [$tenant, $domainRecord->hostname]) }}">
+diff --git a/dashboard/resources/views/admin/tenants/index.blade.php b/dashboard/resources/views/admin/tenants/index.blade.php
+index d15176a..2c5de5d 100755
+--- a/dashboard/resources/views/admin/tenants/index.blade.php
++++ b/dashboard/resources/views/admin/tenants/index.blade.php
+@@ -3,8 +3,8 @@
+ @section('content')
+   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+     <div>
+-      <h1 class="es-title">Tenant Billing Operations</h1>
+-      <p class="es-subtitle mt-2">Fast tenant index with preloaded domains, memberships, grants, subscriptions, and usage.</p>
++      <h1 class="es-title">Client Billing Operations</h1>
++      <p class="es-subtitle mt-2">Fast client index with preloaded domains, users, grants, subscriptions, and usage.</p>
+     </div>
+     <a href="{{ route('admin.overview') }}" class="es-btn es-btn-secondary">Overview</a>
+   </div>
+@@ -20,7 +20,7 @@
+       <table class="es-table min-w-[1180px]">
+         <thead>
+         <tr>
+-          <th>Tenant</th>
++          <th>Client</th>
+           <th>Plan Limit</th>
+           <th>Final Limit</th>
+           <th>Billing Cycle</th>
+@@ -99,7 +99,7 @@
+           </tr>
+         @empty
+           <tr>
+-            <td colspan="7" class="py-10 text-center text-sky-100/70">No tenants found.</td>
++            <td colspan="7" class="py-10 text-center text-sky-100/70">No clients found.</td>
+           </tr>
+         @endforelse
+         </tbody>
+diff --git a/dashboard/resources/views/admin/tenants/show.blade.php b/dashboard/resources/views/admin/tenants/show.blade.php
+index 8679080..978d292 100755
+--- a/dashboard/resources/views/admin/tenants/show.blade.php
++++ b/dashboard/resources/views/admin/tenants/show.blade.php
+@@ -5,13 +5,18 @@
+     $billing = $row['billing'];
+     $grant = $row['active_grant'];
+     $subscription = $row['active_subscription'];
++    $domainLimit = $domainsUsage['limit'] ?? null;
++    $domainUsed = (int) ($domainsUsage['used'] ?? $tenant->domains->count());
++    $domainRemaining = $domainsUsage['remaining'] ?? null;
++    $canAddDomain = (bool) ($domainsUsage['can_add'] ?? true);
++    $domainUsageLabel = $domainLimit === null ? $domainUsed.' / Unlimited' : $domainUsed.' / '.$domainLimit;
+   @endphp
+ 
+   <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+     <div>
+-      <a href="{{ route('admin.tenants.index') }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to tenants</a>
++      <a href="{{ route('admin.tenants.index') }}" class="text-sm font-semibold text-cyan-200 hover:text-cyan-100">Back to clients</a>
+       <h1 class="es-title mt-2">{{ $tenant->name }}</h1>
+-      <p class="es-subtitle mt-2">Tenant #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
++      <p class="es-subtitle mt-2">Client #{{ $tenant->id }} / {{ $tenant->slug }} / {{ $tenant->status }}</p>
+     </div>
+     <div class="flex flex-wrap items-center gap-3">
+       <a href="{{ route('admin.tenants.firewall.index', $tenant) }}" class="es-btn es-btn-secondary">Global Firewall</a>
+@@ -36,6 +41,10 @@
+       <div class="mt-3 text-xl font-bold text-white">{{ $row['effective_plan']['name'] ?? 'Starter' }}</div>
+       <div class="mt-1 text-sm text-sky-100/70">Source: {{ str_replace('_', ' ', $row['effective_plan']['source'] ?? 'baseline') }}</div>
+       <div class="mt-1 text-sm text-sky-100/70">Baseline: {{ $row['baseline_plan']['name'] ?? ucfirst((string) $tenant->plan) }}</div>
++      <div class="mt-3 text-sm text-sky-100/80">Domains: {{ $domainUsageLabel }}</div>
++      @if(($domainsUsage['extra_allowance'] ?? 0) > 0)
++        <div class="mt-1 text-xs text-emerald-200">Includes {{ (int) $domainsUsage['extra_allowance'] }} extra domain slot(s).</div>
++      @endif
+     </div>
+     <div class="es-card p-5">
+       <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#7F8BA0]">Billing Cycle</div>
+@@ -115,7 +124,7 @@
+     <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+       <div>
+         <h2 class="text-lg font-bold text-white">Account Controls</h2>
+-        <p class="mt-1 text-sm text-sky-100/65">Suspend access, resume access, or permanently delete this tenant.</p>
++        <p class="mt-1 text-sm text-sky-100/65">Suspend access, resume access, or permanently delete this client.</p>
+       </div>
+       <div class="text-sm text-sky-100/70">Current status: {{ $tenant->status }}</div>
+     </div>
+@@ -135,7 +144,7 @@
+         @csrf
+         @method('DELETE')
+         <div class="flex flex-col gap-2 md:flex-row">
+-          <input class="es-input" name="confirm_tenant" placeholder="Type tenant slug to delete: {{ $tenant->slug }}">
++          <input class="es-input" name="confirm_tenant" placeholder="Type client slug to delete: {{ $tenant->slug }}">
+           <button class="es-btn es-btn-danger whitespace-nowrap" type="submit">Delete Account</button>
+         </div>
+       </form>
+@@ -144,8 +153,46 @@
+ 
+   <div class="es-card mt-5 p-0">
+     <div class="border-b border-white/10 p-5">
+-      <h2 class="text-lg font-bold text-white">Domains</h2>
+-      <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules through admin-scoped actions.</p>
++      <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
++        <div>
++          <h2 class="text-lg font-bold text-white">Domains</h2>
++          <p class="mt-1 text-sm text-sky-100/65">Open a domain to manage routing, cache purge, tuning, and firewall rules for this client.</p>
++        </div>
++        <div class="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-sky-100/80">
++          {{ $domainUsageLabel }} domains used
++          @if($domainRemaining !== null)
++            <span class="text-sky-100/55">/ {{ $domainRemaining }} remaining</span>
++          @endif
++        </div>
++      </div>
++      <form method="POST" action="{{ route('admin.tenants.domains.store', $tenant) }}" class="mt-5 grid gap-3 xl:grid-cols-5">
++        @csrf
++        <label class="xl:col-span-2">
++          <span class="mb-1 block text-sm text-sky-100">Domain</span>
++          <input name="domain_name" class="es-input" value="{{ old('domain_name') }}" placeholder="example.com" @disabled(! $canAddDomain)>
++        </label>
++        <label class="xl:col-span-2">
++          <span class="mb-1 block text-sm text-sky-100">Server IP or hostname</span>
++          <input name="origin_server" class="es-input" value="{{ old('origin_server') }}" placeholder="192.0.2.10" @disabled(! $canAddDomain)>
++        </label>
++        <label>
++          <span class="mb-1 block text-sm text-sky-100">Protection level</span>
++          <select name="security_mode" class="es-input" @disabled(! $canAddDomain)>
++            <option value="balanced" @selected(old('security_mode', 'balanced') === 'balanced')>Balanced</option>
++            <option value="monitor" @selected(old('security_mode') === 'monitor')>Monitor only</option>
++            <option value="aggressive" @selected(old('security_mode') === 'aggressive')>Aggressive</option>
++          </select>
++        </label>
++        <div class="xl:col-span-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
++          @if($canAddDomain)
++            <div class="text-sm text-sky-100/65">Adding a domain starts VerifySky protection setup for this client.</div>
++            <button class="es-btn" type="submit">Add Domain</button>
++          @else
++            <div class="text-sm text-amber-100">عفواً، لقد وصل هذا المستخدم للحد الأقصى لخطته. يرجى ترقية الخطة أو إضافة مساحة إضافية أولاً</div>
++            <button class="es-btn opacity-60" type="button" disabled>Add Domain</button>
++          @endif
++        </div>
++      </form>
+     </div>
+     <div class="overflow-x-auto">
+       <table class="es-table min-w-[900px]">
+diff --git a/dashboard/resources/views/billing/index.blade.php b/dashboard/resources/views/billing/index.blade.php
+index bc02684..8958430 100755
+--- a/dashboard/resources/views/billing/index.blade.php
++++ b/dashboard/resources/views/billing/index.blade.php
+@@ -37,7 +37,7 @@
+       @if($activeGrant)
+         <div class="es-card mt-6 border border-[#FCB900]/20 bg-[#FCB900]/10 p-5 text-sm text-[#FFE6B5]">
+           <div class="font-bold text-[#FFFFFF]">Manual {{ strtoupper((string) $activeGrant->granted_plan_key) }} Grant Active</div>
+-          <div class="mt-2">This tenant is temporarily running on an admin-issued grant until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.</div>
++          <div class="mt-2">This account is temporarily running on an admin-issued grant until {{ $grantEndsAt?->format('Y-m-d H:i') }} UTC.</div>
+           @if($activeGrant->reason)
+             <div class="mt-2 text-[#F9D58A]">Reason: {{ $activeGrant->reason }}</div>
+           @endif
+@@ -49,7 +49,7 @@
+           <div class="mb-5 flex items-center justify-between gap-3">
+             <div>
+               <h2 class="text-lg font-bold text-[#FFFFFF]">Current Subscription</h2>
+-              <p class="mt-1 text-sm text-[#AEB9CC]">This panel reflects the last known PayPal subscription state for your tenant.</p>
++              <p class="mt-1 text-sm text-[#AEB9CC]">This panel reflects the last known PayPal subscription state for your account.</p>
+             </div>
+             <span class="rounded-full border border-[#FCB900]/30 bg-[#FCB900]/12 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[#FFE6B5]">
+               {{ $grantEndsAt ? 'Manual Grant Active' : $subscriptionStatus }}
+@@ -102,7 +102,7 @@
+ 
+           @if(! $canManageBilling)
+             <div class="mt-5 rounded-xl border border-[#FCB900]/20 bg-[#FCB900]/10 px-4 py-3 text-sm text-[#FFE6B5]">
+-              You can view billing status, but only the tenant owner can start checkout or cancel the subscription.
++              You can view billing status, but only the account owner can start checkout or cancel the subscription.
+             </div>
+           @endif
+         </div>
+diff --git a/dashboard/resources/views/emails/manual-grant-activated.blade.php b/dashboard/resources/views/emails/manual-grant-activated.blade.php
+index 80d73ec..382db44 100755
+--- a/dashboard/resources/views/emails/manual-grant-activated.blade.php
++++ b/dashboard/resources/views/emails/manual-grant-activated.blade.php
+@@ -14,6 +14,6 @@
+   </div>
+ 
+   <p style="margin:0;font-size:14px;line-height:1.7;color:#cbd5e1;">
+-    VerifySky will keep plan and billing-cycle changes visible to tenant owners through queued billing notifications.
++    VerifySky will keep plan and billing-cycle changes visible to account owners through queued billing notifications.
+   </p>
+ @endsection
+diff --git a/dashboard/resources/views/emails/welcome-customer.blade.php b/dashboard/resources/views/emails/welcome-customer.blade.php
+index e609f20..5cb3f2b 100755
+--- a/dashboard/resources/views/emails/welcome-customer.blade.php
++++ b/dashboard/resources/views/emails/welcome-customer.blade.php
+@@ -8,7 +8,7 @@
+   </p>
+ 
+   @if($tenantNames !== [])
+-    <p style="margin:0 0 8px;font-size:14px;color:#94a3b8;">Assigned tenant scopes:</p>
++    <p style="margin:0 0 8px;font-size:14px;color:#94a3b8;">Assigned client accounts:</p>
+     <ul style="margin:0 0 18px 20px;padding:0;">
+       @foreach($tenantNames as $tenantName)
+         <li style="margin:0 0 6px;">{{ $tenantName }}</li>
+@@ -17,6 +17,6 @@
+   @endif
+ 
+   <p style="margin:0;font-size:14px;line-height:1.7;color:#cbd5e1;">
+-    This notice is sent only to tenant owners so account creation stays visible to the operational team.
++    This notice is sent only to account owners so account creation stays visible to the operational team.
+   </p>
+ @endsection
+diff --git a/dashboard/resources/views/logs/partials/filters.blade.php b/dashboard/resources/views/logs/partials/filters.blade.php
+index 3f9e639..260adcb 100755
+--- a/dashboard/resources/views/logs/partials/filters.blade.php
++++ b/dashboard/resources/views/logs/partials/filters.blade.php
+@@ -9,7 +9,7 @@
+     <div>
+       <h2 class="es-title m-0">{{ $isTenantScoped ? 'Security Analytics' : 'Security Logs' }}</h2>
+       <p class="mt-2 max-w-3xl text-sm text-sky-100/70">
+-        {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your tenant so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
++        {{ $isTenantScoped ? 'This view is scoped to the domains assigned to your account so you can verify blocked traffic and legitimate visitors safely.' : 'Inspect recent security events, filter by domain or IP, and manage enforcement actions.' }}
+       </p>
+     </div>
+     @if($canManageLogActions)
+diff --git a/dashboard/resources/views/logs/partials/table.blade.php b/dashboard/resources/views/logs/partials/table.blade.php
+index b791168..7f46f7b 100755
+--- a/dashboard/resources/views/logs/partials/table.blade.php
++++ b/dashboard/resources/views/logs/partials/table.blade.php
+@@ -2,7 +2,7 @@
+   <div class="mb-4 flex flex-col gap-1 border-b border-sky-500/15 pb-4">
+     <h3 class="text-base font-semibold text-white">{{ $isTenantScoped ? 'Recent Security Events' : 'Recent Security Log Events' }}</h3>
+     <p class="text-sm text-sky-100/65">
+-      {{ $isTenantScoped ? 'Only events for the domains assigned to your tenant are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
++      {{ $isTenantScoped ? 'Only events for the domains assigned to your account are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
+     </p>
+   </div>
+   <div class="overflow-x-auto">
+diff --git a/dashboard/resources/views/partials/sidebar-admin.blade.php b/dashboard/resources/views/partials/sidebar-admin.blade.php
+index b21d68d..007f9b4 100755
+--- a/dashboard/resources/views/partials/sidebar-admin.blade.php
++++ b/dashboard/resources/views/partials/sidebar-admin.blade.php
+@@ -1,7 +1,7 @@
+ @php
+   $navItems = [
+       ['route' => 'admin.overview', 'label' => 'Overview', 'icon' => 'grid-horizontal.svg'],
+-      ['route' => 'admin.tenants.index', 'label' => 'Tenants', 'icon' => 'clipboard.svg'],
++      ['route' => 'admin.tenants.index', 'label' => 'Clients', 'icon' => 'clipboard.svg'],
+       ['route' => 'admin.settings.index', 'label' => 'Settings', 'icon' => 'sliders.svg'],
+       ['route' => 'admin.logs.security', 'label' => 'System Logs', 'icon' => 'shield-keyhole.svg'],
+   ];
+diff --git a/dashboard/routes/web.php b/dashboard/routes/web.php
+index 2babefd..61dde06 100755
+--- a/dashboard/routes/web.php
++++ b/dashboard/routes/web.php
+@@ -121,6 +121,7 @@ function resolveAdminLoginPath(): string
+         Route::get('/admin', [AdminOverviewController::class, 'index'])->name('admin.overview');
+         Route::get('/admin/tenants', [AdminTenantsController::class, 'index'])->name('admin.tenants.index');
+         Route::get('/admin/tenants/{tenant}', [AdminTenantsController::class, 'show'])->name('admin.tenants.show');
++        Route::post('/admin/tenants/{tenant}/domains', [AdminTenantsController::class, 'storeDomain'])->name('admin.tenants.domains.store');
+         Route::post('/admin/tenants/{tenant}/force-cycle-reset', [AdminTenantsController::class, 'forceCycleReset'])->name('admin.tenants.force_cycle_reset');
+         Route::post('/admin/tenants/{tenant}/manual-grants', [AdminTenantsController::class, 'grantPlan'])->name('admin.tenants.manual_grants.store');
+         Route::post('/admin/tenants/{tenant}/manual-grants/{grant}/revoke', [AdminTenantsController::class, 'revokePlanGrant'])->name('admin.tenants.manual_grants.revoke');
+diff --git a/dashboard/tests/Feature/AdminCommandCenterTest.php b/dashboard/tests/Feature/AdminCommandCenterTest.php
+index f76e2fc..b1cf5b4 100755
+--- a/dashboard/tests/Feature/AdminCommandCenterTest.php
++++ b/dashboard/tests/Feature/AdminCommandCenterTest.php
+@@ -80,7 +80,7 @@ public function test_admin_tenant_index_uses_preloaded_view_data(): void
+         ])->get(route('admin.tenants.index'));
+ 
+         $response->assertOk()
+-            ->assertSee('Tenant Billing Operations')
++            ->assertSee('Client Billing Operations')
+             ->assertSee('Acme Ops')
+             ->assertSee('Manage Account')
+             ->assertSee('pass through')
+diff --git a/dashboard/tests/Feature/AdminCustomerMirrorTest.php b/dashboard/tests/Feature/AdminCustomerMirrorTest.php
+index 63b9ea8..bc47fbe 100755
+--- a/dashboard/tests/Feature/AdminCustomerMirrorTest.php
++++ b/dashboard/tests/Feature/AdminCustomerMirrorTest.php
+@@ -31,7 +31,7 @@ public function test_admin_sidebar_only_contains_admin_navigation(): void
+ 
+         $response->assertOk()
+             ->assertSee('Overview')
+-            ->assertSee('Tenants')
++            ->assertSee('Clients')
+             ->assertSee('Settings')
+             ->assertSee('System Logs')
+             ->assertDontSee('Global Firewall')
+diff --git a/dashboard/tests/Feature/AdminTenantBillingOperationsTest.php b/dashboard/tests/Feature/AdminTenantBillingOperationsTest.php
+index 5f4693c..afafde3 100755
+--- a/dashboard/tests/Feature/AdminTenantBillingOperationsTest.php
++++ b/dashboard/tests/Feature/AdminTenantBillingOperationsTest.php
+@@ -2,6 +2,8 @@
+ 
+ namespace Tests\Feature;
+ 
++use App\Actions\Domains\ProvisionTenantDomainAction;
++use App\Http\Requests\Domains\AdminStoreTenantDomainRequest;
+ use App\Jobs\PurgeRuntimeBundleCache;
+ use App\Jobs\SendManualGrantActivatedMailJob;
+ use App\Models\Tenant;
+@@ -10,10 +12,13 @@
+ use App\Models\TenantPlanGrant;
+ use App\Models\TenantUsage;
+ use App\Models\User;
++use App\Services\EdgeShield\D1DatabaseClient;
++use App\Services\Plans\PlanLimitsService;
+ use Carbon\CarbonImmutable;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Illuminate\Support\Facades\Queue;
+ use Illuminate\Support\Facades\Schema;
++use Mockery;
+ use Tests\TestCase;
+ 
+ class AdminTenantBillingOperationsTest extends TestCase
+@@ -23,6 +28,7 @@ class AdminTenantBillingOperationsTest extends TestCase
+     protected function tearDown(): void
+     {
+         CarbonImmutable::setTestNow();
++        Mockery::close();
+         parent::tearDown();
+     }
+ 
+@@ -50,7 +56,7 @@ public function test_admin_can_view_tenant_billing_operations_page(): void
+         ])->get(route('admin.tenants.index'));
+ 
+         $response->assertOk()
+-            ->assertSee('Tenant Billing Operations')
++            ->assertSee('Client Billing Operations')
+             ->assertSee('Acme Tenant')
+             ->assertSee('pass through')
+             ->assertSee('12,000 / 10,000', false);
+@@ -96,6 +102,80 @@ public function test_admin_page_displays_active_manual_grant_details(): void
+             ->assertSee('Revoke Grant');
+     }
+ 
++    public function test_admin_cannot_manually_add_domain_when_client_reached_plan_limit(): void
++    {
++        $tenant = Tenant::query()->create([
++            'name' => 'Full Client',
++            'slug' => 'full-client',
++            'plan' => 'starter',
++            'status' => 'active',
++        ]);
++        TenantDomain::query()->create([
++            'tenant_id' => $tenant->id,
++            'hostname' => 'example.com',
++        ]);
++
++        $action = Mockery::mock(ProvisionTenantDomainAction::class);
++        $action->shouldReceive('execute')->never();
++        $this->app->instance(ProvisionTenantDomainAction::class, $action);
++        $this->app->instance(PlanLimitsService::class, new PlanLimitsService(Mockery::mock(D1DatabaseClient::class)));
++
++        $response = $this->withSession([
++            'is_authenticated' => true,
++            'is_admin' => true,
++        ])->post(route('admin.tenants.domains.store', $tenant), [
++            'domain_name' => 'second-example.com',
++            'origin_server' => '192.0.2.10',
++            'security_mode' => 'balanced',
++        ]);
++
++        $response->assertRedirect();
++        $response->assertSessionHasErrors([
++            'domain_name' => AdminStoreTenantDomainRequest::DOMAIN_LIMIT_MESSAGE,
++        ]);
++        $this->assertDatabaseCount('tenant_domains', 1);
++    }
++
++    public function test_admin_can_manually_add_domain_and_start_edge_setup_when_space_remains(): void
++    {
++        $tenant = Tenant::query()->create([
++            'name' => 'Growth Client',
++            'slug' => 'growth-client',
++            'plan' => 'growth',
++            'status' => 'active',
++        ]);
++        TenantDomain::query()->create([
++            'tenant_id' => $tenant->id,
++            'hostname' => 'example.com',
++        ]);
++
++        $action = Mockery::mock(ProvisionTenantDomainAction::class);
++        $action->shouldReceive('execute')->once()->with([
++            'domain_name' => 'second-example.com',
++            'origin_server' => '192.0.2.10',
++            'security_mode' => 'balanced',
++        ], (string) $tenant->id)->andReturn([
++            'ok' => true,
++            'created' => ['second-example.com'],
++            'origin_mode' => 'manual',
++        ]);
++        $this->app->instance(ProvisionTenantDomainAction::class, $action);
++        $this->app->instance(PlanLimitsService::class, new PlanLimitsService(Mockery::mock(D1DatabaseClient::class)));
++
++        $response = $this->withSession([
++            'is_authenticated' => true,
++            'is_admin' => true,
++        ])->post(route('admin.tenants.domains.store', $tenant), [
++            'domain_name' => 'second-example.com',
++            'origin_server' => '192.0.2.10',
++            'security_mode' => 'balanced',
++        ]);
++
++        $response->assertRedirect();
++        $response->assertSessionHas('status', fn (string $message): bool => str_contains($message, 'Domain setup started for second-example.com.')
++            && str_contains($message, 'activating protection'));
++    }
++
+     public function test_non_admin_cannot_open_tenant_billing_operations_page(): void
+     {
+         $response = $this->withSession([
+diff --git a/dashboard/tests/Feature/BillingPortalTest.php b/dashboard/tests/Feature/BillingPortalTest.php
+index 7279ed6..6c38d85 100755
+--- a/dashboard/tests/Feature/BillingPortalTest.php
++++ b/dashboard/tests/Feature/BillingPortalTest.php
+@@ -37,7 +37,7 @@ public function test_owner_can_view_billing_portal_and_non_owner_sees_read_only_
+             ->assertSee('Checkout');
+ 
+         $memberResponse->assertOk()
+-            ->assertSee('only the tenant owner can start checkout or cancel the subscription')
++            ->assertSee('only the account owner can start checkout or cancel the subscription')
+             ->assertDontSee('Cancel At Period End');
+     }
+ 
+diff --git a/dashboard/tests/Unit/PlanLimitsServiceTest.php b/dashboard/tests/Unit/PlanLimitsServiceTest.php
+index 45a3486..c46d5db 100755
+--- a/dashboard/tests/Unit/PlanLimitsServiceTest.php
++++ b/dashboard/tests/Unit/PlanLimitsServiceTest.php
+@@ -95,6 +95,36 @@ public function test_growth_plan_domain_usage_allows_adding_second_domain(): voi
+         $this->assertTrue($service->getDomainsUsage($tenant)['can_add']);
+     }
+ 
++    public function test_domain_usage_includes_extra_and_bonus_allowance_from_tenant_settings(): void
++    {
++        $tenant = Tenant::query()->create([
++            'name' => 'Bonus Tenant',
++            'slug' => 'bonus-tenant',
++            'plan' => 'starter',
++            'status' => 'active',
++            'settings' => [
++                'extra_domains' => 1,
++                'bonus_domains' => 2,
++            ],
++        ]);
++
++        foreach (['one.example.com', 'two.example.com', 'three.example.com'] as $hostname) {
++            TenantDomain::query()->create([
++                'tenant_id' => $tenant->id,
++                'hostname' => $hostname,
++            ]);
++        }
++
++        $service = new PlanLimitsService(Mockery::mock(D1DatabaseClient::class));
++        $usage = $service->getDomainsUsage($tenant);
++
++        $this->assertSame(3, $usage['used']);
++        $this->assertSame(1, $usage['included_limit']);
++        $this->assertSame(3, $usage['extra_allowance']);
++        $this->assertSame(4, $usage['limit']);
++        $this->assertTrue($usage['can_add']);
++    }
++
+     public function test_unlimited_plan_returns_null_domain_limit(): void
+     {
+         config()->set('plans.plans.scale.limits.domains', null);
+-- 
+2.53.0
+

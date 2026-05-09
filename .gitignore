@@ -9,6 +9,8 @@ worker/yarn-error.log*
 
 # Monorepo: Laravel dashboard runtime/artifacts
 dashboard/.env
+dashboard/.env.bak*
+dashboard/.env.backup*
 dashboard/vendor/
 dashboard/node_modules/
 dashboard/public/build/
@@ -27,3 +29,4 @@ plugins/google-stitch/.mcp.json
 
 # Local MCP secrets
 .mcp.json
+/.env
