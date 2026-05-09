@@ -7,7 +7,7 @@ use App\Models\DomainAssetHistory;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Models\TenantPlanGrant;
-use App\Services\Billing\TenantSubscriptionService;
+use App\Services\Billing\EffectiveTenantPlanService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -19,7 +19,7 @@ class DomainAssetPolicyService
     private static ?Rules $rules = null;
 
     public function __construct(
-        private readonly TenantSubscriptionService $subscriptions,
+        private readonly EffectiveTenantPlanService $effectivePlans,
         private readonly ForceResetTenantBillingCycleAction $forceResetTenantBillingCycle
     ) {}
 
@@ -264,11 +264,9 @@ class DomainAssetPolicyService
 
     private function tenantAlreadyHasPaidAccess(Tenant $tenant): bool
     {
-        if (strtolower(trim((string) $tenant->plan)) !== 'starter') {
-            return true;
-        }
-
-        return $this->subscriptions->activeSubscriptionForTenant($tenant) !== null;
+        return $this->effectivePlans->isPaidPlan(
+            $this->effectivePlans->effectivePlanKeyForTenant($tenant)
+        );
     }
 
     private function storageReady(): bool

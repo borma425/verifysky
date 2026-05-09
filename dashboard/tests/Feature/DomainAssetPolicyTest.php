@@ -182,6 +182,27 @@ class DomainAssetPolicyTest extends TestCase
         $this->assertFalse($status['blocked']);
     }
 
+    public function test_active_manual_plan_grant_can_bypass_quarantine(): void
+    {
+        Bus::fake();
+
+        $tenant = $this->tenant();
+        TenantPlanGrant::query()->create([
+            'tenant_id' => $tenant->id,
+            'granted_plan_key' => 'pro',
+            'source' => 'manual',
+            'status' => TenantPlanGrant::STATUS_ACTIVE,
+            'starts_at' => now('UTC')->subMinute()->toDateTimeString(),
+            'ends_at' => now('UTC')->addDays(14)->toDateTimeString(),
+        ]);
+
+        app(DomainAssetPolicyService::class)->quarantineRemovedHostnames(['example.com'], (string) $tenant->id, 'domain_deleted');
+
+        $status = app(DomainAssetPolicyService::class)->quarantineStatusForTenant('www.example.com', $tenant);
+
+        $this->assertFalse($status['blocked']);
+    }
+
     public function test_domain_delete_records_quarantine_before_local_row_removal(): void
     {
         $tenant = $this->tenant();
