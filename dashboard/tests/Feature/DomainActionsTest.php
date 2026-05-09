@@ -106,6 +106,11 @@ class DomainActionsTest extends TestCase
     public function test_domain_status_polling_endpoint_returns_lifecycle_payload(): void
     {
         $tenant = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.example.com',
+        ]);
+
         $repository = Mockery::mock(DomainConfigRepository::class);
         $repository->shouldReceive('listForTenant')->once()->with((string) $tenant->id, false)->andReturn([
             'ok' => true,
@@ -267,11 +272,7 @@ class DomainActionsTest extends TestCase
         ]);
 
         $repository = Mockery::mock(DomainConfigRepository::class);
-        $repository->shouldReceive('listForTenant')->once()->with((string) $tenant->id, false)->andReturn([
-            'ok' => true,
-            'error' => null,
-            'domains' => [],
-        ]);
+        $repository->shouldNotReceive('listForTenant');
         $this->app->instance(DomainConfigRepository::class, $repository);
 
         $response = $this->withSession([
@@ -290,6 +291,59 @@ class DomainActionsTest extends TestCase
             ->assertSee('example.com')
             ->assertSee('2026-05-07 12:00:00 UTC')
             ->assertSee('Open Billing');
+    }
+
+    public function test_domains_index_does_not_query_edge_database_when_tenant_has_no_domains(): void
+    {
+        $tenant = $this->tenant();
+        $this->planLimits->shouldReceive('getDomainsUsage')->once()->with(Mockery::type(Tenant::class))->andReturn([
+            'used' => 0,
+            'limit' => 1,
+            'remaining' => 1,
+            'can_add' => true,
+            'plan_key' => 'starter',
+            'message' => null,
+        ]);
+        $this->planLimits->shouldReceive('getBillingUsageLimits')->once()->with(Mockery::type(Tenant::class))->andReturn([
+            'plan_key' => 'starter',
+            'plan_name' => 'Free',
+            'protected_sessions' => 5000,
+            'bot_fair_use' => 5000,
+        ]);
+
+        $repository = Mockery::mock(DomainConfigRepository::class);
+        $repository->shouldNotReceive('listForTenant');
+        $this->app->instance(DomainConfigRepository::class, $repository);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->get(route('domains.index'));
+
+        $response->assertOk()
+            ->assertSee('No domains yet')
+            ->assertDontSee('Edge database request failed.');
+    }
+
+    public function test_domain_statuses_do_not_query_edge_database_when_tenant_has_no_domains(): void
+    {
+        $tenant = $this->tenant();
+
+        $repository = Mockery::mock(DomainConfigRepository::class);
+        $repository->shouldNotReceive('listForTenant');
+        $this->app->instance(DomainConfigRepository::class, $repository);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->getJson(route('domains.statuses'));
+
+        $response->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('polling', false)
+            ->assertJsonPath('groups', []);
     }
 
     public function test_store_domain_no_longer_fails_synchronously_when_auto_detection_will_fail_later(): void

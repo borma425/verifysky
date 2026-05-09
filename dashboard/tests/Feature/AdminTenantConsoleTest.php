@@ -8,6 +8,7 @@ use App\Actions\Firewall\ToggleFirewallRuleAction;
 use App\Actions\Firewall\UpdateFirewallRuleAction;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -160,7 +161,7 @@ class AdminTenantConsoleTest extends TestCase
             'current_tenant_id' => (string) $tenant->id,
         ])->get(route('account.suspended'))
             ->assertOk()
-            ->assertSee('تم إيقاف حسابك');
+            ->assertSee('Your account has been suspended');
     }
 
     public function test_admin_can_suspend_and_resume_tenant(): void
@@ -178,6 +179,27 @@ class AdminTenantConsoleTest extends TestCase
             ->assertRedirect()
             ->assertSessionHas('status', 'User account resumed.');
         $this->assertSame('active', $tenant->refresh()->status);
+    }
+
+    public function test_admin_can_delete_tenant_without_slug_confirmation(): void
+    {
+        [$tenant, $domain] = $this->tenantWithDomain('cashup', 'www.cashup.cash');
+        $edge = $this->bindEdgeShieldMock();
+        $edge->shouldReceive('queryD1')->times(3)->andReturn(['ok' => true]);
+
+        $domainAssets = Mockery::mock(DomainAssetPolicyService::class);
+        $domainAssets->shouldReceive('quarantineRemovedHostnames')
+            ->once()
+            ->with(['www.cashup.cash'], (string) $tenant->id, 'tenant_deleted');
+        $this->app->instance(DomainAssetPolicyService::class, $domainAssets);
+
+        $this->withAdminSession()
+            ->delete(route('admin.tenants.account.delete', $tenant))
+            ->assertRedirect(route('admin.tenants.index'))
+            ->assertSessionHas('status', 'User account deleted.');
+
+        $this->assertDatabaseMissing('tenant_domains', ['id' => $domain->id]);
+        $this->assertDatabaseMissing('tenants', ['id' => $tenant->id]);
     }
 
     private function bindEdgeShieldMock(): MockInterface

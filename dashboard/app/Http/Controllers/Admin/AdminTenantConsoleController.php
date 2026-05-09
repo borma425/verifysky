@@ -316,15 +316,8 @@ class AdminTenantConsoleController extends Controller
         return back()->with('status', 'User account resumed.');
     }
 
-    public function delete(Request $request, Tenant $tenant): RedirectResponse
+    public function delete(Tenant $tenant): RedirectResponse
     {
-        $validated = $request->validate([
-            'confirm_tenant' => ['required', 'string'],
-        ]);
-        if ((string) $validated['confirm_tenant'] !== (string) $tenant->slug) {
-            return back()->with('error', 'Type the user slug exactly before deleting the account.');
-        }
-
         $tenantId = (string) $tenant->getKey();
         DB::transaction(function () use ($tenant, $tenantId): void {
             $this->domainAssets->quarantineRemovedHostnames(

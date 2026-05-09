@@ -146,7 +146,9 @@ class AdminCustomerMirrorController extends Controller
      */
     private function domainIndexViewData(Tenant $tenant): array
     {
-        $result = $this->domainConfigs->listForTenant((string) $tenant->getKey(), false);
+        $result = $tenant->domains()->exists()
+            ? $this->domainConfigs->listForTenant((string) $tenant->getKey(), false)
+            : ['ok' => true, 'error' => null, 'domains' => []];
 
         return (new DomainIndexViewData(
             $result,

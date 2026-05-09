@@ -54,7 +54,7 @@ class DomainsController extends Controller
         $tenantId = trim((string) session('current_tenant_id'));
         $isAdmin = (bool) session('is_admin');
         $tenant = $tenantId !== '' ? Tenant::query()->find($tenantId) : null;
-        $result = $this->domainConfigs->listForTenant($tenantId !== '' ? $tenantId : null, $isAdmin);
+        $result = $this->domainListResult($tenant, $tenantId, $isAdmin);
         $viewData = new DomainIndexViewData(
             $result,
             (string) config('edgeshield.saas_cname_target', 'customers.verifysky.com'),
@@ -69,7 +69,8 @@ class DomainsController extends Controller
     {
         $tenantId = trim((string) session('current_tenant_id'));
         $isAdmin = (bool) session('is_admin');
-        $result = $this->domainConfigs->listForTenant($tenantId !== '' ? $tenantId : null, $isAdmin);
+        $tenant = $tenantId !== '' ? Tenant::query()->find($tenantId) : null;
+        $result = $this->domainListResult($tenant, $tenantId, $isAdmin);
 
         return response()->json($this->domainStatusPayload($result, $isAdmin));
     }
@@ -351,6 +352,15 @@ class DomainsController extends Controller
         }
 
         return $this->planLimits->getDomainsUsage($tenant);
+    }
+
+    private function domainListResult(?Tenant $tenant, string $tenantId, bool $isAdmin): array
+    {
+        if (! $isAdmin && $tenant instanceof Tenant && ! $tenant->domains()->exists()) {
+            return ['ok' => true, 'error' => null, 'domains' => []];
+        }
+
+        return $this->domainConfigs->listForTenant($tenantId !== '' ? $tenantId : null, $isAdmin);
     }
 
     private function domainStatusPayload(array $result, bool $isAdmin): array
