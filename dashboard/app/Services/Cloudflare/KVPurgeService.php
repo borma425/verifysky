@@ -2,6 +2,7 @@
 
 namespace App\Services\Cloudflare;
 
+use App\Services\Domains\DnsVerificationService;
 use App\Services\EdgeShield\EdgeShieldConfig;
 use Illuminate\Support\Facades\Http;
 
@@ -115,8 +116,11 @@ class KVPurgeService
 
         $variants = [$normalized];
         if (str_starts_with($normalized, 'www.') && strlen($normalized) > 4) {
-            $variants[] = substr($normalized, 4);
-        } elseif (count(array_filter(explode('.', $normalized))) === 2) {
+            $baseDomain = substr($normalized, 4);
+            if ($this->looksLikeApexDomain($baseDomain)) {
+                $variants[] = $baseDomain;
+            }
+        } elseif ($this->looksLikeApexDomain($normalized)) {
             $variants[] = 'www.'.$normalized;
         }
 
@@ -126,5 +130,10 @@ class KVPurgeService
     private function normalizeDomain(string $domain): string
     {
         return strtolower(trim($domain));
+    }
+
+    private function looksLikeApexDomain(string $domain): bool
+    {
+        return app(DnsVerificationService::class)->looksLikeApexDomain($domain);
     }
 }

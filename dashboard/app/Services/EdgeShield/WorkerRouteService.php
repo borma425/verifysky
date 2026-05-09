@@ -2,6 +2,8 @@
 
 namespace App\Services\EdgeShield;
 
+use App\Services\Domains\DnsVerificationService;
+
 class WorkerRouteService
 {
     public function __construct(
@@ -74,6 +76,15 @@ class WorkerRouteService
                 return ['ok' => false, 'error' => $create['error']];
             }
             $actions[] = $pattern.':created';
+        }
+
+        foreach ($this->orphanRoutesForDomain($routes, $domain, $patterns, $script) as $route) {
+            $delete = $this->cloudflare->request('DELETE', '/zones/'.$zone.'/workers/routes/'.$route['id']);
+            if (! $delete['ok']) {
+                return ['ok' => false, 'error' => 'Worker routes synced, but orphan route cleanup failed: '.$delete['error']];
+            }
+
+            $actions[] = $route['pattern'].':orphan_deleted';
         }
 
         if (is_array($cacheRuleResult) && isset($cacheRuleResult['action'])) {
@@ -174,14 +185,74 @@ class WorkerRouteService
     private function routePatternsForDomain(string $domain): array
     {
         $primaryDomain = $domain;
-        $secondaryDomain = str_starts_with($domain, 'www.')
+        $baseDomain = str_starts_with($domain, 'www.')
             ? substr($domain, 4)
-            : 'www.'.$domain;
+            : $domain;
+
+        $secondaryDomain = null;
+        if ($this->looksLikeApexDomain($baseDomain)) {
+            $secondaryDomain = str_starts_with($domain, 'www.')
+                ? $baseDomain
+                : 'www.'.$domain;
+        }
 
         return array_values(array_filter(array_unique([
             $primaryDomain.'/*',
-            $secondaryDomain !== '' ? $secondaryDomain.'/*' : null,
+            $secondaryDomain !== null && $secondaryDomain !== '' ? $secondaryDomain.'/*' : null,
         ])));
+    }
+
+    /**
+     * @param  array<int, mixed>  $routes
+     * @param  array<int, string>  $expectedPatterns
+     * @return array<int, array{id: string, pattern: string}>
+     */
+    private function orphanRoutesForDomain(array $routes, string $domain, array $expectedPatterns, string $script): array
+    {
+        $legacyPatterns = $this->legacyRoutePatternsForDomain($domain);
+        if ($legacyPatterns === []) {
+            return [];
+        }
+
+        $candidatePatterns = array_diff($legacyPatterns, $expectedPatterns);
+        if ($candidatePatterns === []) {
+            return [];
+        }
+
+        $orphanRoutes = [];
+        foreach ($routes as $route) {
+            if (! is_array($route)) {
+                continue;
+            }
+
+            $pattern = (string) ($route['pattern'] ?? '');
+            $routeScript = (string) ($route['script'] ?? '');
+            $id = trim((string) ($route['id'] ?? ''));
+            if ($id === '' || $routeScript !== $script || ! in_array($pattern, $candidatePatterns, true)) {
+                continue;
+            }
+
+            $orphanRoutes[] = ['id' => $id, 'pattern' => $pattern];
+        }
+
+        return $orphanRoutes;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function legacyRoutePatternsForDomain(string $domain): array
+    {
+        if ($domain === '' || str_starts_with($domain, 'www.') || $this->looksLikeApexDomain($domain)) {
+            return [];
+        }
+
+        return ['www.'.$domain.'/*'];
+    }
+
+    private function looksLikeApexDomain(string $domain): bool
+    {
+        return app(DnsVerificationService::class)->looksLikeApexDomain($domain);
     }
 
     private function findRouteByPattern(array $routes, string $pattern): ?array

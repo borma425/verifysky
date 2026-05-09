@@ -32,6 +32,33 @@ class KVPurgeServiceTest extends TestCase
         $this->assertContains('cfg:www.cashup.cash', $keys);
     }
 
+    public function test_key_generation_includes_www_variant_for_multi_part_apex_domain(): void
+    {
+        $keys = (new KVPurgeService)->keysForDomain('example.co.uk');
+
+        $this->assertContains('cfg:example.co.uk', $keys);
+        $this->assertContains('cfg:www.example.co.uk', $keys);
+    }
+
+    public function test_key_generation_does_not_create_www_variant_for_subdomain(): void
+    {
+        $keys = (new KVPurgeService)->keysForDomain('ar.cashup.cash');
+
+        $this->assertContains('cfg:ar.cashup.cash', $keys);
+        $this->assertContains('cfr:sensitive_paths:ar.cashup.cash', $keys);
+        $this->assertNotContains('cfg:www.ar.cashup.cash', $keys);
+        $this->assertNotContains('cfr:www.ar.cashup.cash', $keys);
+        $this->assertNotContains('cfr:sensitive_paths:www.ar.cashup.cash', $keys);
+    }
+
+    public function test_key_generation_does_not_strip_www_from_explicit_www_subdomain(): void
+    {
+        $keys = (new KVPurgeService)->keysForDomain('www.ar.cashup.cash');
+
+        $this->assertContains('cfg:www.ar.cashup.cash', $keys);
+        $this->assertNotContains('cfg:ar.cashup.cash', $keys);
+    }
+
     public function test_purge_domain_deletes_each_key_through_cloudflare_rest_api(): void
     {
         Config::set('edgeshield.cloudflare_account_id', 'account-id');
