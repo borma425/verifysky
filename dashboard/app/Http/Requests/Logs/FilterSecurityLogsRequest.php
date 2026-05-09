@@ -17,6 +17,7 @@ class FilterSecurityLogsRequest extends FormRequest
             'event_type' => ['nullable', 'string', 'max:60'],
             'domain_name' => ['nullable', 'string', 'max:255'],
             'ip_address' => ['nullable', 'ip'],
+            'include_archived' => ['nullable', 'boolean'],
             'page' => ['nullable', 'integer', 'min:1'],
         ];
     }

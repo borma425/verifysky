@@ -43,6 +43,7 @@ class SecurityLogRepositoryTest extends TestCase
                 str_contains($sql, 'SELECT COUNT(*) AS total_rows') => ['ok' => true, 'output' => 'count-output'],
                 str_starts_with($sql, 'WITH filtered AS') => ['ok' => true, 'output' => 'rows-output'],
                 str_starts_with($sql, 'SELECT domain_name, thresholds_json FROM domain_configs') => ['ok' => false],
+                str_starts_with($sql, 'SELECT domain_name, status FROM domain_configs') => ['ok' => false],
                 str_starts_with($sql, "SELECT 'event' AS bucket") => ['ok' => false],
                 str_contains($sql, 'as total_attacks') => ['ok' => false],
                 str_contains($sql, 'GROUP BY country ORDER BY attack_count DESC LIMIT 3') => ['ok' => false],
@@ -107,7 +108,7 @@ class SecurityLogRepositoryTest extends TestCase
         $this->assertSame(['total_attacks' => 0, 'total_visitors' => 0, 'top_countries' => []], $payload['general_stats']);
     }
 
-    public function test_admin_queries_remain_unscoped(): void
+    public function test_admin_queries_default_to_active_domains(): void
     {
         $capturedSql = [];
         $edgeShield = Mockery::mock(EdgeShieldService::class);
@@ -120,6 +121,7 @@ class SecurityLogRepositoryTest extends TestCase
                 str_contains($sql, 'SELECT COUNT(*) AS total_rows') => ['ok' => true, 'output' => 'count-output'],
                 str_starts_with($sql, 'WITH filtered AS') => ['ok' => true, 'output' => 'rows-output'],
                 str_starts_with($sql, 'SELECT domain_name, thresholds_json FROM domain_configs') => ['ok' => false],
+                str_starts_with($sql, 'SELECT domain_name, status FROM domain_configs') => ['ok' => false],
                 str_starts_with($sql, "SELECT 'domain' AS bucket") => ['ok' => false],
                 str_contains($sql, 'as total_attacks') => ['ok' => false],
                 str_contains($sql, 'GROUP BY country ORDER BY attack_count DESC LIMIT 3') => ['ok' => false],
@@ -143,6 +145,45 @@ class SecurityLogRepositoryTest extends TestCase
 
         $joinedSql = implode("\n", $capturedSql);
         $this->assertStringNotContainsString("domain_name IN ('example.com','www.example.com')", $joinedSql);
+        $this->assertStringContainsString("domain_name IN (SELECT domain_name FROM domain_configs WHERE status = 'active')", $joinedSql);
+    }
+
+    public function test_admin_can_include_archived_domain_logs(): void
+    {
+        $capturedSql = [];
+        $edgeShield = Mockery::mock(EdgeShieldService::class);
+        $edgeShield->shouldReceive('listIpFarmRules')->once()->with(null)->andReturn(['ok' => false]);
+        $edgeShield->shouldReceive('queryD1')->andReturnUsing(function (string $sql) use (&$capturedSql): array {
+            $capturedSql[] = $sql;
+
+            return match (true) {
+                str_contains($sql, "SELECT expression_json FROM custom_firewall_rules WHERE action IN ('allow', 'bypass')") => ['ok' => false],
+                str_contains($sql, 'SELECT COUNT(*) AS total_rows') => ['ok' => true, 'output' => 'count-output'],
+                str_starts_with($sql, 'WITH filtered AS') => ['ok' => true, 'output' => 'rows-output'],
+                str_starts_with($sql, 'SELECT domain_name, thresholds_json FROM domain_configs') => ['ok' => false],
+                str_starts_with($sql, 'SELECT domain_name, status FROM domain_configs') => ['ok' => false],
+                str_starts_with($sql, "SELECT 'domain' AS bucket") => ['ok' => false],
+                str_contains($sql, 'as total_attacks') => ['ok' => false],
+                str_contains($sql, 'GROUP BY country ORDER BY attack_count DESC LIMIT 3') => ['ok' => false],
+                default => throw new \RuntimeException('Unexpected SQL: '.$sql),
+            };
+        });
+        $edgeShield->shouldReceive('parseWranglerJson')->andReturnUsing(function (string $output): array {
+            return match ($output) {
+                'count-output' => [['results' => [['total_rows' => 0]]]],
+                'rows-output' => [['results' => []]],
+                default => [['results' => []]],
+            };
+        });
+
+        $repository = new SecurityLogRepository($edgeShield);
+        $payload = $repository->fetchIndexPayload(['include_archived' => '1'], null, true);
+
+        $this->assertTrue($payload['ok']);
+        $this->assertTrue($payload['filters']['include_archived']);
+
+        $joinedSql = implode("\n", $capturedSql);
+        $this->assertStringNotContainsString("domain_name IN (SELECT domain_name FROM domain_configs WHERE status = 'active')", $joinedSql);
     }
 
     private function makeTenant(string $slug): Tenant

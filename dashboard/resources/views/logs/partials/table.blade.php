@@ -34,7 +34,14 @@
         @endphp
         <tr class="{{ $rowTone }}">
           <td data-label="Domain">
-            <span class="vs-logs-domain">{{ $row['domain'] ?? '-' }}</span>
+            <div class="vs-logs-domain-stack">
+              <span class="vs-logs-domain">{{ $row['domain'] ?? '-' }}</span>
+              @if(($row['domain_state'] ?? 'active') !== 'active')
+                <span class="vs-logs-domain-state vs-logs-domain-state-{{ $row['domain_state'] ?? 'archived' }}">
+                  {{ $row['domain_state_label'] ?? 'Archived' }}
+                </span>
+              @endif
+            </div>
           </td>
           <td data-label="Event">
             <div class="vs-logs-event-stack">

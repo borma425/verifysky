@@ -21,7 +21,10 @@ class LogsIndexViewData
         $rows = $this->formatRows(
             $this->payload['rows'] ?? [],
             $this->payload['all_farm_ips'] ?? [],
-            $this->payload['domain_configs'] ?? []
+            $this->payload['domain_configs'] ?? [],
+            $this->payload['domain_config_statuses'] ?? [],
+            $this->payload['domain_lifecycle'] ?? [],
+            ! $this->isAdmin
         );
 
         return [
@@ -37,6 +40,7 @@ class LogsIndexViewData
             'eventType' => (string) (($this->payload['filters']['event_type'] ?? '')),
             'domainName' => (string) (($this->payload['filters']['domain_name'] ?? '')),
             'ipAddress' => (string) (($this->payload['filters']['ip_address'] ?? '')),
+            'includeArchivedLogs' => (bool) (($this->payload['filters']['include_archived'] ?? false)),
             'domainOptions' => $this->payload['filter_options']['domains'] ?? [],
             'eventTypeOptions' => $this->payload['filter_options']['events'] ?? [],
             'eventLabels' => $this->eventLabels(),
@@ -76,7 +80,7 @@ class LogsIndexViewData
         return 'No security events matched your domains and filters yet.';
     }
 
-    private function formatRows(array $rows, array $allFarmIps, array $domainConfigs): array
+    private function formatRows(array $rows, array $allFarmIps, array $domainConfigs, array $domainConfigStatuses, array $domainLifecycle, bool $assumeActiveWhenUnknown): array
     {
         $farmIpMap = array_flip($allFarmIps);
         $formatted = [];
@@ -95,9 +99,12 @@ class LogsIndexViewData
             $ip = trim((string) ($row['ip_address'] ?? ''));
             $isInIpFarm = isset($farmIpMap[$ip]);
             $ttlHours = $this->ttlHours($domainConfigs, $domain);
+            $domainState = $this->domainState($domain, $domainConfigStatuses, $domainLifecycle, $assumeActiveWhenUnknown);
 
             $formatted[] = [
                 'domain' => $domain,
+                'domain_state' => $domainState['state'],
+                'domain_state_label' => $domainState['label'],
                 'event_display' => $this->eventDisplay($eventType, $isInIpFarm, $ttlHours),
                 'event_score' => $eventScore,
                 'event_score_class' => $this->eventScoreClass($eventScore),
@@ -117,7 +124,7 @@ class LogsIndexViewData
                 'created_at' => (string) ($row['created_at'] ?? ''),
                 'created_at_human' => $this->createdAtHuman((string) ($row['created_at'] ?? '')),
                 'prefer_block_action' => $solvedEvents > 0 && $flaggedEvents === 0,
-                'can_allow' => $ip !== '' && $ip !== 'N/A' && $domain !== '-',
+                'can_allow' => $ip !== '' && $ip !== 'N/A' && $domain !== '-' && $domainState['state'] === 'active',
                 'is_in_ip_farm' => $isInIpFarm,
                 'temp_ban_ttl_hours' => $ttlHours,
             ];
@@ -169,6 +176,46 @@ class LogsIndexViewData
         }
 
         return 24;
+    }
+
+    private function domainState(string $domain, array $domainConfigStatuses, array $domainLifecycle, bool $assumeActiveWhenUnknown): array
+    {
+        $domain = strtolower(trim($domain));
+        if ($domain === '' || $domain === '-') {
+            return ['state' => 'unknown', 'label' => 'Unknown'];
+        }
+
+        $status = strtolower(trim((string) ($domainConfigStatuses[$domain] ?? '')));
+        if ($status === 'active') {
+            return ['state' => 'active', 'label' => 'Active'];
+        }
+        if ($status !== '') {
+            return ['state' => 'inactive', 'label' => ucfirst($status)];
+        }
+
+        foreach ($this->domainLookupKeys($domain) as $key) {
+            if (isset($domainLifecycle[$key]) && is_array($domainLifecycle[$key])) {
+                return [
+                    'state' => (string) ($domainLifecycle[$key]['state'] ?? 'archived'),
+                    'label' => (string) ($domainLifecycle[$key]['label'] ?? 'Archived'),
+                ];
+            }
+        }
+
+        return $assumeActiveWhenUnknown
+            ? ['state' => 'active', 'label' => 'Active']
+            : ['state' => 'archived', 'label' => 'Archived'];
+    }
+
+    private function domainLookupKeys(string $domain): array
+    {
+        $base = preg_replace('/^www\./', '', $domain) ?: $domain;
+
+        return array_values(array_unique(array_filter([
+            $domain,
+            $base,
+            'www.'.$base,
+        ])));
     }
 
     private function eventScore(string $eventType, array $row): int

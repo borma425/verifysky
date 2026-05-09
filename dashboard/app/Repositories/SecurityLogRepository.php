@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Models\DomainAssetHistory;
 use App\Models\TenantDomain;
 use App\Services\EdgeShieldService;
 use Illuminate\Support\Facades\Cache;
@@ -15,6 +16,7 @@ class SecurityLogRepository
         $event = trim((string) ($filters['event_type'] ?? ''));
         $domain = trim((string) ($filters['domain_name'] ?? ''));
         $ipAddress = trim((string) ($filters['ip_address'] ?? ''));
+        $includeArchived = $isAdmin && filter_var($filters['include_archived'] ?? false, FILTER_VALIDATE_BOOL);
         $page = max(1, (int) ($filters['page'] ?? 1));
         $perPage = 50;
         $offset = ($page - 1) * $perPage;
@@ -28,7 +30,7 @@ class SecurityLogRepository
 
         $allFarmIps = $this->allFarmIps($cacheVersion, $isAdmin ? null : $tenantId, $scopeCacheSuffix);
         $allAllowedIps = $this->allAllowedIps($cacheVersion, $accessibleDomains, $isAdmin, $scopeCacheSuffix);
-        $where = $this->buildWhereClause($event, $domain, $ipAddress, $allFarmIps, $allAllowedIps, $accessibleDomains, $isAdmin);
+        $where = $this->buildWhereClause($event, $domain, $ipAddress, $allFarmIps, $allAllowedIps, $accessibleDomains, $isAdmin, $includeArchived);
 
         $count = $this->countGroupedRows($where, $cacheVersion, $scopeCacheSuffix);
         $rowsResult = $this->edgeShield->queryD1($this->rowsSql($where, $perPage, $offset));
@@ -45,12 +47,15 @@ class SecurityLogRepository
             'rows' => $rawRows,
             'all_farm_ips' => $allFarmIps,
             'domain_configs' => $this->domainConfigs($cacheVersion, $accessibleDomains, $isAdmin, $scopeCacheSuffix),
-            'filter_options' => $this->filterOptions($accessibleDomains, $isAdmin, $cacheVersion, $scopeCacheSuffix),
-            'general_stats' => $this->generalStats($domain, $cacheVersion, $accessibleDomains, $isAdmin, $scopeCacheSuffix),
+            'domain_config_statuses' => $this->domainConfigStatuses($cacheVersion, $accessibleDomains, $isAdmin, $scopeCacheSuffix),
+            'domain_lifecycle' => $this->domainLifecycle($cacheVersion, $isAdmin),
+            'filter_options' => $this->filterOptions($accessibleDomains, $isAdmin, $includeArchived, $cacheVersion, $scopeCacheSuffix),
+            'general_stats' => $this->generalStats($domain, $cacheVersion, $accessibleDomains, $isAdmin, $includeArchived, $scopeCacheSuffix),
             'filters' => [
                 'event_type' => $event,
                 'domain_name' => $domain,
                 'ip_address' => $ipAddress,
+                'include_archived' => $includeArchived,
             ],
             'tenant_scoped' => ! $isAdmin,
             'accessible_domains' => $accessibleDomains,
@@ -160,10 +165,12 @@ class SecurityLogRepository
         });
     }
 
-    private function filterOptions(array $accessibleDomains, bool $isAdmin, int $cacheVersion, string $scopeCacheSuffix): array
+    private function filterOptions(array $accessibleDomains, bool $isAdmin, bool $includeArchived, int $cacheVersion, string $scopeCacheSuffix): array
     {
-        return Cache::remember('logs_filter_options_v3_'.$scopeCacheSuffix.'_'.$cacheVersion, 120, function () use ($accessibleDomains, $isAdmin): array {
-            $result = $this->edgeShield->queryD1($this->filterOptionsSql($accessibleDomains, $isAdmin));
+        $archiveScope = $includeArchived ? 'with_archived' : 'active_only';
+
+        return Cache::remember('logs_filter_options_v4_'.$scopeCacheSuffix.'_'.$archiveScope.'_'.$cacheVersion, 120, function () use ($accessibleDomains, $isAdmin, $includeArchived): array {
+            $result = $this->edgeShield->queryD1($this->filterOptionsSql($accessibleDomains, $isAdmin, $includeArchived));
             if (! ($result['ok'] ?? false)) {
                 return ['domains' => $this->filterDomainOptions($accessibleDomains), 'events' => []];
             }
@@ -219,6 +226,61 @@ class SecurityLogRepository
         });
     }
 
+    private function domainConfigStatuses(int $cacheVersion, array $accessibleDomains, bool $isAdmin, string $scopeCacheSuffix): array
+    {
+        return Cache::remember('logs_domain_config_statuses_v1_'.$scopeCacheSuffix.'_'.$cacheVersion, 300, function () use ($accessibleDomains, $isAdmin): array {
+            $configsResult = $this->edgeShield->queryD1(
+                'SELECT domain_name, status FROM domain_configs'.$this->domainConfigsScope($accessibleDomains, $isAdmin)
+            );
+            if (! ($configsResult['ok'] ?? false)) {
+                return [];
+            }
+
+            $out = [];
+            $configRows = $this->edgeShield->parseWranglerJson((string) ($configsResult['output'] ?? ''))[0]['results'] ?? [];
+            foreach ($configRows as $row) {
+                $domain = trim(strtolower((string) ($row['domain_name'] ?? '')));
+                if ($domain !== '') {
+                    $out[$domain] = strtolower(trim((string) ($row['status'] ?? '')));
+                }
+            }
+
+            return $out;
+        });
+    }
+
+    private function domainLifecycle(int $cacheVersion, bool $isAdmin): array
+    {
+        if (! $isAdmin) {
+            return [];
+        }
+
+        return Cache::remember('logs_domain_lifecycle_v1_'.$cacheVersion, 300, function (): array {
+            $rows = DomainAssetHistory::query()
+                ->whereNotNull('last_removed_at')
+                ->orWhereNotNull('quarantined_until')
+                ->get(['asset_key', 'registrable_domain', 'hostname', 'quarantined_until', 'last_removed_at']);
+
+            $out = [];
+            foreach ($rows as $row) {
+                $quarantinedUntil = $row->quarantined_until;
+                $state = $quarantinedUntil !== null && $quarantinedUntil->isFuture() ? 'quarantined' : 'archived';
+                $label = $state === 'quarantined'
+                    ? 'Quarantined until '.$quarantinedUntil->format('Y-m-d').' UTC'
+                    : 'Archived';
+
+                foreach ([$row->hostname, $row->registrable_domain, $row->asset_key] as $domain) {
+                    $domain = trim(strtolower((string) $domain));
+                    if ($domain !== '') {
+                        $out[$domain] = ['state' => $state, 'label' => $label];
+                    }
+                }
+            }
+
+            return $out;
+        });
+    }
+
     private function countGroupedRows(string $where, int $cacheVersion, string $scopeCacheSuffix): array
     {
         return Cache::remember('logs_count_v6_'.$scopeCacheSuffix.'_'.md5($where).'_'.$cacheVersion, 300, function () use ($where): array {
@@ -234,9 +296,9 @@ class SecurityLogRepository
         });
     }
 
-    private function generalStats(string $domain, int $cacheVersion, array $accessibleDomains, bool $isAdmin, string $scopeCacheSuffix): array
+    private function generalStats(string $domain, int $cacheVersion, array $accessibleDomains, bool $isAdmin, bool $includeArchived, string $scopeCacheSuffix): array
     {
-        $statsDomainWhere = $this->buildGeneralStatsWhereClause($domain, $accessibleDomains, $isAdmin);
+        $statsDomainWhere = $this->buildGeneralStatsWhereClause($domain, $accessibleDomains, $isAdmin, $includeArchived);
 
         return Cache::remember('logs_general_stats_v6_'.$scopeCacheSuffix.'_'.md5($statsDomainWhere).'_'.$cacheVersion, 300, function () use ($statsDomainWhere): array {
             $statsRes = $this->edgeShield->queryD1(
@@ -252,7 +314,7 @@ class SecurityLogRepository
         });
     }
 
-    private function buildWhereClause(string $event, string $domain, string $ipAddress, array $allFarmIps, array $allAllowedIps, array $accessibleDomains, bool $isAdmin): string
+    private function buildWhereClause(string $event, string $domain, string $ipAddress, array $allFarmIps, array $allAllowedIps, array $accessibleDomains, bool $isAdmin, bool $includeArchived): string
     {
         $filters = [];
         $domainScope = $this->domainScopeFilters($domain, $accessibleDomains, $isAdmin);
@@ -278,6 +340,9 @@ class SecurityLogRepository
         if (! empty($allAllowedIps)) {
             $filters[] = 'ip_address NOT IN ('.$this->quotedList($allAllowedIps).')';
         }
+        if ($isAdmin && ! $includeArchived) {
+            $filters[] = "domain_name IN (SELECT domain_name FROM domain_configs WHERE status = 'active')";
+        }
 
         return count($filters) > 0 ? 'WHERE '.implode(' AND ', $filters) : '';
     }
@@ -292,12 +357,16 @@ class SecurityLogRepository
         return "'".implode("','", array_map(fn (string $value): string => $this->escape($value), $values))."'";
     }
 
-    private function filterOptionsSql(array $accessibleDomains, bool $isAdmin): string
+    private function filterOptionsSql(array $accessibleDomains, bool $isAdmin, bool $includeArchived): string
     {
         if (! $isAdmin) {
             $eventsScope = $this->accessibleDomainListSql($accessibleDomains);
 
             return "SELECT 'event' AS bucket, event_type AS value FROM (SELECT DISTINCT event_type FROM security_logs WHERE domain_name IN ({$eventsScope}) AND event_type IS NOT NULL AND TRIM(event_type) != '' ORDER BY event_type ASC LIMIT 200)";
+        }
+
+        if (! $includeArchived) {
+            return "SELECT 'domain' AS bucket, domain_name AS value FROM (SELECT DISTINCT domain_name FROM domain_configs WHERE status = 'active' AND domain_name IS NOT NULL AND TRIM(domain_name) != '') UNION ALL SELECT 'event' AS bucket, event_type AS value FROM (SELECT DISTINCT event_type FROM security_logs WHERE domain_name IN (SELECT domain_name FROM domain_configs WHERE status = 'active') AND event_type IS NOT NULL AND TRIM(event_type) != '' ORDER BY event_type ASC LIMIT 200)";
         }
 
         return "SELECT 'domain' AS bucket, domain_name AS value FROM (SELECT DISTINCT domain_name FROM domain_configs WHERE domain_name IS NOT NULL AND TRIM(domain_name) != '' UNION SELECT DISTINCT domain_name FROM security_logs WHERE domain_name IS NOT NULL AND TRIM(domain_name) != '') UNION ALL SELECT 'event' AS bucket, event_type AS value FROM (SELECT DISTINCT event_type FROM security_logs WHERE event_type IS NOT NULL AND TRIM(event_type) != '' ORDER BY event_type ASC LIMIT 200)";
@@ -350,12 +419,15 @@ class SecurityLogRepository
             'rows' => [],
             'all_farm_ips' => [],
             'domain_configs' => [],
+            'domain_config_statuses' => [],
+            'domain_lifecycle' => [],
             'filter_options' => ['domains' => [], 'events' => []],
             'general_stats' => ['total_attacks' => 0, 'total_visitors' => 0, 'top_countries' => []],
             'filters' => [
                 'event_type' => $event,
                 'domain_name' => $domain,
                 'ip_address' => $ipAddress,
+                'include_archived' => false,
             ],
             'tenant_scoped' => true,
             'accessible_domains' => [],
@@ -380,11 +452,15 @@ class SecurityLogRepository
         return " AND (domain_name = 'global' OR domain_name IN (".$this->accessibleDomainListSql($accessibleDomains).'))';
     }
 
-    private function buildGeneralStatsWhereClause(string $domain, array $accessibleDomains, bool $isAdmin): string
+    private function buildGeneralStatsWhereClause(string $domain, array $accessibleDomains, bool $isAdmin, bool $includeArchived): string
     {
         $scope = $this->domainScopeFilters($domain, $accessibleDomains, $isAdmin);
         if ($scope === false) {
             return 'WHERE 1 = 0';
+        }
+
+        if ($isAdmin && ! $includeArchived) {
+            $scope[] = "domain_name IN (SELECT domain_name FROM domain_configs WHERE status = 'active')";
         }
 
         if ($scope === []) {

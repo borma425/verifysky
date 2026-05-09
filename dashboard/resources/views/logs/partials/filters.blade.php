@@ -67,6 +67,12 @@
       <label for="logs-ip-filter">Filter by IP</label>
       <input id="logs-ip-filter" class="vs-logs-input" name="ip_address" value="{{ $ipAddress ?? '' }}" placeholder="e.g. 203.0.113.10">
     </div>
+    @if(!($isTenantScoped ?? false))
+      <label class="vs-logs-check-field" for="logs-include-archived">
+        <input id="logs-include-archived" type="checkbox" name="include_archived" value="1" @checked($includeArchivedLogs ?? false)>
+        <span>Include archived</span>
+      </label>
+    @endif
     <div class="vs-logs-filter-actions">
       <button class="vs-logs-btn vs-logs-btn-primary" type="submit" aria-label="Apply security log filters">
         <img src="{{ asset('duotone/filter.svg') }}" alt="" class="es-duotone-icon" style="filter: brightness(0);" aria-hidden="true">
