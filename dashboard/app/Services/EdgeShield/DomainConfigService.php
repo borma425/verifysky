@@ -215,7 +215,7 @@ class DomainConfigService
                 return [
                     'domain_name' => (string) $domain->hostname,
                     'zone_id' => '',
-                    'status' => $hostnameStatus === 'active' && $sslStatus === 'active' ? 'active' : 'pending',
+                    'status' => 'active',
                     'provisioning_status' => (string) ($domain->provisioning_status ?? TenantDomain::PROVISIONING_ACTIVE),
                     'provisioning_error' => (string) ($domain->provisioning_error ?? ''),
                     'provisioning_started_at' => optional($domain->provisioning_started_at)?->toDateTimeString() ?? '',
@@ -266,5 +266,4 @@ class DomainConfigService
 
         return true;
     }
-
 }

@@ -421,11 +421,21 @@ class DomainActionsTest extends TestCase
     public function test_pause_button_endpoint_works(): void
     {
         $mock = $this->bindServiceMock();
-        $mock->shouldReceive('queryD1')->once()->andReturn([
-            'ok' => true,
-            'output' => '',
-            'error' => null,
-        ]);
+        $mock->shouldReceive('queryD1')->twice()->andReturn(
+            [
+                'ok' => true,
+                'output' => '',
+                'error' => null,
+            ],
+            [
+                'ok' => true,
+                'output' => 'status-read',
+                'error' => null,
+            ]
+        );
+        $mock->shouldReceive('parseWranglerJson')->once()->with('status-read')->andReturn([[
+            'results' => [['status' => 'paused']],
+        ]]);
         $mock->shouldReceive('purgeDomainConfigCache')->once()->with('example.com')->andReturn(['ok' => true]);
 
         $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false, 'current_tenant_id' => 'tenant-1'])->post('/domains/example.com/status', [
@@ -433,6 +443,34 @@ class DomainActionsTest extends TestCase
         ]);
 
         $response->assertRedirect()->assertSessionHas('status');
+    }
+
+    public function test_runtime_status_update_does_not_report_success_when_runtime_row_is_missing(): void
+    {
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('queryD1')->twice()->andReturn(
+            [
+                'ok' => true,
+                'output' => '',
+                'error' => null,
+            ],
+            [
+                'ok' => true,
+                'output' => 'status-read',
+                'error' => null,
+            ]
+        );
+        $mock->shouldReceive('parseWranglerJson')->once()->with('status-read')->andReturn([[
+            'results' => [],
+        ]]);
+        $mock->shouldReceive('purgeDomainConfigCache')->never();
+
+        $response = $this->withSession(['is_authenticated' => true, 'is_admin' => false, 'current_tenant_id' => 'tenant-1'])->post('/domains/example.com/status', [
+            'status' => 'active',
+        ]);
+
+        $response->assertRedirect()
+            ->assertSessionHas('error', 'Domain was not found in the runtime configuration.');
     }
 
     public function test_regular_user_without_tenant_cannot_update_domain_runtime_state(): void
@@ -540,13 +578,23 @@ class DomainActionsTest extends TestCase
 
         $mock = $this->bindServiceMock();
         $mock->shouldReceive('queryD1')
-            ->once()
+            ->twice()
             ->with(Mockery::on(fn (string $sql): bool => str_contains($sql, "domain_name = 'www.cashup.cash'")))
-            ->andReturn([
-                'ok' => true,
-                'output' => '',
-                'error' => null,
-            ]);
+            ->andReturn(
+                [
+                    'ok' => true,
+                    'output' => '',
+                    'error' => null,
+                ],
+                [
+                    'ok' => true,
+                    'output' => 'status-read',
+                    'error' => null,
+                ]
+            );
+        $mock->shouldReceive('parseWranglerJson')->once()->with('status-read')->andReturn([[
+            'results' => [['status' => 'paused']],
+        ]]);
         $mock->shouldReceive('purgeDomainConfigCache')->once()->with('www.cashup.cash')->andReturn(['ok' => true]);
 
         $response = $this->withSession([

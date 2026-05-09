@@ -125,13 +125,16 @@ class DomainIndexViewData
         }));
         $advancedRows = array_values(array_filter($rows, fn ($row): bool => ! in_array($row, $primaryRows, true)));
 
+        $primaryRow = is_array($primaryRows[0] ?? null) ? $primaryRows[0] : [];
         $primaryDomain = (string) ($primaryRows[0]['domain_name'] ?? ($group['display_domain'] ?? ''));
         $hostnameStatus = strtolower((string) ($primaryRows[0]['hostname_status'] ?? 'pending'));
         $sslStatus = strtolower((string) ($primaryRows[0]['ssl_status'] ?? 'pending_validation'));
         $lifecycleStatus = $this->lifecycleStatus($primaryRows);
         $provisioningError = (string) ($primaryRows[0]['provisioning_error'] ?? ($group['provisioning_error'] ?? ''));
         $primaryVerified = $hostnameStatus === 'active' && $sslStatus === 'active';
-        $mode = strtolower((string) ($group['security_mode'] ?? self::DEFAULT_MODE));
+        $status = $this->runtimeStatus((string) ($primaryRow['status'] ?? ($group['status'] ?? 'active')));
+        $mode = strtolower((string) ($primaryRow['security_mode'] ?? ($group['security_mode'] ?? self::DEFAULT_MODE)));
+        $forceCaptcha = (int) ($primaryRow['force_captcha'] ?? ($group['force_captcha'] ?? 0));
         $healthCounts = $this->healthCounts($primaryRows);
         $overallStatus = $this->overallStatus($primaryVerified, $hostnameStatus, $lifecycleStatus);
         $liveStatus = $this->liveStatus(
@@ -144,6 +147,8 @@ class DomainIndexViewData
         );
 
         return array_merge($group, [
+            'status' => $status,
+            'force_captcha' => $forceCaptcha,
             'mode' => $mode,
             'primary_rows' => $primaryRows,
             'advanced_rows' => $advancedRows,
@@ -394,6 +399,13 @@ class DomainIndexViewData
         $status = strtolower(trim($status));
 
         return in_array($status, ['pending', 'provisioning', 'active', 'failed'], true) ? $status : 'active';
+    }
+
+    private function runtimeStatus(string $status): string
+    {
+        $status = strtolower(trim($status));
+
+        return in_array($status, ['active', 'paused', 'revoked'], true) ? $status : 'active';
     }
 
     private function displayGroupKey(string $hostname): string

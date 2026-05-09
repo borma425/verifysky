@@ -44,9 +44,6 @@ class DomainConfigRepository
 
         if (! ($dnsRoute['ok'] ?? false)) {
             $domain['hostname_status'] = 'pending';
-            if (strtolower((string) ($domain['status'] ?? 'active')) === 'active') {
-                $domain['status'] = 'pending';
-            }
         }
 
         return $domain;

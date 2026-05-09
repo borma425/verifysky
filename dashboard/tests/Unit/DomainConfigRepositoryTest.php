@@ -15,7 +15,7 @@ class DomainConfigRepositoryTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_list_marks_active_domain_pending_when_dns_no_longer_points_to_verifysky(): void
+    public function test_list_keeps_runtime_status_active_when_dns_no_longer_points_to_verifysky(): void
     {
         $edgeShield = Mockery::mock(EdgeShieldService::class);
         $edgeShield->shouldReceive('listDomains')->once()->with('tenant-1', false)->andReturn([
@@ -42,7 +42,7 @@ class DomainConfigRepositoryTest extends TestCase
         $result = $repository->listForTenant('tenant-1', false);
 
         $this->assertTrue($result['ok']);
-        $this->assertSame('pending', $result['domains'][0]['status']);
+        $this->assertSame('active', $result['domains'][0]['status']);
         $this->assertSame('pending', $result['domains'][0]['hostname_status']);
         $this->assertSame('mismatch', $result['domains'][0]['dns_route_status']);
     }
