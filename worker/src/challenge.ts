@@ -294,8 +294,10 @@ export async function handleChallengeSubmission(
     nonceStatus = null;
   }
 
-  if (nonceStatus !== "pending") {
-    // Nonce already consumed or never existed — possible replay attack
+  if (nonceStatus !== null && nonceStatus !== "pending") {
+    // Nonce already consumed — possible replay attack. If KV is missing the
+    // nonce entirely, continue to the D1 pending challenge row as source of
+    // truth; KV writes can be unavailable after account-level put limits.
     ctx.waitUntil(logEvent(env, "replay_detected", meta, submission.fingerprint,
       `Nonce replay attempt: ${submission.nonce.substring(0, 16)}`));
     return failed("REPLAY_DETECTED", "This challenge has already been used", 403);
@@ -460,11 +462,21 @@ export async function handleChallengeSubmission(
 
   // ========= CHALLENGE PASSED — Issue Session Token =========
 
-  // Mark challenge as solved in D1
-  ctx.waitUntil(
-    env.DB.prepare("UPDATE challenges SET status = 'solved', solved_at = CURRENT_TIMESTAMP WHERE nonce = ?")
-      .bind(challenge.nonce).run().catch(() => {})
-  );
+  // Mark challenge as solved before issuing a session token. This is the
+  // replay guard when KV nonce writes are unavailable or eventually stale.
+  try {
+    const solved = await env.DB.prepare(
+      "UPDATE challenges SET status = 'solved', solved_at = CURRENT_TIMESTAMP WHERE nonce = ? AND status = 'pending'"
+    )
+      .bind(challenge.nonce)
+      .run();
+    const changes = (solved as { meta?: { changes?: number } })?.meta?.changes;
+    if (typeof changes === "number" && changes < 1) {
+      return failed("CHALLENGE_EXPIRED", "Challenge not found or already used", 403);
+    }
+  } catch {
+    return failed("CHALLENGE_ERROR", "Challenge verification failed", 500);
+  }
 
   // Update fingerprint record
   ctx.waitUntil(upsertFingerprint(env, submission.fingerprint, meta));
