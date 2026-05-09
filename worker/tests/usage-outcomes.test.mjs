@@ -20,6 +20,24 @@ test("usage outcomes are explicit and not derived from HTTP status", () => {
   assert.doesNotMatch(usageMeter, /outcomeFor\(/);
   assert.doesNotMatch(usageMeter, /status\s*>=/);
   assert.match(usageMeter, /blobs:\s*\[\s*this\.domain,\s*this\.environmentName\(\),\s*this\.outcome,\s*\]/s);
+  assert.match(usageMeter, /this\.outcome === "pass" \? this\.counters\.d1RowsWritten : 0/);
+  assert.match(usageMeter, /this\.outcome === "pass" \? this\.counters\.configCacheMiss : 0/);
+});
+
+test("zero-write passthrough flags and stateless clearance hooks are present", () => {
+  for (const flag of [
+    "ES_ZERO_WRITE_PASS",
+    "ES_STATELESS_CLEARANCE",
+    "ES_MEMORY_CONFIG_CACHE",
+    "ES_PASS_CLEARANCE_TTL_SECONDS",
+    "ES_MEMORY_CONFIG_CACHE_MAX_KEYS",
+  ]) {
+    assert.match(index, new RegExp(flag));
+  }
+
+  assert.match(index, /issuePassClearanceCookie/);
+  assert.match(index, /runtimeBundleMemoryCache\.clear\(\)/);
+  assert.match(challenge, /clr:\s*"challenge_passed"/);
 });
 
 test("origin, challenge, and block paths mark the expected outcomes", () => {

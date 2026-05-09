@@ -41,6 +41,11 @@ class CloudflareCostAttributionTest extends TestCase
                     'kv_deletes' => 1,
                     'kv_lists' => 0,
                     'kv_write_bytes' => 500,
+                    'pass_d1_writes' => 0,
+                    'pass_kv_writes' => 0,
+                    'pass_kv_reads' => 3,
+                    'pass_config_cache_hit' => 9,
+                    'pass_config_cache_miss' => 1,
                 ],
                 [
                     'usage_date' => '2026-05-01',
@@ -65,6 +70,11 @@ class CloudflareCostAttributionTest extends TestCase
         $this->assertSame('example.com', $usage->domain_name);
         $this->assertSame('pass', $usage->outcome);
         $this->assertSame(100000, $usage->requests);
+        $this->assertSame(0, $usage->pass_d1_writes);
+        $this->assertSame(0, $usage->pass_kv_writes);
+        $this->assertSame(3, $usage->pass_kv_reads);
+        $this->assertSame(9, $usage->pass_config_cache_hit);
+        $this->assertSame(1, $usage->pass_config_cache_miss);
         $this->assertDatabaseMissing('cloudflare_usage_daily', [
             'tenant_id' => 999999,
             'domain_name' => 'orphan.example.com',
@@ -79,7 +89,8 @@ class CloudflareCostAttributionTest extends TestCase
                 && str_contains($sql, 'AS outcome')
                 && str_contains($sql, 'GROUP BY usage_date, tenant_id, domain_name, environment, outcome')
                 && str_contains($sql, 'SUM(_sample_interval * double1) AS requests')
-                && str_contains($sql, 'SUM(_sample_interval * double9) AS kv_write_bytes');
+                && str_contains($sql, 'SUM(_sample_interval * double9) AS kv_write_bytes')
+                && str_contains($sql, 'SUM(_sample_interval * double14) AS pass_config_cache_miss');
         });
     }
 

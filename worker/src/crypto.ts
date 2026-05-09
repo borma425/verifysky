@@ -230,6 +230,18 @@ export async function hashFingerprint(
   return bufferToHex(hash);
 }
 
+export async function createClearanceContextHash(
+  ip: string,
+  userAgent: string,
+  domain: string
+): Promise<string> {
+  return hashFingerprint([
+    ip.trim(),
+    userAgent.trim(),
+    domain.trim().toLowerCase(),
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 // Public: Nonce Generation
 // ---------------------------------------------------------------------------

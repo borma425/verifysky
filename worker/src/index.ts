@@ -24,7 +24,11 @@ import type {
   RiskAssessment,
 } from "./types";
 import { RiskLevel } from "./types";
-import { verifySessionToken } from "./crypto";
+import {
+  createClearanceContextHash,
+  createSessionToken,
+  verifySessionToken,
+} from "./crypto";
 import {
   extractRequestMeta,
   getDomainFromRequest,
@@ -64,6 +68,8 @@ import {
   bindUsageTenant,
   createMeteredEnv,
   flushUsageMeter,
+  markConfigCacheHit,
+  markConfigCacheMiss,
   markUsageOutcome,
 } from "./usage-meter";
 
@@ -87,6 +93,17 @@ const DOMAIN_CACHE_PREFIX = "dcfg:";
 const DOMAIN_CACHE_TTL_SECONDS = 300; // 5 minutes cache for domain configs
 const RUNTIME_BUNDLE_CACHE_PREFIX = "cfg:";
 const RUNTIME_BUNDLE_CACHE_TTL_SECONDS = 900;
+const MEMORY_RUNTIME_BUNDLE_TTL_MS = 60 * 1000;
+const MEMORY_RUNTIME_BUNDLE_NEGATIVE_TTL_MS = 5 * 1000;
+const MEMORY_RUNTIME_BUNDLE_MAX_KEYS = 5000;
+const PASS_CLEARANCE_TTL_SECONDS = 120;
+
+interface RuntimeBundleCacheEntry {
+  bundle: RuntimeBundle;
+  expiresAt: number;
+}
+
+const runtimeBundleMemoryCache = new Map<string, RuntimeBundleCacheEntry>();
 
 // Domain-scoped KV Key Helpers
 function getTempBanKey(domain: string, ip: string) { return `ban:domainIP:${domain}:${ip}`; }
@@ -225,7 +242,7 @@ async function resolveDomainConfig(
         .first<DomainConfigRecord>();
     }
 
-    if (config) {
+    if (config && !isZeroWritePassEnabled(env)) {
       // Cache in KV for fast subsequent lookups
       try {
         await env.SESSION_KV.put(cacheKey, JSON.stringify(config), {
@@ -306,11 +323,13 @@ async function resolveDomainIpRules(
       }
     }
 
-    try {
-      await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
-        expirationTtl: IP_RULES_CACHE_TTL,
-      });
-    } catch { }
+    if (!isZeroWritePassEnabled(env)) {
+      try {
+        await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
+          expirationTtl: IP_RULES_CACHE_TTL,
+        });
+      } catch { }
+    }
 
     return rules;
   } catch {
@@ -366,11 +385,13 @@ async function resolveSensitivePaths(domain: string, env: Env): Promise<Sensitiv
   try {
     const domainConfig = await queryDomainConfigFromD1(normalizedDomain, env);
     const rules = await querySensitivePathsFromD1(normalizedDomain, env, domainConfig?.tenant_id);
-    try {
-      await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
-        expirationTtl: IP_RULES_CACHE_TTL,
-      });
-    } catch { }
+    if (!isZeroWritePassEnabled(env)) {
+      try {
+        await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
+          expirationTtl: IP_RULES_CACHE_TTL,
+        });
+      } catch { }
+    }
 
     return rules;
   } catch {
@@ -436,11 +457,13 @@ async function resolveCustomFirewallRules(
     const domainConfig = await queryDomainConfigFromD1(normalizedDomain, env);
     const rules = await queryCustomFirewallRulesFromD1(normalizedDomain, env, domainConfig?.tenant_id);
 
-    try {
-      await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
-        expirationTtl: IP_RULES_CACHE_TTL,
-      });
-    } catch { }
+    if (!isZeroWritePassEnabled(env)) {
+      try {
+        await env.SESSION_KV.put(cacheKey, JSON.stringify(rules), {
+          expirationTtl: IP_RULES_CACHE_TTL,
+        });
+      } catch { }
+    }
 
     return rules;
   } catch {
@@ -480,12 +503,31 @@ async function loadRuntimeBundle(domain: string, env: Env): Promise<RuntimeBundl
 
   if (!normalizedDomain) return emptyBundle;
 
+  const memoryCacheEnabled = isFlagEnabled(env.ES_MEMORY_CONFIG_CACHE);
+  const memoryCacheKey = runtimeBundleMemoryCacheKey(normalizedDomain, env);
+  const now = Date.now();
+
+  if (memoryCacheEnabled) {
+    const cached = runtimeBundleMemoryCache.get(memoryCacheKey);
+    if (cached && cached.expiresAt > now) {
+      markConfigCacheHit(env);
+      return cached.bundle;
+    }
+    if (cached) {
+      runtimeBundleMemoryCache.delete(memoryCacheKey);
+    }
+    markConfigCacheMiss(env);
+  }
+
   const cacheKey = `${RUNTIME_BUNDLE_CACHE_PREFIX}${normalizedDomain}`;
   try {
     const cached = await env.SESSION_KV.get(cacheKey);
     if (cached) {
       const bundle = parseRuntimeBundle(cached);
-      if (bundle) return bundle;
+      if (bundle) {
+        setRuntimeBundleMemoryCache(memoryCacheKey, bundle, env, MEMORY_RUNTIME_BUNDLE_TTL_MS);
+        return bundle;
+      }
     }
   } catch {
     // KV read failure — fall back to D1.
@@ -493,6 +535,7 @@ async function loadRuntimeBundle(domain: string, env: Env): Promise<RuntimeBundl
 
   const domainConfig = await queryDomainConfigFromD1(normalizedDomain, env);
   if (!domainConfig) {
+    setRuntimeBundleMemoryCache(memoryCacheKey, emptyBundle, env, MEMORY_RUNTIME_BUNDLE_NEGATIVE_TTL_MS);
     return emptyBundle;
   }
 
@@ -507,15 +550,46 @@ async function loadRuntimeBundle(domain: string, env: Env): Promise<RuntimeBundl
     customFirewallRules,
   };
 
-  try {
-    await env.SESSION_KV.put(cacheKey, JSON.stringify(bundle), {
-      expirationTtl: RUNTIME_BUNDLE_CACHE_TTL_SECONDS,
-    });
-  } catch {
-    // Bundle cache writes are an optimization only.
+  if (!isZeroWritePassEnabled(env)) {
+    try {
+      await env.SESSION_KV.put(cacheKey, JSON.stringify(bundle), {
+        expirationTtl: RUNTIME_BUNDLE_CACHE_TTL_SECONDS,
+      });
+    } catch {
+      // Bundle cache writes are an optimization only.
+    }
   }
 
+  setRuntimeBundleMemoryCache(memoryCacheKey, bundle, env, MEMORY_RUNTIME_BUNDLE_TTL_MS);
   return bundle;
+}
+
+function runtimeBundleMemoryCacheKey(domain: string, env: Env): string {
+  const runtimeVersion = String(env.ES_RUNTIME_CONFIG_VERSION || "v1").trim() || "v1";
+  return `${environmentName(env)}|${runtimeVersion}|${domain}`;
+}
+
+function getMemoryConfigCacheMaxKeys(env: Env): number {
+  const parsed = parseInt(String(env.ES_MEMORY_CONFIG_CACHE_MAX_KEYS || ""), 10);
+  if (!Number.isFinite(parsed)) return MEMORY_RUNTIME_BUNDLE_MAX_KEYS;
+  return Math.max(100, Math.min(50000, parsed));
+}
+
+function setRuntimeBundleMemoryCache(
+  key: string,
+  bundle: RuntimeBundle,
+  env: Env,
+  ttlMs: number
+): void {
+  if (!isFlagEnabled(env.ES_MEMORY_CONFIG_CACHE)) return;
+  const maxKeys = getMemoryConfigCacheMaxKeys(env);
+  if (runtimeBundleMemoryCache.size >= maxKeys && !runtimeBundleMemoryCache.has(key)) {
+    runtimeBundleMemoryCache.clear();
+  }
+  runtimeBundleMemoryCache.set(key, {
+    bundle,
+    expiresAt: Date.now() + ttlMs,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -532,7 +606,8 @@ async function loadRuntimeBundle(domain: string, env: Env): Promise<RuntimeBundl
 async function validateSession(
   request: Request,
   meta: RequestMeta,
-  env: Env
+  env: Env,
+  domain?: string
 ): Promise<SessionTokenClaims | null> {
   if (!hasJwtSecret(env)) return null;
 
@@ -550,6 +625,21 @@ async function validateSession(
   // Verify IP binding — the token is bound to the original IP
   if (claims.ip !== meta.ip) return null;
 
+  if (isStatelessClearanceEnabled(env)) {
+    const normalizedDomain = normalizeDomainName(domain || extractDomainFromMeta(meta) || "");
+    if (!claims.dom || normalizeDomainName(claims.dom) !== normalizedDomain) return null;
+    if (!claims.ctx || claims.ver !== 1) return null;
+
+    const expectedContext = await createClearanceContextHash(
+      meta.ip,
+      meta.userAgent,
+      normalizedDomain
+    );
+    if (claims.ctx !== expectedContext) return null;
+
+    return claims;
+  }
+
   // Check if the session has been revoked in KV
   // (used when the AI defense engine bans an IP mid-session)
   try {
@@ -560,6 +650,59 @@ async function validateSession(
   }
 
   return claims;
+}
+
+async function issuePassClearanceCookie(
+  meta: RequestMeta,
+  domain: string,
+  env: Env,
+  riskScore: number
+): Promise<string | null> {
+  if (!isStatelessClearanceEnabled(env) || !hasJwtSecret(env)) return null;
+
+  const normalizedDomain = normalizeDomainName(domain);
+  const ttlSeconds = getPassClearanceTtlSeconds(env);
+  const now = Math.floor(Date.now() / 1000);
+  const contextHash = await createClearanceContextHash(meta.ip, meta.userAgent, normalizedDomain);
+  const claims: SessionTokenClaims = {
+    sub: contextHash,
+    iss: "edge-shield",
+    iat: now,
+    exp: now + ttlSeconds,
+    ip: meta.ip,
+    fph: contextHash,
+    rsk: riskScore,
+    dom: normalizedDomain,
+    ctx: contextHash,
+    clr: "risk_pass",
+    ver: 1,
+  };
+
+  const token = await createSessionToken(claims, env.JWT_SECRET);
+  return buildSessionCookie(token, ttlSeconds);
+}
+
+function buildSessionCookie(token: string, maxAge: number): string {
+  return [
+    `${SESSION_COOKIE_NAME}=${token}`,
+    `Max-Age=${maxAge}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=None",
+  ].join("; ");
+}
+
+function appendSetCookie(response: Response, cookieHeader: string | null): Response {
+  if (!cookieHeader || !shouldAttachMeterCookie(response)) return response;
+
+  const headers = new Headers(response.headers);
+  headers.append("Set-Cookie", cookieHeader);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /**
@@ -608,6 +751,32 @@ function parseCookieValue(
 
 function hasJwtSecret(env: Env): boolean {
   return typeof env.JWT_SECRET === "string" && env.JWT_SECRET.trim().length > 0;
+}
+
+function isFlagEnabled(value?: string): boolean {
+  return String(value || "").trim().toLowerCase() === "on";
+}
+
+function isZeroWritePassEnabled(env: Env): boolean {
+  return isFlagEnabled(env.ES_ZERO_WRITE_PASS);
+}
+
+function isStatelessClearanceEnabled(env: Env): boolean {
+  return isFlagEnabled(env.ES_STATELESS_CLEARANCE);
+}
+
+function environmentName(env: Env): string {
+  return String(env.ES_TEST_MODE || "").toLowerCase() === "on" ? "staging" : "production";
+}
+
+function shouldWritePassState(env: Env): boolean {
+  return !isZeroWritePassEnabled(env);
+}
+
+function getPassClearanceTtlSeconds(env: Env): number {
+  const parsed = parseInt(String(env.ES_PASS_CLEARANCE_TTL_SECONDS || ""), 10);
+  if (!Number.isFinite(parsed)) return PASS_CLEARANCE_TTL_SECONDS;
+  return Math.max(30, Math.min(3600, parsed));
 }
 
 function getMeterSecret(env: Env): string | null {
@@ -678,9 +847,11 @@ function applyMeteringToOriginResponse(
 
   const headers = new Headers(response.headers);
   headers.append("Set-Cookie", metering.cookieHeader);
-  ctx.waitUntil(
-    recordProtectedSession(env, meta, "Protected session metered via es_meter").catch(() => { })
-  );
+  if (shouldWritePassState(env)) {
+    ctx.waitUntil(
+      recordProtectedSession(env, meta, "Protected session metered via es_meter").catch(() => { })
+    );
+  }
 
   return new Response(response.body, {
     status: response.status,
@@ -718,6 +889,8 @@ async function logSecurityEvent(
   fingerprintHash: string | null,
   details: string | null
 ): Promise<void> {
+  if (!shouldWritePassState(env) && eventType === "session_created") return;
+
   const domainName = extractDomainFromMeta(meta);
   try {
     await env.DB.prepare(
@@ -842,6 +1015,8 @@ async function samplePassLog(
   riskScore: number,
   details: string
 ): Promise<void> {
+  if (!shouldWritePassState(env)) return;
+
   const trafficLevel = await getTrafficLevel(env);
 
   let sampleRate: number;
@@ -1131,14 +1306,16 @@ async function verifyCrawlerByReverseDns(
     verified = false;
   }
 
-  try {
-    await env.SESSION_KV.put(cacheKey, verified ? "1" : "0", {
-      expirationTtl: verified
-        ? CRAWLER_RDNS_OK_TTL_SECONDS
-        : CRAWLER_RDNS_FAIL_TTL_SECONDS,
-    });
-  } catch {
-    // Cache write failures are non-fatal
+  if (shouldWritePassState(env)) {
+    try {
+      await env.SESSION_KV.put(cacheKey, verified ? "1" : "0", {
+        expirationTtl: verified
+          ? CRAWLER_RDNS_OK_TTL_SECONDS
+          : CRAWLER_RDNS_FAIL_TTL_SECONDS,
+      });
+    } catch {
+      // Cache write failures are non-fatal
+    }
   }
 
   return verified;
@@ -2237,14 +2414,16 @@ async function handleWorkerRequest(
     // IMPORTANT: Flood protection and IP rate hard-ban STILL apply even
     // for trusted IPs to prevent abuse of the trust window for click fraud.
     let isTrustedIP = false;
-    try {
-      const cachedDecision = await env.SESSION_KV.get(getTrustedIpKey(domain, meta.ip));
-      if (cachedDecision === "1") {
-        isTrustedIP = true;
-        // Do NOT return early — continue to flood protection below
+    if (shouldWritePassState(env)) {
+      try {
+        const cachedDecision = await env.SESSION_KV.get(getTrustedIpKey(domain, meta.ip));
+        if (cachedDecision === "1") {
+          isTrustedIP = true;
+          // Do NOT return early — continue to flood protection below
+        }
+      } catch {
+        // Cache miss is fine — continue normal flow
       }
-    } catch {
-      // Cache miss is fine — continue normal flow
     }
 
     // Fast hard-stop for known abusive IPs (temporary ban window).
@@ -2340,7 +2519,7 @@ async function handleWorkerRequest(
     // --- KV Session Validation (Early Check) ---
     // We validate the session early so that WAF and Custom Firewall rules
     // with action "challenge" can be bypassed by users who just solved one.
-    const session = await validateSession(request, meta, env);
+    const session = await validateSession(request, meta, env, domain);
 
     // --- Sensitive Paths WAF Module ---
     // High-priority evaluation for critical internal URIs (.env, wp-login, etc.)
@@ -2518,6 +2697,9 @@ async function handleWorkerRequest(
     if (session) {
       // Skip static assets — no need to count CSS/JS/images
       if (isStaticAssetPath(meta.path)) return safeOriginFetch(request, env);
+      if (!shouldWritePassState(env)) {
+        return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
+      }
 
       if (!meta.isPrefetch) {
         // Check grace marker first (set by challenge.ts after successful CAPTCHA solve).
@@ -2698,7 +2880,7 @@ async function handleWorkerRequest(
     // --- Flood Protection (Full Read+Write — new visitors only) ---
     // Uses composite IP + UA hash to avoid punishing shared-NAT users.
     // Two thresholds: burst (15s) and sustained (60s).
-    if (!meta.isPrefetch) {
+    if (!meta.isPrefetch && shouldWritePassState(env)) {
       // Increment counters in the background (non-blocking)
       ctx.waitUntil(incrementFloodCounters(meta.ip, meta.userAgent, env.SESSION_KV));
 
@@ -2773,34 +2955,36 @@ async function handleWorkerRequest(
     }
 
     // --- Increment IP rate counter (async, non-blocking) ---
-    ctx.waitUntil(incrementIPRate(meta.ip, env.SESSION_KV));
-    ctx.waitUntil(incrementSubnetRate(meta.ip, env.SESSION_KV));
-    ctx.waitUntil(incrementPathRate(meta.path, meta.asn, env.SESSION_KV));
-    if (meta.asn) {
-      ctx.waitUntil(incrementASNRate(meta.asn, env.SESSION_KV));
-    }
-    // Immediate ban for IPs that exceed the allowed requests/minute window.
-    // This is intentionally aggressive for anti-abuse hardening.
-    try {
-      const ipRate = await getIPRateCount(meta.ip, env.SESSION_KV);
-      if (ipRate >= IP_HARD_BAN_RATE_THRESHOLD) {
-        await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
-          expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
-        });
-        ctx.waitUntil(
-          logSecurityEvent(
-            env,
-            "hard_block",
-            meta,
-            100,
-            null,
-            `Auto-banned by IP rate policy (${ipRate}/min >= ${IP_HARD_BAN_RATE_THRESHOLD}/min)`
-          )
-        );
-        return handleHardBlock(env);
+    if (shouldWritePassState(env)) {
+      ctx.waitUntil(incrementIPRate(meta.ip, env.SESSION_KV));
+      ctx.waitUntil(incrementSubnetRate(meta.ip, env.SESSION_KV));
+      ctx.waitUntil(incrementPathRate(meta.path, meta.asn, env.SESSION_KV));
+      if (meta.asn) {
+        ctx.waitUntil(incrementASNRate(meta.asn, env.SESSION_KV));
       }
-    } catch {
-      // KV errors are non-fatal; continue normal flow
+      // Immediate ban for IPs that exceed the allowed requests/minute window.
+      // This is intentionally aggressive for anti-abuse hardening.
+      try {
+        const ipRate = await getIPRateCount(meta.ip, env.SESSION_KV);
+        if (ipRate >= IP_HARD_BAN_RATE_THRESHOLD) {
+          await env.SESSION_KV.put(getTempBanKey(domain, meta.ip), "1", {
+            expirationTtl: thresholds.temp_ban_ttl_seconds || TEMP_BAN_TTL_SECONDS,
+          });
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "hard_block",
+              meta,
+              100,
+              null,
+              `Auto-banned by IP rate policy (${ipRate}/min >= ${IP_HARD_BAN_RATE_THRESHOLD}/min)`
+            )
+          );
+          return handleHardBlock(env);
+        }
+      } catch {
+        // KV errors are non-fatal; continue normal flow
+      }
     }
 
     // Do not issue interactive challenges for static assets.
@@ -2809,7 +2993,7 @@ async function handleWorkerRequest(
     }
 
     // --- Visit Counter for New Visitors (before risk engine) ---
-    if (!meta.isPrefetch) {
+    if (!meta.isPrefetch && shouldWritePassState(env)) {
       const visitCount = await checkAndIncrementVisitCounter(meta, env);
       const allowUserAgentBasedBots = String(env.ES_ALLOW_UA_CRAWLER_ALLOWLIST || "").toLowerCase();
       if (visitCount >= thresholds.visit_captcha_threshold && allowUserAgentBasedBots !== "on") {
@@ -2831,26 +3015,31 @@ async function handleWorkerRequest(
     // If this IP has ANY recent CAPTCHA failures, force re-challenge.
     // Without this, a borderline risk score could flip from SUSPICIOUS to NORMAL
     // between requests, allowing the user through after a failed solve.
-    try {
-      const failCount = await env.SESSION_KV.get(`failrate:${meta.ip}`);
-      if (failCount && parseInt(failCount, 10) > 0) {
-        ctx.waitUntil(
-          logSecurityEvent(
-            env,
-            "challenge_issued",
-            meta,
-            55,
-            null,
-            `Re-challenge: IP has ${failCount} recent CAPTCHA failure(s)`
-          )
-        );
-        return serveChallengePagePlaceholder(meta, domainConfig, env);
-      }
-    } catch { }
+    if (shouldWritePassState(env)) {
+      try {
+        const failCount = await env.SESSION_KV.get(`failrate:${meta.ip}`);
+        if (failCount && parseInt(failCount, 10) > 0) {
+          ctx.waitUntil(
+            logSecurityEvent(
+              env,
+              "challenge_issued",
+              meta,
+              55,
+              null,
+              `Re-challenge: IP has ${failCount} recent CAPTCHA failure(s)`
+            )
+          );
+          return serveChallengePagePlaceholder(meta, domainConfig, env);
+        }
+      } catch { }
+    }
 
     // --- Risk Scoring Engine ---
     const fingerprintHint = await getSessionFingerprintHint(request, env);
-    const risk = await evaluateRisk(meta, env, fingerprintHint);
+    const risk = await evaluateRisk(meta, env, fingerprintHint, {
+      readVolatileSignals: shouldWritePassState(env),
+      writeSignals: shouldWritePassState(env),
+    });
     const securityMode = await resolveEffectiveSecurityMode(
       domainConfig,
       risk,
@@ -2875,7 +3064,7 @@ async function handleWorkerRequest(
         );
 
         // Slow-drip protection: Check daily limit before granting a completely free pass
-        if (!meta.isPrefetch) {
+        if (!meta.isPrefetch && shouldWritePassState(env)) {
           const dailyVisits = await checkAndIncrementDailyVisitCounter(meta, domain, env);
           if (dailyVisits > thresholds.daily_visit_limit) {
             try {
@@ -2898,7 +3087,11 @@ async function handleWorkerRequest(
 
         // Cache this IP as trusted if very low risk — subsequent requests
         // will skip the risk engine but flood protection remains active.
-        if (risk.score <= 15) {
+        const clearanceCookie = risk.score <= 15
+          ? await issuePassClearanceCookie(meta, domain, env, risk.score)
+          : null;
+
+        if (risk.score <= 15 && shouldWritePassState(env)) {
           ctx.waitUntil(
             env.SESSION_KV.put(
               getTrustedIpKey(domain, meta.ip),
@@ -2907,7 +3100,8 @@ async function handleWorkerRequest(
             ).catch(() => { })
           );
         }
-        return meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
+        const originResponse = await meterOriginResponse(fetchWithInjectors(request, meta, env, true), await getMeteringState(), env, ctx, meta);
+        return appendSetCookie(originResponse, clearanceCookie);
       }
 
       case RiskLevel.SUSPICIOUS: {

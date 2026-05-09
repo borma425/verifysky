@@ -24,6 +24,11 @@ class CloudflareUsageDaily extends Model
         'kv_deletes',
         'kv_lists',
         'kv_write_bytes',
+        'pass_d1_writes',
+        'pass_kv_writes',
+        'pass_kv_reads',
+        'pass_config_cache_hit',
+        'pass_config_cache_miss',
         'last_synced_at',
     ];
 
@@ -40,6 +45,11 @@ class CloudflareUsageDaily extends Model
             'kv_deletes' => 'integer',
             'kv_lists' => 'integer',
             'kv_write_bytes' => 'integer',
+            'pass_d1_writes' => 'integer',
+            'pass_kv_writes' => 'integer',
+            'pass_kv_reads' => 'integer',
+            'pass_config_cache_hit' => 'integer',
+            'pass_config_cache_miss' => 'integer',
             'last_synced_at' => 'datetime',
         ];
     }

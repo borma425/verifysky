@@ -31,6 +31,11 @@ return new class extends Migration
                 $table->unsignedBigInteger('kv_deletes')->default(0);
                 $table->unsignedBigInteger('kv_lists')->default(0);
                 $table->unsignedBigInteger('kv_write_bytes')->default(0);
+                $table->unsignedBigInteger('pass_d1_writes')->default(0);
+                $table->unsignedBigInteger('pass_kv_writes')->default(0);
+                $table->unsignedBigInteger('pass_kv_reads')->default(0);
+                $table->unsignedBigInteger('pass_config_cache_hit')->default(0);
+                $table->unsignedBigInteger('pass_config_cache_miss')->default(0);
                 $table->dateTime('last_synced_at')->nullable();
                 $table->timestamps();
 

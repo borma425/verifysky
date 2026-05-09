@@ -89,11 +89,14 @@ const IP_ATTACK_MONTH_PREFIX = "attack:ip:month:";
 export async function evaluateRisk(
   meta: RequestMeta,
   env: Env,
-  fingerprintHash?: string | null
+  fingerprintHash?: string | null,
+  options: { readVolatileSignals?: boolean; writeSignals?: boolean } = {}
 ): Promise<RiskAssessment> {
   let score = 0;
   const factors: string[] = [];
   let strongBotSignal = false;
+  const readVolatileSignals = options.readVolatileSignals !== false;
+  const writeSignals = options.writeSignals !== false;
 
   // --- Factor 1: Cloudflare Bot Management Score ---
   // CF provides a 1-99 score where 1 = definitely bot, 99 = definitely human.
@@ -273,160 +276,162 @@ export async function evaluateRisk(
     }
   }
 
-  // --- Factor 8: IP-based Rate Signal (KV fast lookup) ---
-  try {
-    const ipRequestKey = `rate:${meta.ip}`;
-    const rateData = await env.SESSION_KV.get(ipRequestKey);
-    if (rateData) {
-      const count = parseInt(rateData, 10);
-      if (count > 50) {
-        score += 20;
-        factors.push(`High request rate from IP: ${count} recent requests`);
-      } else if (count > 20) {
-        score += 10;
-        factors.push(`Elevated request rate from IP: ${count} recent requests`);
-      }
-    }
-  } catch {
-    // KV failure is non-fatal
-  }
-
-  // --- Factor 9: ASN-based Burst Signal (botnet/cluster behavior) ---
-  // Helps detect distributed traffic from rotating IPs inside one ASN.
-  if (meta.asn) {
+  if (readVolatileSignals) {
+    // --- Factor 8: IP-based Rate Signal (KV fast lookup) ---
     try {
-      const asnRequestKey = `rate:asn:${meta.asn}`;
-      const asnRateData = await env.SESSION_KV.get(asnRequestKey);
-      if (asnRateData) {
-        const asnCount = parseInt(asnRateData, 10);
-        if (asnCount > 200) {
+      const ipRequestKey = `rate:${meta.ip}`;
+      const rateData = await env.SESSION_KV.get(ipRequestKey);
+      if (rateData) {
+        const count = parseInt(rateData, 10);
+        if (count > 50) {
           score += 20;
-          factors.push(`High ASN traffic burst: AS${meta.asn} (${asnCount}/min)`);
-        } else if (asnCount > 100) {
+          factors.push(`High request rate from IP: ${count} recent requests`);
+        } else if (count > 20) {
           score += 10;
-          factors.push(`Elevated ASN traffic: AS${meta.asn} (${asnCount}/min)`);
+          factors.push(`Elevated request rate from IP: ${count} recent requests`);
         }
       }
     } catch {
       // KV failure is non-fatal
     }
-  }
 
-  // --- Factor 10: Subnet Burst Detection (/24 and /16) ---
-  // Detects "rotating IP swarm" attacks where each IP sends a single request.
-  // We keep this conservative to avoid harming legitimate residential traffic.
-  try {
-    const v4 = extractIPv4Subnets(meta.ip);
-    if (v4) {
-      const subnet24Key = `rate:subnet4:${v4.subnet24}`;
-      const subnet16Key = `rate:subnet4:${v4.subnet16}`;
-      const subnet24Count = parseInt((await env.SESSION_KV.get(subnet24Key)) || "0", 10) || 0;
-      const subnet16Count = parseInt((await env.SESSION_KV.get(subnet16Key)) || "0", 10) || 0;
-
-      if (strongBotSignal) {
-        if (subnet24Count > SUBNET24_BURST_HIGH) {
-          score += 20;
-          factors.push(`High /24 burst detected (${v4.subnet24}.x: ${subnet24Count}/min)`);
-        } else if (subnet24Count > SUBNET24_BURST_SOFT) {
-          score += 10;
-          factors.push(`Elevated /24 burst (${v4.subnet24}.x: ${subnet24Count}/min)`);
-        }
-
-        if (subnet16Count > SUBNET16_BURST_HIGH) {
-          score += 12;
-          factors.push(`High /16 burst detected (${v4.subnet16}.x.x: ${subnet16Count}/min)`);
-        } else if (subnet16Count > SUBNET16_BURST_SOFT) {
-          score += 6;
-          factors.push(`Elevated /16 burst (${v4.subnet16}.x.x: ${subnet16Count}/min)`);
-        }
-      } else if (subnet24Count > SUBNET24_BURST_EXTREME) {
-        // Even without strong bot signals, very extreme subnet storms should
-        // at least be challenged.
-        score += 10;
-        factors.push(`Extreme /24 burst anomaly (${v4.subnet24}.x: ${subnet24Count}/min)`);
-      }
-    }
-  } catch {
-    // KV failure is non-fatal
-  }
-
-  // --- Factor 11: Path Concentration Signal (bot farm pressure) ---
-  // Detects concentrated pressure on a specific endpoint globally and per-ASN.
-  try {
-    const pathBucket = normalizePathForRate(meta.path);
-    const pathKey = `rate:path:${pathBucket}`;
-    const pathCount = parseInt((await env.SESSION_KV.get(pathKey)) || "0", 10) || 0;
-
-    if (pathCount > PATH_BURST_HIGH) {
-      score += 12;
-      factors.push(`High path pressure (${pathBucket}: ${pathCount}/min)`);
-    } else if (pathCount > PATH_BURST_SOFT) {
-      score += 6;
-      factors.push(`Elevated path pressure (${pathBucket}: ${pathCount}/min)`);
-    }
-
+    // --- Factor 9: ASN-based Burst Signal (botnet/cluster behavior) ---
+    // Helps detect distributed traffic from rotating IPs inside one ASN.
     if (meta.asn) {
-      const asnPathKey = `rate:asnpath:${meta.asn}:${pathBucket}`;
-      const asnPathCount = parseInt((await env.SESSION_KV.get(asnPathKey)) || "0", 10) || 0;
-      if (asnPathCount > ASN_PATH_BURST_HIGH) {
-        score += 18;
-        factors.push(
-          `High ASN+path concentration (AS${meta.asn} on ${pathBucket}: ${asnPathCount}/min)`
-        );
-        strongBotSignal = true;
-      } else if (asnPathCount > ASN_PATH_BURST_SOFT) {
-        score += 10;
-        factors.push(
-          `Elevated ASN+path pressure (AS${meta.asn} on ${pathBucket}: ${asnPathCount}/min)`
-        );
+      try {
+        const asnRequestKey = `rate:asn:${meta.asn}`;
+        const asnRateData = await env.SESSION_KV.get(asnRequestKey);
+        if (asnRateData) {
+          const asnCount = parseInt(asnRateData, 10);
+          if (asnCount > 200) {
+            score += 20;
+            factors.push(`High ASN traffic burst: AS${meta.asn} (${asnCount}/min)`);
+          } else if (asnCount > 100) {
+            score += 10;
+            factors.push(`Elevated ASN traffic: AS${meta.asn} (${asnCount}/min)`);
+          }
+        }
+      } catch {
+        // KV failure is non-fatal
       }
     }
-  } catch {
-    // KV failure is non-fatal
-  }
 
-  // --- Factor 12: Historical IP Attack Reputation (today / yesterday / month) ---
-  // Lightweight KV-only lookups (UTC buckets), no per-request D1 query.
-  // Applied conservatively to avoid hurting normal users.
-  try {
-    const todayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${meta.ip}`;
-    const todayCount = parseInt((await env.SESSION_KV.get(todayKey)) || "0", 10) || 0;
+    // --- Factor 10: Subnet Burst Detection (/24 and /16) ---
+    // Detects "rotating IP swarm" attacks where each IP sends a single request.
+    // We keep this conservative to avoid harming legitimate residential traffic.
+    try {
+      const v4 = extractIPv4Subnets(meta.ip);
+      if (v4) {
+        const subnet24Key = `rate:subnet4:${v4.subnet24}`;
+        const subnet16Key = `rate:subnet4:${v4.subnet16}`;
+        const subnet24Count = parseInt((await env.SESSION_KV.get(subnet24Key)) || "0", 10) || 0;
+        const subnet16Count = parseInt((await env.SESSION_KV.get(subnet16Key)) || "0", 10) || 0;
 
-    if (todayCount > 0) {
-      const yesterdayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey(-1)}:${meta.ip}`;
-      const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${meta.ip}`;
-      const yesterdayCount = parseInt((await env.SESSION_KV.get(yesterdayKey)) || "0", 10) || 0;
-      const monthCount = parseInt((await env.SESSION_KV.get(monthKey)) || "0", 10) || 0;
+        if (strongBotSignal) {
+          if (subnet24Count > SUBNET24_BURST_HIGH) {
+            score += 20;
+            factors.push(`High /24 burst detected (${v4.subnet24}.x: ${subnet24Count}/min)`);
+          } else if (subnet24Count > SUBNET24_BURST_SOFT) {
+            score += 10;
+            factors.push(`Elevated /24 burst (${v4.subnet24}.x: ${subnet24Count}/min)`);
+          }
 
-      if (todayCount >= 20) {
-        score += 14;
-        factors.push(`IP historical attacks today: ${todayCount}`);
-      } else if (todayCount >= 8) {
-        score += 8;
-        factors.push(`IP repeated attacks today: ${todayCount}`);
-      } else if (todayCount >= 3) {
-        score += 4;
-        factors.push(`IP attack history detected today: ${todayCount}`);
+          if (subnet16Count > SUBNET16_BURST_HIGH) {
+            score += 12;
+            factors.push(`High /16 burst detected (${v4.subnet16}.x.x: ${subnet16Count}/min)`);
+          } else if (subnet16Count > SUBNET16_BURST_SOFT) {
+            score += 6;
+            factors.push(`Elevated /16 burst (${v4.subnet16}.x.x: ${subnet16Count}/min)`);
+          }
+        } else if (subnet24Count > SUBNET24_BURST_EXTREME) {
+          // Even without strong bot signals, very extreme subnet storms should
+          // at least be challenged.
+          score += 10;
+          factors.push(`Extreme /24 burst anomaly (${v4.subnet24}.x: ${subnet24Count}/min)`);
+        }
       }
+    } catch {
+      // KV failure is non-fatal
+    }
 
-      if (yesterdayCount >= 10) {
+    // --- Factor 11: Path Concentration Signal (bot farm pressure) ---
+    // Detects concentrated pressure on a specific endpoint globally and per-ASN.
+    try {
+      const pathBucket = normalizePathForRate(meta.path);
+      const pathKey = `rate:path:${pathBucket}`;
+      const pathCount = parseInt((await env.SESSION_KV.get(pathKey)) || "0", 10) || 0;
+
+      if (pathCount > PATH_BURST_HIGH) {
+        score += 12;
+        factors.push(`High path pressure (${pathBucket}: ${pathCount}/min)`);
+      } else if (pathCount > PATH_BURST_SOFT) {
         score += 6;
-        factors.push(`IP attacks yesterday: ${yesterdayCount}`);
-      } else if (yesterdayCount >= 4) {
-        score += 3;
-        factors.push(`IP had attack carry-over from yesterday: ${yesterdayCount}`);
+        factors.push(`Elevated path pressure (${pathBucket}: ${pathCount}/min)`);
       }
 
-      if (monthCount >= 60) {
-        score += 8;
-        factors.push(`IP monthly attack history is high: ${monthCount}`);
-      } else if (monthCount >= 25) {
-        score += 4;
-        factors.push(`IP monthly attack history is elevated: ${monthCount}`);
+      if (meta.asn) {
+        const asnPathKey = `rate:asnpath:${meta.asn}:${pathBucket}`;
+        const asnPathCount = parseInt((await env.SESSION_KV.get(asnPathKey)) || "0", 10) || 0;
+        if (asnPathCount > ASN_PATH_BURST_HIGH) {
+          score += 18;
+          factors.push(
+            `High ASN+path concentration (AS${meta.asn} on ${pathBucket}: ${asnPathCount}/min)`
+          );
+          strongBotSignal = true;
+        } else if (asnPathCount > ASN_PATH_BURST_SOFT) {
+          score += 10;
+          factors.push(
+            `Elevated ASN+path pressure (AS${meta.asn} on ${pathBucket}: ${asnPathCount}/min)`
+          );
+        }
       }
+    } catch {
+      // KV failure is non-fatal
     }
-  } catch {
-    // KV failure is non-fatal
+
+    // --- Factor 12: Historical IP Attack Reputation (today / yesterday / month) ---
+    // Lightweight KV-only lookups (UTC buckets), no per-request D1 query.
+    // Applied conservatively to avoid hurting normal users.
+    try {
+      const todayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${meta.ip}`;
+      const todayCount = parseInt((await env.SESSION_KV.get(todayKey)) || "0", 10) || 0;
+
+      if (todayCount > 0) {
+        const yesterdayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey(-1)}:${meta.ip}`;
+        const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${meta.ip}`;
+        const yesterdayCount = parseInt((await env.SESSION_KV.get(yesterdayKey)) || "0", 10) || 0;
+        const monthCount = parseInt((await env.SESSION_KV.get(monthKey)) || "0", 10) || 0;
+
+        if (todayCount >= 20) {
+          score += 14;
+          factors.push(`IP historical attacks today: ${todayCount}`);
+        } else if (todayCount >= 8) {
+          score += 8;
+          factors.push(`IP repeated attacks today: ${todayCount}`);
+        } else if (todayCount >= 3) {
+          score += 4;
+          factors.push(`IP attack history detected today: ${todayCount}`);
+        }
+
+        if (yesterdayCount >= 10) {
+          score += 6;
+          factors.push(`IP attacks yesterday: ${yesterdayCount}`);
+        } else if (yesterdayCount >= 4) {
+          score += 3;
+          factors.push(`IP had attack carry-over from yesterday: ${yesterdayCount}`);
+        }
+
+        if (monthCount >= 60) {
+          score += 8;
+          factors.push(`IP monthly attack history is high: ${monthCount}`);
+        } else if (monthCount >= 25) {
+          score += 4;
+          factors.push(`IP monthly attack history is elevated: ${monthCount}`);
+        }
+      }
+    } catch {
+      // KV failure is non-fatal
+    }
   }
 
   // --- Factor 13: Dynamic Honeypot Decoy Analysis ---
@@ -435,10 +440,12 @@ export async function evaluateRisk(
     if (!meta.isPrefetch) {
       try {
         const decoyKey = `honeypot_hit:${meta.ip}`;
-        const currentStr = await env.SESSION_KV.get(decoyKey);
+        const currentStr = readVolatileSignals ? await env.SESSION_KV.get(decoyKey) : null;
         const currentCount = currentStr ? parseInt(currentStr, 10) : 0;
         const newCount = currentCount + 1;
-        await env.SESSION_KV.put(decoyKey, String(newCount), { expirationTtl: 86400 });
+        if (writeSignals) {
+          await env.SESSION_KV.put(decoyKey, String(newCount), { expirationTtl: 86400 });
+        }
 
         if (newCount >= 2) {
           score += 45;
@@ -456,7 +463,7 @@ export async function evaluateRisk(
   }
 
   // --- Factor 14: ASN Network Reputation ---
-  if (meta.asn) {
+  if (readVolatileSignals && meta.asn) {
     try {
       const asnAttackKey = `attack:asn:day:${utcDayKey()}:${meta.asn}`;
       const asnAttackCount = parseInt((await env.SESSION_KV.get(asnAttackKey)) || "0", 10) || 0;

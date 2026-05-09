@@ -232,7 +232,7 @@
           @if($cfOutcomes !== [])
             <h3 class="mb-3 text-sm font-black uppercase tracking-[0.12em] text-white">Outcome Breakdown</h3>
             <div class="mt-4 overflow-x-auto rounded-md border border-[#303540]">
-              <table class="es-table min-w-[1040px]">
+              <table class="es-table min-w-[1380px]">
                 <thead>
                 <tr>
                   <th>Domain</th>
@@ -245,6 +245,11 @@
                   <th>KV reads</th>
                   <th>KV writes</th>
                   <th>KV write bytes</th>
+                  <th>Pass D1 writes</th>
+                  <th>Pass KV writes</th>
+                  <th>Pass KV reads</th>
+                  <th>Cache hit</th>
+                  <th>Cache miss</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -260,6 +265,11 @@
                     <td class="font-mono">{{ number_format((int) ($outcomeCost['kv_reads'] ?? 0)) }}</td>
                     <td class="font-mono">{{ number_format((int) ($outcomeCost['kv_writes'] ?? 0)) }}</td>
                     <td class="font-mono">{{ number_format((int) ($outcomeCost['kv_write_bytes'] ?? 0)) }}</td>
+                    <td class="font-mono">{{ number_format((int) ($outcomeCost['pass_d1_writes'] ?? 0)) }}</td>
+                    <td class="font-mono">{{ number_format((int) ($outcomeCost['pass_kv_writes'] ?? 0)) }}</td>
+                    <td class="font-mono">{{ number_format((int) ($outcomeCost['pass_kv_reads'] ?? 0)) }}</td>
+                    <td class="font-mono">{{ number_format((int) ($outcomeCost['pass_config_cache_hit'] ?? 0)) }}</td>
+                    <td class="font-mono">{{ number_format((int) ($outcomeCost['pass_config_cache_miss'] ?? 0)) }}</td>
                   </tr>
                 @endforeach
                 </tbody>

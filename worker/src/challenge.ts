@@ -27,6 +27,7 @@ import {
   generateNonce,
   generateSignature,
   verifySignature,
+  createClearanceContextHash,
   createSessionToken,
 } from "./crypto";
 import {
@@ -492,6 +493,8 @@ export async function handleChallengeSubmission(
 
   // Generate session token (JWT bound to IP + fingerprint)
   const now = Math.floor(Date.now() / 1000);
+  const domainName = extractDomainFromMeta(meta) || domainConfig.domain_name;
+  const contextHash = await createClearanceContextHash(meta.ip, meta.userAgent, domainName);
   const claims: SessionTokenClaims = {
     sub: submission.fingerprint,
     iss: "edge-shield",
@@ -500,6 +503,10 @@ export async function handleChallengeSubmission(
     ip: meta.ip,
     fph: submission.fingerprint,
     rsk: telemetryResult.humanScore,
+    dom: domainName,
+    ctx: contextHash,
+    clr: "challenge_passed",
+    ver: 1,
   };
 
   const sessionToken = await createSessionToken(claims, env.JWT_SECRET);

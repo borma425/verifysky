@@ -22,6 +22,8 @@ type UsageCounters = {
   kvDeletes: number;
   kvLists: number;
   kvWriteBytes: number;
+  configCacheHit: number;
+  configCacheMiss: number;
 };
 
 const meters = new WeakMap<object, UsageMeter>();
@@ -47,6 +49,14 @@ export function markUsageOutcome(env: Env, outcome: UsageOutcome): void {
   meters.get(env)?.markOutcome(outcome);
 }
 
+export function markConfigCacheHit(env: Env): void {
+  meters.get(env)?.markConfigCacheHit();
+}
+
+export function markConfigCacheMiss(env: Env): void {
+  meters.get(env)?.markConfigCacheMiss();
+}
+
 export function flushUsageMeter(env: Env, response: Response): void {
   meters.get(env)?.flush(response);
 }
@@ -62,6 +72,8 @@ class UsageMeter {
     kvDeletes: 0,
     kvLists: 0,
     kvWriteBytes: 0,
+    configCacheHit: 0,
+    configCacheMiss: 0,
   };
 
   private tenantId = "";
@@ -85,6 +97,14 @@ class UsageMeter {
 
   markOutcome(outcome: UsageOutcome): void {
     this.outcome = outcome;
+  }
+
+  markConfigCacheHit(): void {
+    this.counters.configCacheHit += 1;
+  }
+
+  markConfigCacheMiss(): void {
+    this.counters.configCacheMiss += 1;
   }
 
   wrapD1(db: D1Database): D1Database {
@@ -189,11 +209,16 @@ class UsageMeter {
           this.counters.d1QueryCount,
           this.counters.kvReads,
           this.counters.kvWrites,
-          this.counters.kvDeletes,
-          this.counters.kvLists,
-          this.counters.kvWriteBytes,
-        ],
-      });
+            this.counters.kvDeletes,
+            this.counters.kvLists,
+            this.counters.kvWriteBytes,
+            this.outcome === "pass" ? this.counters.d1RowsWritten : 0,
+            this.outcome === "pass" ? this.counters.kvWrites : 0,
+            this.outcome === "pass" ? this.counters.kvReads : 0,
+            this.outcome === "pass" ? this.counters.configCacheHit : 0,
+            this.outcome === "pass" ? this.counters.configCacheMiss : 0,
+          ],
+        });
     } catch {
       // Usage telemetry must never affect request handling.
     }

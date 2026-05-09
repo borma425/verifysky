@@ -79,6 +79,11 @@ class CloudflareCostAttributionService
                     'kv_deletes' => $this->integerMetric($row['kv_deletes'] ?? 0),
                     'kv_lists' => $this->integerMetric($row['kv_lists'] ?? 0),
                     'kv_write_bytes' => $this->integerMetric($row['kv_write_bytes'] ?? 0),
+                    'pass_d1_writes' => $this->integerMetric($row['pass_d1_writes'] ?? 0),
+                    'pass_kv_writes' => $this->integerMetric($row['pass_kv_writes'] ?? 0),
+                    'pass_kv_reads' => $this->integerMetric($row['pass_kv_reads'] ?? 0),
+                    'pass_config_cache_hit' => $this->integerMetric($row['pass_config_cache_hit'] ?? 0),
+                    'pass_config_cache_miss' => $this->integerMetric($row['pass_config_cache_miss'] ?? 0),
                     'last_synced_at' => $now,
                 ];
 
@@ -228,6 +233,11 @@ class CloudflareCostAttributionService
                     'kv_reads' => (int) $rows->sum('kv_reads'),
                     'kv_writes' => (int) $rows->sum('kv_writes'),
                     'kv_write_bytes' => (int) $rows->sum('kv_write_bytes'),
+                    'pass_d1_writes' => (int) $rows->sum('pass_d1_writes'),
+                    'pass_kv_writes' => (int) $rows->sum('pass_kv_writes'),
+                    'pass_kv_reads' => (int) $rows->sum('pass_kv_reads'),
+                    'pass_config_cache_hit' => (int) $rows->sum('pass_config_cache_hit'),
+                    'pass_config_cache_miss' => (int) $rows->sum('pass_config_cache_miss'),
                 ];
             })
             ->sortBy([['domain_name', 'asc'], ['outcome', 'asc']])
@@ -425,7 +435,12 @@ class CloudflareCostAttributionService
   SUM(_sample_interval * double6) AS kv_writes,
   SUM(_sample_interval * double7) AS kv_deletes,
   SUM(_sample_interval * double8) AS kv_lists,
-  SUM(_sample_interval * double9) AS kv_write_bytes
+  SUM(_sample_interval * double9) AS kv_write_bytes,
+  SUM(_sample_interval * double10) AS pass_d1_writes,
+  SUM(_sample_interval * double11) AS pass_kv_writes,
+  SUM(_sample_interval * double12) AS pass_kv_reads,
+  SUM(_sample_interval * double13) AS pass_config_cache_hit,
+  SUM(_sample_interval * double14) AS pass_config_cache_miss
 FROM %s
 WHERE timestamp >= toDateTime('%s')
   AND timestamp < toDateTime('%s')

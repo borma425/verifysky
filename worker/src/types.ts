@@ -60,6 +60,13 @@ export interface Env {
   // "on" => reject on cookie/IP mismatch.
   // "off" => log mismatch but continue verification; default remains off to avoid mobile/NAT false positives.
   ES_STRICT_CONTEXT_BINDING?: string;
+  // Optional zero-write pass path controls. Defaults are configured off in wrangler.toml.
+  ES_ZERO_WRITE_PASS?: string;
+  ES_STATELESS_CLEARANCE?: string;
+  ES_MEMORY_CONFIG_CACHE?: string;
+  ES_PASS_CLEARANCE_TTL_SECONDS?: string;
+  ES_MEMORY_CONFIG_CACHE_MAX_KEYS?: string;
+  ES_RUNTIME_CONFIG_VERSION?: string;
   // Optional URL used to redirect requests that hit final hard-block policy.
   // Example: "https://example.com/blocked"
   ES_BLOCK_REDIRECT_URL?: string;
@@ -279,6 +286,14 @@ export interface SessionTokenClaims {
   fph: string;
   /** Session risk score at issuance */
   rsk: number;
+  /** Bound domain for stateless clearance validation */
+  dom?: string;
+  /** Context hash: IP + User-Agent + domain */
+  ctx?: string;
+  /** Clearance class */
+  clr?: "risk_pass" | "challenge_passed";
+  /** Clearance/profile version */
+  ver?: number;
 }
 
 // ---------------------------------------------------------------------------
