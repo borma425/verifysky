@@ -146,7 +146,12 @@ class DomainsController extends Controller
             return back()->with('error', $result['error']);
         }
 
-        return back()->with('status', 'Server updated. Traffic now goes to '.$request->validated()['origin_server'].'.');
+        return back()->with(
+            'status',
+            ! empty($result['queued'])
+                ? 'Server updated. VerifySky is retrying domain setup now.'
+                : 'Server updated. Traffic now goes to '.$request->validated()['origin_server'].'.'
+        );
     }
 
     public function destroy(string $domain): RedirectResponse
@@ -233,7 +238,7 @@ class DomainsController extends Controller
             $sync['ok'] ? 'status' : 'error',
             $sync['ok']
                 ? 'Domain status refreshed.'
-                : 'We could not refresh this domain yet. Please try again in a few minutes.'
+                : $this->refreshDomainErrorMessage($sync)
         );
     }
 
@@ -257,7 +262,12 @@ class DomainsController extends Controller
 
         $result = $this->edgeShield->getDomainConfig($domain, session('current_tenant_id'), (bool) session('is_admin'));
         if (! $result['ok']) {
-            return redirect()->route('domains.index')->with('error', $result['error']);
+            $localConfig = $this->localDomainConfigForTuning($domain, session('current_tenant_id'), (bool) session('is_admin'));
+            if ($localConfig === null) {
+                return redirect()->route('domains.index')->with('error', $result['error']);
+            }
+
+            $result = ['ok' => true, 'config' => $localConfig];
         }
 
         $viewData = new DomainTuningViewData($domain, $result['config']);
@@ -352,6 +362,48 @@ class DomainsController extends Controller
         }
 
         return $this->planLimits->getDomainsUsage($tenant);
+    }
+
+    private function refreshDomainErrorMessage(array $sync): string
+    {
+        $error = trim((string) ($sync['error'] ?? ''));
+        if ($error === '' || $error === 'You do not have access to refresh this domain.') {
+            return 'We could not refresh this domain yet. Please try again in a few minutes.';
+        }
+
+        return $error;
+    }
+
+    private function localDomainConfigForTuning(string $domain, ?string $tenantId, bool $isAdmin): ?array
+    {
+        if (! Schema::hasTable('tenant_domains')) {
+            return null;
+        }
+
+        $query = TenantDomain::query()
+            ->where('hostname', strtolower(trim($domain)));
+
+        if (! $isAdmin) {
+            $tenant = trim((string) $tenantId);
+            if ($tenant === '') {
+                return null;
+            }
+
+            $query->where('tenant_id', $tenant);
+        }
+
+        $domainRecord = $query->first();
+        if (! $domainRecord instanceof TenantDomain) {
+            return null;
+        }
+
+        return [
+            'domain_name' => (string) $domainRecord->hostname,
+            'origin_server' => (string) ($domainRecord->origin_server ?? ''),
+            'security_mode' => (string) ($domainRecord->security_mode ?? 'balanced'),
+            'force_captcha' => (bool) $domainRecord->force_captcha,
+            'thresholds_json' => json_encode($domainRecord->thresholds ?? []),
+        ];
     }
 
     private function domainListResult(?Tenant $tenant, string $tenantId, bool $isAdmin): array

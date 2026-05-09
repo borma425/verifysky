@@ -3,10 +3,16 @@
 namespace Tests\Feature;
 
 use App\Actions\Domains\UpdateDomainOriginAction;
+use App\Jobs\Domains\EnsureCloudflareWorkerRouteJob;
+use App\Jobs\Domains\ProvisionCloudflareSaasHostnameJob;
+use App\Jobs\Domains\SyncDomainConfigToD1Job;
+use App\Jobs\Domains\SyncSaasSecurityArtifactsJob;
+use App\Jobs\Domains\ValidateOriginServerJob;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Services\EdgeShieldService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Mockery;
 use Tests\TestCase;
 
@@ -99,6 +105,55 @@ class UpdateDomainOriginActionTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('Origin is not reachable.', $result['error']);
         $this->assertSame('192.0.2.1', TenantDomain::query()->where('hostname', 'www.example.com')->value('origin_server'));
+    }
+
+    public function test_origin_update_requeues_failed_local_domain_setup_when_edge_config_is_missing(): void
+    {
+        Bus::fake();
+
+        $tenant = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.example.com',
+            'origin_server' => '192.0.2.1',
+            'cloudflare_custom_hostname_id' => null,
+            'provisioning_status' => TenantDomain::PROVISIONING_FAILED,
+            'provisioning_error' => 'Old failure',
+        ]);
+
+        $edge = Mockery::mock(EdgeShieldService::class);
+        $edge->shouldReceive('getDomainConfig')->once()->with('www.example.com', (string) $tenant->id, false)->andReturn([
+            'ok' => false,
+            'error' => 'Domain not found.',
+        ]);
+        $edge->shouldReceive('validateOriginServerForHostname')->once()->with('www.example.com', '192.0.2.10')->andReturn([
+            'ok' => true,
+            'error' => null,
+        ]);
+        $edge->shouldReceive('updateSaasCustomOrigin')->never();
+        $edge->shouldReceive('queryD1')->never();
+        $edge->shouldReceive('refreshSaasCustomHostname')->never();
+        $edge->shouldReceive('purgeDomainConfigCache')->never();
+
+        $result = (new UpdateDomainOriginAction($edge))->execute('www.example.com', '192.0.2.10', (string) $tenant->id, false);
+
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['queued']);
+        $this->assertDatabaseHas('tenant_domains', [
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.example.com',
+            'origin_server' => '192.0.2.10',
+            'provisioning_status' => TenantDomain::PROVISIONING_PENDING,
+            'provisioning_error' => null,
+        ]);
+
+        Bus::assertChained([
+            ValidateOriginServerJob::class,
+            EnsureCloudflareWorkerRouteJob::class,
+            ProvisionCloudflareSaasHostnameJob::class,
+            SyncDomainConfigToD1Job::class,
+            SyncSaasSecurityArtifactsJob::class,
+        ]);
     }
 
     private function tenant(): Tenant

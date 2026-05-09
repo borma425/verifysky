@@ -16,8 +16,14 @@ class RefreshDomainVerificationAction
 
     public function execute(string $domain, ?string $tenantId = null, bool $isAdmin = true): array
     {
-        if (! $this->canManageDomain($domain, $tenantId, $isAdmin)) {
+        $domainRecord = $this->domainRecord($domain, $tenantId, $isAdmin);
+        if (! $domainRecord instanceof TenantDomain) {
             return ['ok' => false, 'error' => 'You do not have access to refresh this domain.'];
+        }
+
+        $blocked = $this->notReadyForCloudflareRefresh($domainRecord);
+        if ($blocked !== null) {
+            return $blocked;
         }
 
         $result = $this->edgeShield->refreshSaasCustomHostname($domain);
@@ -55,29 +61,64 @@ class RefreshDomainVerificationAction
         }
 
         $domain->forceFill([
-                'cloudflare_custom_hostname_id' => (string) ($customHostname['id'] ?? ''),
-                'hostname_status' => $hostnameStatus,
-                'ssl_status' => $sslStatus,
-                'ownership_verification' => $customHostname['ownership_verification'] ?? null,
-                'verified_at' => $hostnameStatus === 'active' && $sslStatus === 'active' ? now() : null,
+            'cloudflare_custom_hostname_id' => (string) ($customHostname['id'] ?? ''),
+            'hostname_status' => $hostnameStatus,
+            'ssl_status' => $sslStatus,
+            'ownership_verification' => $customHostname['ownership_verification'] ?? null,
+            'verified_at' => $hostnameStatus === 'active' && $sslStatus === 'active' ? now() : null,
         ])->save();
 
         $this->domainProvisioning->markActiveIfVerified($domain->refresh());
     }
 
-    private function canManageDomain(string $domain, ?string $tenantId, bool $isAdmin): bool
+    private function domainRecord(string $domain, ?string $tenantId, bool $isAdmin): ?TenantDomain
     {
-        if ($isAdmin) {
-            return true;
+        $normalizedDomain = strtolower(trim($domain));
+        if ($normalizedDomain === '') {
+            return null;
         }
 
-        if (! Schema::hasTable('tenant_domains') || trim((string) $tenantId) === '') {
-            return false;
+        if (! Schema::hasTable('tenant_domains')) {
+            return null;
+        }
+
+        if ($isAdmin) {
+            return TenantDomain::query()
+                ->where('hostname', $normalizedDomain)
+                ->first();
+        }
+
+        if (trim((string) $tenantId) === '') {
+            return null;
         }
 
         return TenantDomain::query()
             ->where('tenant_id', trim((string) $tenantId))
-            ->where('hostname', strtolower(trim($domain)))
-            ->exists();
+            ->where('hostname', $normalizedDomain)
+            ->first();
+    }
+
+    private function notReadyForCloudflareRefresh(TenantDomain $domain): ?array
+    {
+        if (trim((string) $domain->cloudflare_custom_hostname_id) !== '') {
+            return null;
+        }
+
+        $status = (string) ($domain->provisioning_status ?? '');
+        if ($status === TenantDomain::PROVISIONING_FAILED) {
+            return [
+                'ok' => false,
+                'error' => (string) ($domain->provisioning_error ?: 'Domain setup failed. Update the server/origin and try adding it again.'),
+            ];
+        }
+
+        if (in_array($status, [TenantDomain::PROVISIONING_PENDING, TenantDomain::PROVISIONING_PROVISIONING], true)) {
+            return [
+                'ok' => false,
+                'error' => 'Domain setup is still running. Please wait a minute, then refresh again.',
+            ];
+        }
+
+        return null;
     }
 }
