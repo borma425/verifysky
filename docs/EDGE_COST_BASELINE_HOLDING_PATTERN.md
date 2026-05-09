@@ -32,6 +32,19 @@ Only operational observation is allowed:
 - Record baseline metrics.
 - Fix production breakage only if needed.
 
+## Stage 2 Holding Pattern
+
+- Started: 2026-05-09 after production deploy `47014bd`.
+- Active flag: `ES_MEMORY_CONFIG_CACHE=on`.
+- Still disabled:
+  - `ES_ZERO_WRITE_PASS=off`
+  - `ES_STATELESS_CLEARANCE=off`
+- Do not advance to Stage 3 until organic WAE data confirms:
+  - `pass_config_cache_hit` is materially higher than `pass_config_cache_miss`
+  - `pass_kv_reads / pass requests` drops materially from the prior baseline
+  - no spike appears in `challenge_issued` or `blocked`
+- Recommended wait: 12-24 hours of organic traffic.
+
 ## Production Commands
 
 Run Laravel commands on the production host as `www-data`:
