@@ -94,7 +94,15 @@
         @foreach($setupDomains as $domain)
           @php
             $domainName = strtolower(trim((string) $domain));
-            $recordName = str_starts_with($domainName, 'www.') ? 'www' : '@';
+            $labels = array_values(array_filter(explode('.', $domainName), fn ($label) => $label !== ''));
+            $suffix = implode('.', array_slice($labels, -2));
+            $commonSecondLevelSuffixes = [
+              'ac.uk', 'co.il', 'co.jp', 'co.nz', 'co.uk',
+              'com.au', 'com.br', 'com.eg', 'com.mx', 'com.sa', 'com.tr', 'com.ua',
+              'net.au', 'net.eg', 'net.sa', 'org.au', 'org.uk',
+            ];
+            $isApexRecord = count($labels) === 2 || (count($labels) === 3 && in_array($suffix, $commonSecondLevelSuffixes, true));
+            $recordName = str_starts_with($domainName, 'www.') ? 'www' : ($isApexRecord ? '@' : ($labels[0] ?? '@'));
           @endphp
           <div class="rounded-lg border border-white/8 bg-[#202632] p-4">
             <div class="grid gap-3 md:grid-cols-[0.8fr_0.8fr_1.6fr_auto] md:items-center">

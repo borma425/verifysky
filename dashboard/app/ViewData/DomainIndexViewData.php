@@ -205,10 +205,15 @@ class DomainIndexViewData
         }
 
         if ($rowName === $displayDomain) {
-            return '@';
+            return $this->isApexLike($rowName) ? '@' : $this->leftmostLabel($rowName);
         }
 
-        return explode('.', $rowName)[0];
+        return $this->leftmostLabel($rowName);
+    }
+
+    private function leftmostLabel(string $hostname): string
+    {
+        return (string) (explode('.', $hostname)[0] ?? $hostname);
     }
 
     private function overallStatus(bool $primaryVerified, string $hostnameStatus, string $lifecycleStatus): string
