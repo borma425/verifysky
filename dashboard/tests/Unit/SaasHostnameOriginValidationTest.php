@@ -65,7 +65,9 @@ class SaasHostnameOriginValidationTest extends TestCase
             ->with('GET', '/zones/zone-id/dns_records', Mockery::type('array'))
             ->andReturn(['ok' => true, 'error' => null, 'result' => []]);
         $cloudflare->shouldReceive('request')
-            ->with('POST', '/zones/zone-id/dns_records', [], Mockery::type('array'))
+            ->with('POST', '/zones/zone-id/dns_records', [], Mockery::on(
+                fn (array $payload): bool => ($payload['proxied'] ?? null) === true
+            ))
             ->andReturn(['ok' => true, 'error' => null, 'result' => []]);
 
         $service = new TestableSaasHostnameService(

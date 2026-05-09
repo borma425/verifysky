@@ -66,14 +66,14 @@ trait SaasHostnameOriginAliasConcern
             'name' => $fqdn,
             'content' => $ipAddress,
             'ttl' => 1,
-            'proxied' => false,
+            'proxied' => true,
         ];
 
         if ($existing && is_string($existing['id'] ?? null)) {
             $existingType = strtoupper((string) ($existing['type'] ?? ''));
             $existingContent = trim((string) ($existing['content'] ?? ''));
             $existingProxied = (bool) ($existing['proxied'] ?? false);
-            if ($existingType !== $recordType || $existingContent !== $ipAddress || $existingProxied !== false) {
+            if ($existingType !== $recordType || $existingContent !== $ipAddress || $existingProxied !== true) {
                 $update = $this->cloudflare->request(
                     'PUT',
                     '/zones/'.$zoneId.'/dns_records/'.$existing['id'],
