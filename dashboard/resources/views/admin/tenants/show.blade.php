@@ -323,7 +323,7 @@
         <div class="vs-tuning-section-head">
           <div>
             <h2 class="vs-tuning-section-title">Members</h2>
-            <p class="vs-tuning-helper">{{ $tenant->memberships->count() }} member(s) on this tenant.</p>
+            <p class="vs-tuning-helper">{{ $tenant->memberships->count() }} workspace user(s) on this tenant.</p>
           </div>
         </div>
 

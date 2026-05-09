@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AdminOnly;
+use App\Http\Middleware\EnsureTenantOwner;
 use App\Http\Middleware\EnsureTenantActive;
 use App\Http\Middleware\RedirectAdminFromCustomerShell;
 use Illuminate\Foundation\Application;
@@ -16,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'admin.only' => AdminOnly::class,
+            'tenant.owner' => EnsureTenantOwner::class,
             'tenant.active' => EnsureTenantActive::class,
             'redirect.admin.from.customer' => RedirectAdminFromCustomerShell::class,
         ]);

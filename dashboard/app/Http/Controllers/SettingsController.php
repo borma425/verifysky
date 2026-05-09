@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Tenant;
+use App\Models\TenantInvitation;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Services\EdgeShieldService;
 use App\Support\TenantLoginPath;
@@ -31,11 +33,19 @@ class SettingsController extends Controller
 
         $tenant = $this->currentTenantOrFail();
         $user = $this->currentUserOrFail();
+        $canManageWorkspace = $this->userIsTenantOwner($tenant, $user);
 
         return view('settings.account', [
             'layout' => 'layouts.app',
-            'tenant' => $tenant,
+            'tenant' => $tenant->load([
+                'memberships.user:id,name,email,avatar_path',
+                'invitations' => fn ($query) => $query
+                    ->whereNull('accepted_at')
+                    ->where('expires_at', '>', now())
+                    ->latest('id'),
+            ]),
             'user' => $user,
+            'canManageWorkspace' => $canManageWorkspace,
             'settingsUpdateRoute' => 'settings.update',
             'currentLoginSlug' => TenantLoginPath::slugFromPath((string) $tenant->login_path),
             'loginUrlPrefix' => rtrim(url('/'.TenantLoginPath::ACCOUNT_PREFIX), '/').'/',
@@ -52,15 +62,21 @@ class SettingsController extends Controller
 
         $tenant = $this->currentTenantOrFail();
         $user = $this->currentUserOrFail();
-        $validated = $request->validate([
+        $canManageWorkspace = $this->userIsTenantOwner($tenant, $user);
+
+        $rules = [
             'email' => ['required', 'email:rfc', 'max:190', Rule::unique('users', 'email')->ignore($user->getKey())],
             'avatar' => ['nullable', 'image', 'max:2048'],
             'remove_avatar' => ['nullable', 'boolean'],
             'current_password' => ['nullable', 'string'],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
-            'name' => ['required', 'string', 'max:190'],
-            'login_slug' => ['required', 'string', 'max:80'],
-        ]);
+        ];
+        if ($canManageWorkspace) {
+            $rules['name'] = ['required', 'string', 'max:190'];
+            $rules['login_slug'] = ['required', 'string', 'max:80'];
+        }
+
+        $validated = $request->validate($rules);
 
         $newEmail = trim(strtolower((string) $validated['email']));
         $emailChanged = $newEmail !== trim(strtolower((string) $user->email));
@@ -72,20 +88,23 @@ class SettingsController extends Controller
             return back()->withErrors($errors)->withInput($request->except(['current_password', 'password', 'password_confirmation']));
         }
 
-        $loginSlug = TenantLoginPath::normalizeSlug((string) $validated['login_slug']);
-        $loginPath = TenantLoginPath::forSlug($loginSlug);
         $errors = new MessageBag;
-        if (TenantLoginPath::isReservedSlug($loginSlug)) {
-            $errors->add('login_slug', 'This login slug is reserved.');
-        }
-        if ($loginPath === TenantLoginPath::normalize((string) config('dashboard.login_path', 'wow/login'))) {
-            $errors->add('login_slug', 'This login slug is reserved for platform administration.');
-        }
-        if (Tenant::query()
-            ->where('login_path', $loginPath)
-            ->whereKeyNot($tenant->getKey())
-            ->exists()) {
-            $errors->add('login_slug', 'This login slug is already in use.');
+        $loginPath = (string) $tenant->login_path;
+        if ($canManageWorkspace) {
+            $loginSlug = TenantLoginPath::normalizeSlug((string) $validated['login_slug']);
+            $loginPath = TenantLoginPath::forSlug($loginSlug);
+            if (TenantLoginPath::isReservedSlug($loginSlug)) {
+                $errors->add('login_slug', 'This login slug is reserved.');
+            }
+            if ($loginPath === TenantLoginPath::normalize((string) config('dashboard.login_path', 'wow/login'))) {
+                $errors->add('login_slug', 'This login slug is reserved for platform administration.');
+            }
+            if (Tenant::query()
+                ->where('login_path', $loginPath)
+                ->whereKeyNot($tenant->getKey())
+                ->exists()) {
+                $errors->add('login_slug', 'This login slug is already in use.');
+            }
         }
 
         if ($errors->any()) {
@@ -115,10 +134,12 @@ class SettingsController extends Controller
         }
         $user->save();
 
-        $tenant->forceFill([
-            'name' => trim((string) $validated['name']),
-            'login_path' => $loginPath,
-        ])->save();
+        if ($canManageWorkspace) {
+            $tenant->forceFill([
+                'name' => trim((string) $validated['name']),
+                'login_path' => $loginPath,
+            ])->save();
+        }
 
         session()->put('user_email', $user->email);
         session()->put('user_avatar_path', $user->avatar_path);
@@ -168,6 +189,15 @@ class SettingsController extends Controller
         abort_unless($user instanceof User, 404);
 
         return $user;
+    }
+
+    private function userIsTenantOwner(Tenant $tenant, User $user): bool
+    {
+        return TenantMembership::query()
+            ->where('tenant_id', $tenant->getKey())
+            ->where('user_id', $user->getKey())
+            ->where('role', TenantInvitation::ROLE_OWNER)
+            ->exists();
     }
 
     private function publicStorageUrl(?string $path): ?string

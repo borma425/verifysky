@@ -198,7 +198,7 @@
                     {{ number_format($row['domains_count']) }}
                   </div>
                   <div class="mt-1 text-xs text-[#AEB9CC]">Domains</div>
-                  <div class="mt-1 text-xs text-[#7F8BA0]">{{ $row['members_count'] ?? 0 }} member(s)</div>
+                  <div class="mt-1 text-xs text-[#7F8BA0]">{{ $row['members_count'] ?? 0 }} workspace user(s)</div>
                 </div>
               </td>
               <td class="px-4 py-4 align-top">

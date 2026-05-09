@@ -269,6 +269,24 @@
             </div>
           </div>
           <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+            @if(isset($layoutWorkspaces) && $layoutWorkspaces->count() > 1)
+              <div x-data="{ target: '{{ $layoutCurrentTenantId }}' }" class="hidden min-w-[12rem] md:block">
+                <form x-ref="workspaceForm" method="POST" x-bind:action="'{{ url('/workspaces') }}/' + target + '/switch'">
+                  @csrf
+                  <label class="sr-only" for="workspace-switcher">Workspace</label>
+                  <select
+                    id="workspace-switcher"
+                    x-model="target"
+                    x-on:change="$refs.workspaceForm.submit()"
+                    class="h-10 w-full rounded-lg border border-[#303540] bg-[#1B202A] px-3 text-sm font-semibold text-[#D7E1F5] outline-none transition-colors hover:border-[#FCB900]/50 focus:border-[#FCB900]"
+                  >
+                    @foreach($layoutWorkspaces as $workspaceMembership)
+                      <option value="{{ $workspaceMembership->tenant->getKey() }}">{{ $workspaceMembership->tenant->name }}</option>
+                    @endforeach
+                  </select>
+                </form>
+              </div>
+            @endif
             <button class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#303540] bg-[#1B202A] text-[#AEB9CC] transition-colors hover:border-[#FCB900]/50 hover:text-[#FCB900]" type="button" aria-label="Notifications"><img src="{{ asset('duotone/bell.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4"></button>
             <a class="hidden h-10 items-center gap-2 rounded-lg border border-[#303540] bg-[#1B202A] px-3 text-sm font-semibold text-[#D7E1F5] transition-colors hover:border-[#FCB900]/50 hover:text-[#FCB900] sm:inline-flex" href="{{ route('settings.index') }}" aria-label="Settings">
               <img src="{{ asset('duotone/gear.svg') }}" alt="" class="es-duotone-icon es-icon-tone-muted h-4 w-4">

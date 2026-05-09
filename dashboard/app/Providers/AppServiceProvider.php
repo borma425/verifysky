@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Observers\UserObserver;
 use App\Services\Billing\Contracts\PaymentGatewayInterface;
@@ -30,15 +31,29 @@ class AppServiceProvider extends ServiceProvider
         View::composer('layouts.app', function ($view): void {
             if (! session()->get('is_authenticated') || session()->get('is_admin')) {
                 $view->with('layoutBillingStatus', null);
+                $view->with('layoutWorkspaces', collect());
+                $view->with('layoutCurrentTenantId', null);
 
                 return;
             }
 
+            $tenantId = (string) session('current_tenant_id', '');
             $billingStatus = app(TenantBillingStatusService::class)->forTenantId(
-                (string) session('current_tenant_id', '')
+                $tenantId
             );
+            $userId = session('user_id');
+            $workspaces = is_numeric($userId)
+                ? TenantMembership::query()
+                    ->with('tenant:id,name,slug')
+                    ->where('user_id', (int) $userId)
+                    ->orderBy('id')
+                    ->get()
+                    ->filter(fn (TenantMembership $membership): bool => $membership->tenant !== null)
+                : collect();
 
             $view->with('layoutBillingStatus', $billingStatus);
+            $view->with('layoutWorkspaces', $workspaces);
+            $view->with('layoutCurrentTenantId', $tenantId);
         });
     }
 }

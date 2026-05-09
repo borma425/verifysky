@@ -19,6 +19,9 @@ use App\Http\Controllers\PaymentWebhookController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\SensitivePathsController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\InvitationController;
+use App\Http\Controllers\TenantTeamController;
+use App\Http\Controllers\WorkspaceSwitchController;
 use App\Http\Middleware\AdminAuth;
 use App\Http\Middleware\LogAdminCustomerMirrorAccess;
 use App\Http\Middleware\NoIndexSensitivePages;
@@ -51,6 +54,12 @@ Route::get('/register/check-email', [RegistrationController::class, 'pending'])-
 Route::get('/account/activate/{user}/{hash}', AccountActivationController::class)
     ->middleware([NoIndexSensitivePages::class, 'signed:relative', 'throttle:6,1'])
     ->name('account.activate');
+Route::get('/invitations/{token}', [InvitationController::class, 'show'])
+    ->middleware(NoIndexSensitivePages::class)
+    ->name('invitations.show');
+Route::post('/invitations/{token}', [InvitationController::class, 'accept'])
+    ->middleware([NoIndexSensitivePages::class, 'throttle:10,1'])
+    ->name('invitations.accept');
 
 Route::get('/'.$adminLoginPath, [AuthController::class, 'show'])
     ->middleware(NoIndexSensitivePages::class)
@@ -68,9 +77,9 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
     Route::middleware(['redirect.admin.from.customer', 'tenant.active'])->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
         Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
-        Route::post('/billing/checkout/{plan}', [BillingController::class, 'checkout'])->name('billing.checkout');
+        Route::post('/billing/checkout/{plan}', [BillingController::class, 'checkout'])->middleware('tenant.owner')->name('billing.checkout');
         Route::get('/billing/checkout/success', [BillingController::class, 'success'])->name('billing.checkout.success');
-        Route::post('/billing/subscription/cancel', [BillingController::class, 'cancelSubscription'])->name('billing.subscription.cancel');
+        Route::post('/billing/subscription/cancel', [BillingController::class, 'cancelSubscription'])->middleware('tenant.owner')->name('billing.subscription.cancel');
 
         Route::get('/domains', [DomainsController::class, 'index'])->name('domains.index');
         Route::get('/domains/statuses', [DomainsController::class, 'statuses'])->name('domains.statuses');
@@ -117,6 +126,12 @@ Route::middleware([AdminAuth::class, NoIndexSensitivePages::class])->group(funct
     Route::middleware('redirect.admin.from.customer')->group(function () {
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+        Route::post('/workspaces/{tenant}/switch', WorkspaceSwitchController::class)->name('workspaces.switch');
+        Route::middleware('tenant.owner')->group(function () {
+            Route::post('/settings/team/invitations', [TenantTeamController::class, 'invite'])->name('settings.team.invitations.store');
+            Route::delete('/settings/team/invitations/{invitation}', [TenantTeamController::class, 'cancelInvitation'])->name('settings.team.invitations.destroy');
+            Route::delete('/settings/team/members/{membership}', [TenantTeamController::class, 'removeMember'])->name('settings.team.members.destroy');
+        });
     });
 
     Route::middleware('admin.only')->group(function () {
