@@ -40,7 +40,17 @@ class RefreshDomainGroupVerificationAction
             if (! $sync['ok']) {
                 return ['ok' => false, 'error' => 'We could not refresh this domain yet. Please try again in a few minutes.'];
             }
-            $this->syncTenantDomain($hostname, $sync['custom_hostname'] ?? [], $tenantId, $isAdmin);
+            $domainRecord = $this->syncTenantDomain($hostname, $sync['custom_hostname'] ?? [], $tenantId, $isAdmin);
+            if ($domainRecord instanceof TenantDomain) {
+                $d1Sync = $this->domainProvisioning->syncVerificationStatusToD1($domainRecord);
+                if (! ($d1Sync['ok'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'error' => $d1Sync['error'] ?: 'Domain status refreshed locally, but runtime sync failed. Please try again.',
+                    ];
+                }
+            }
+
             $this->edgeShield->purgeDomainConfigCache($hostname);
             $refreshed[] = $hostname;
         }
@@ -51,10 +61,10 @@ class RefreshDomainGroupVerificationAction
     /**
      * @param  array<string, mixed>  $customHostname
      */
-    private function syncTenantDomain(string $domain, array $customHostname, ?string $tenantId, bool $isAdmin): void
+    private function syncTenantDomain(string $domain, array $customHostname, ?string $tenantId, bool $isAdmin): ?TenantDomain
     {
         if (! Schema::hasTable('tenant_domains')) {
-            return;
+            return null;
         }
 
         $hostnameStatus = strtolower(trim((string) ($customHostname['status'] ?? 'pending')));
@@ -70,7 +80,7 @@ class RefreshDomainGroupVerificationAction
         $domain = $query->first();
 
         if (! $domain instanceof TenantDomain) {
-            return;
+            return null;
         }
 
         $domain->forceFill([
@@ -82,6 +92,8 @@ class RefreshDomainGroupVerificationAction
         ])->save();
 
         $this->domainProvisioning->markActiveIfVerified($domain->refresh());
+
+        return $domain->refresh();
     }
 
     /**

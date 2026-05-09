@@ -130,13 +130,13 @@ document.addEventListener('alpine:init', () => {
                 this.setText(card, '[data-domain-health-score]', String(group.health_score ?? 0));
                 this.setText(card, '[data-domain-dns-label]', this.statusWord(group.primary_hostname_status));
                 this.setText(card, '[data-domain-ssl-label]', this.sslStatusWord(group.primary_ssl_status));
-                this.setText(card, '[data-domain-runtime-label]', group.is_active && group.primary_verified ? 'Enabled' : (group.is_active ? 'Pending...' : 'Disabled'));
+                this.setText(card, '[data-domain-runtime-label]', group.is_active ? 'Enabled' : 'Disabled');
                 this.setText(card, '[data-domain-edge-label]', group.primary_verified ? 'Success' : 'Pending');
 
                 this.setClass(card, '[data-domain-status-badge]', `rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${live.badge_class || 'border-white/10 bg-white/5 text-[#D7E1F5]'}`);
                 this.setClass(card, '[data-domain-dns-class]', `es-status-value font-mono leading-none ${group.primary_hostname_status === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
                 this.setClass(card, '[data-domain-ssl-class]', `es-status-value font-mono leading-none ${group.primary_ssl_status === 'active' ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
-                this.setClass(card, '[data-domain-runtime-class]', `es-status-value font-mono leading-none ${group.is_active && group.primary_verified ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
+                this.setClass(card, '[data-domain-runtime-class]', `es-status-value font-mono leading-none ${group.is_active ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
                 this.setClass(card, '[data-domain-edge-class]', `rounded-md bg-[#0E131D] px-3 py-1.5 font-mono text-sm ${group.primary_verified ? 'text-[#10B981]' : 'text-[#D7E1F5]'}`);
 
                 const spinner = card.querySelector('[data-domain-status-spinner]');

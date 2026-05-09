@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
 use App\Repositories\DomainConfigRepository;
+use App\Services\Domains\DomainAssetPolicyService;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -92,6 +93,12 @@ class DomainActionsTest extends TestCase
             'error' => null,
             'custom_hostname' => [],
         ]);
+        $mock->shouldReceive('queryD1')->once()->with(Mockery::on(
+            fn (string $sql): bool => str_contains($sql, 'UPDATE domain_configs')
+                && str_contains($sql, "domain_name = 'example.com'")
+                && str_contains($sql, "tenant_id = '".$tenant->id."'")
+                && preg_match('/(^|[^_])status\s*=/i', $sql) === 0
+        ))->andReturn(['ok' => true, 'error' => null, 'output' => '']);
         $mock->shouldReceive('purgeDomainConfigCache')->once()->with('example.com')->andReturn(['ok' => true]);
 
         $response = $this->withSession([
@@ -99,6 +106,130 @@ class DomainActionsTest extends TestCase
             'is_admin' => false,
             'current_tenant_id' => (string) $tenant->id,
         ])->post('/domains/example.com/sync-route');
+
+        $response->assertRedirect()->assertSessionHas('status');
+    }
+
+    public function test_refresh_hostname_status_syncs_verification_fields_to_d1_without_mutating_runtime_status(): void
+    {
+        $tenant = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'ar.cashup.cash',
+            'cloudflare_custom_hostname_id' => 'old-host-id',
+            'hostname_status' => 'pending',
+            'ssl_status' => 'pending_validation',
+        ]);
+
+        $assets = Mockery::mock(DomainAssetPolicyService::class);
+        $assets->shouldReceive('grantTrialIfEligible')->once()->andReturn([
+            'granted' => false,
+            'reason' => 'test',
+            'grant_id' => null,
+            'asset_key' => 'cashup.cash',
+        ]);
+        $this->app->instance(DomainAssetPolicyService::class, $assets);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('refreshSaasCustomHostname')->once()->with('ar.cashup.cash')->andReturn([
+            'ok' => true,
+            'error' => null,
+            'custom_hostname' => [
+                'id' => 'host-id',
+                'status' => 'active',
+                'ssl' => ['status' => 'active'],
+                'ownership_verification' => ['type' => 'txt', 'name' => '_cf-custom-hostname'],
+            ],
+        ]);
+        $mock->shouldReceive('queryD1')->once()->with(Mockery::on(
+            fn (string $sql): bool => str_contains($sql, 'UPDATE domain_configs')
+                && str_contains($sql, "custom_hostname_id = 'host-id'")
+                && str_contains($sql, "hostname_status = 'active'")
+                && str_contains($sql, "ssl_status = 'active'")
+                && str_contains($sql, "domain_name = 'ar.cashup.cash'")
+                && str_contains($sql, "tenant_id = '".$tenant->id."'")
+                && preg_match('/(^|[^_])status\s*=/i', $sql) === 0
+        ))->andReturn(['ok' => true, 'error' => null, 'output' => '']);
+        $mock->shouldReceive('purgeDomainConfigCache')->once()->with('ar.cashup.cash')->andReturn(['ok' => true]);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->post('/domains/ar.cashup.cash/sync-route');
+
+        $response->assertRedirect()->assertSessionHas('status');
+        $this->assertDatabaseHas('tenant_domains', [
+            'tenant_id' => $tenant->id,
+            'hostname' => 'ar.cashup.cash',
+            'cloudflare_custom_hostname_id' => 'host-id',
+            'hostname_status' => 'active',
+            'ssl_status' => 'active',
+            'provisioning_status' => TenantDomain::PROVISIONING_ACTIVE,
+        ]);
+    }
+
+    public function test_group_refresh_syncs_each_owned_hostname_verification_to_d1(): void
+    {
+        $tenant = $this->tenant();
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'example.com',
+            'cloudflare_custom_hostname_id' => 'root-id',
+        ]);
+        TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.example.com',
+            'cloudflare_custom_hostname_id' => 'www-id',
+        ]);
+
+        $assets = Mockery::mock(DomainAssetPolicyService::class);
+        $assets->shouldReceive('grantTrialIfEligible')->twice()->andReturn([
+            'granted' => false,
+            'reason' => 'test',
+            'grant_id' => null,
+            'asset_key' => 'example.com',
+        ]);
+        $this->app->instance(DomainAssetPolicyService::class, $assets);
+
+        $mock = $this->bindServiceMock();
+        $mock->shouldReceive('saasHostnamesForInput')->once()->with('example.com')->andReturn(['example.com', 'www.example.com']);
+        $mock->shouldReceive('refreshSaasCustomHostname')->once()->with('example.com')->andReturn([
+            'ok' => true,
+            'error' => null,
+            'custom_hostname' => [
+                'id' => 'root-id',
+                'status' => 'active',
+                'ssl' => ['status' => 'active'],
+            ],
+        ]);
+        $mock->shouldReceive('refreshSaasCustomHostname')->once()->with('www.example.com')->andReturn([
+            'ok' => true,
+            'error' => null,
+            'custom_hostname' => [
+                'id' => 'www-id',
+                'status' => 'active',
+                'ssl' => ['status' => 'active'],
+            ],
+        ]);
+        $mock->shouldReceive('queryD1')->once()->with(Mockery::on(
+            fn (string $sql): bool => str_contains($sql, "domain_name = 'example.com'")
+                && str_contains($sql, "tenant_id = '".$tenant->id."'")
+                && preg_match('/(^|[^_])status\s*=/i', $sql) === 0
+        ))->andReturn(['ok' => true, 'error' => null, 'output' => '']);
+        $mock->shouldReceive('queryD1')->once()->with(Mockery::on(
+            fn (string $sql): bool => str_contains($sql, "domain_name = 'www.example.com'")
+                && str_contains($sql, "tenant_id = '".$tenant->id."'")
+                && preg_match('/(^|[^_])status\s*=/i', $sql) === 0
+        ))->andReturn(['ok' => true, 'error' => null, 'output' => '']);
+        $mock->shouldReceive('purgeDomainConfigCache')->once()->with('example.com')->andReturn(['ok' => true]);
+        $mock->shouldReceive('purgeDomainConfigCache')->once()->with('www.example.com')->andReturn(['ok' => true]);
+
+        $response = $this->withSession([
+            'is_authenticated' => true,
+            'is_admin' => false,
+            'current_tenant_id' => (string) $tenant->id,
+        ])->post('/domains/example.com/sync-group');
 
         $response->assertRedirect()->assertSessionHas('status');
     }

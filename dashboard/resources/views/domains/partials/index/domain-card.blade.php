@@ -115,11 +115,11 @@
       <div class="es-status-tile">
         <img src="{{ asset('duotone/microchip.svg') }}" alt="runtime" class="es-status-tile-icon es-duotone-icon es-icon-tone-muted h-6 w-6">
         <div class="text-xs font-medium text-[#D4C4AB]">Protection</div>
-        <div class="es-status-value font-mono leading-none {{ $isActive && $group['primary_verified'] ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-runtime-class>
-          @if($isActive && $group['primary_verified'])
+        <div class="es-status-value font-mono leading-none {{ $isActive ? 'text-[#10B981]' : 'text-[#D7E1F5]' }}" data-domain-runtime-class>
+          @if($isActive)
             <div class="flex items-center gap-1.5"><img src="{{ asset('duotone/shield-check.svg') }}" class="es-duotone-icon es-icon-tone-success h-4 w-4"> <span data-domain-runtime-label>Enabled</span></div>
           @else
-            <span data-domain-runtime-label>{{ $isActive ? 'Pending...' : 'Disabled' }}</span>
+            <span data-domain-runtime-label>Disabled</span>
           @endif
         </div>
       </div>

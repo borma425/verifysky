@@ -155,6 +155,40 @@ class DomainProvisioningService
         }
     }
 
+    /**
+     * Sync only verification metadata to D1 without mutating runtime protection state.
+     *
+     * @return array{ok:bool,error:?string}
+     */
+    public function syncVerificationStatusToD1(TenantDomain $domain): array
+    {
+        $sql = sprintf(
+            "UPDATE domain_configs
+             SET custom_hostname_id = '%s',
+                 hostname_status = '%s',
+                 ssl_status = '%s',
+                 ownership_verification_json = '%s',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE domain_name = '%s' AND tenant_id = '%s'",
+            $this->escape((string) ($domain->cloudflare_custom_hostname_id ?? '')),
+            $this->escape(strtolower(trim((string) ($domain->hostname_status ?? 'pending')))),
+            $this->escape(strtolower(trim((string) ($domain->ssl_status ?? 'pending_validation')))),
+            $this->escape((string) json_encode($domain->ownership_verification)),
+            $this->escape(strtolower(trim((string) $domain->hostname))),
+            $this->escape((string) $domain->tenant_id)
+        );
+
+        $result = $this->edgeShield->queryD1($sql);
+        if (! ($result['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => (string) ($result['error'] ?? 'VerifySky could not sync domain verification status.'),
+            ];
+        }
+
+        return ['ok' => true, 'error' => null];
+    }
+
     public function syncSaasSecurityArtifacts(int $tenantDomainId): void
     {
         $domain = $this->domain($tenantDomainId);

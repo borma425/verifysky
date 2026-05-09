@@ -95,4 +95,55 @@ class DomainIndexViewDataTest extends TestCase
         $this->assertSame('active', $group['status']);
         $this->assertFalse($group['primary_verified']);
     }
+
+    public function test_domain_card_shows_protection_enabled_when_runtime_is_active_even_if_dns_is_pending(): void
+    {
+        $viewData = new DomainIndexViewData([
+            'ok' => true,
+            'domains' => [[
+                'domain_name' => 'ar.cashup.cash',
+                'status' => 'active',
+                'security_mode' => 'balanced',
+                'cname_target' => 'customers.verifysky.com',
+                'hostname_status' => 'pending',
+                'ssl_status' => 'active',
+                'provisioning_status' => 'active',
+            ]],
+        ], 'customers.verifysky.com');
+
+        $group = $viewData->toArray()['preparedDomainGroups'][0];
+        $html = view('domains.partials.index.domain-card', [
+            'group' => $group,
+            'groupIndex' => 0,
+        ])->render();
+
+        $this->assertFalse($group['primary_verified']);
+        $this->assertStringContainsString('data-domain-runtime-label>Enabled</span>', $html);
+        $this->assertStringContainsString('data-domain-dns-label>Pending</span>', $html);
+    }
+
+    public function test_domain_card_shows_protection_disabled_only_when_runtime_is_not_active(): void
+    {
+        $viewData = new DomainIndexViewData([
+            'ok' => true,
+            'domains' => [[
+                'domain_name' => 'www.example.com',
+                'status' => 'paused',
+                'security_mode' => 'balanced',
+                'cname_target' => 'customers.verifysky.com',
+                'hostname_status' => 'active',
+                'ssl_status' => 'active',
+                'provisioning_status' => 'active',
+            ]],
+        ], 'customers.verifysky.com');
+
+        $group = $viewData->toArray()['preparedDomainGroups'][0];
+        $html = view('domains.partials.index.domain-card', [
+            'group' => $group,
+            'groupIndex' => 0,
+        ])->render();
+
+        $this->assertTrue($group['primary_verified']);
+        $this->assertStringContainsString('data-domain-runtime-label>Disabled</span>', $html);
+    }
 }

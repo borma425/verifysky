@@ -43,6 +43,12 @@ class DomainTenantIsolationTest extends TestCase
             'error' => null,
             'custom_hostname' => [],
         ]);
+        $edge->shouldReceive('queryD1')->once()->with(Mockery::on(
+            fn (string $sql): bool => str_contains($sql, 'UPDATE domain_configs')
+                && str_contains($sql, "domain_name = 'owned.example.com'")
+                && str_contains($sql, "tenant_id = '".$tenant->id."'")
+                && preg_match('/(^|[^_])status\s*=/i', $sql) === 0
+        ))->andReturn(['ok' => true, 'error' => null, 'output' => '']);
         $edge->shouldReceive('purgeDomainConfigCache')->once()->with('owned.example.com')->andReturn(['ok' => true]);
 
         $response = $this->withSession([
