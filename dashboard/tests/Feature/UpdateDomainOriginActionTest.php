@@ -51,6 +51,7 @@ class UpdateDomainOriginActionTest extends TestCase
         $edge->shouldReceive('updateSaasCustomOrigin')->once()->with('host-id', '192.0.2.10')->andReturn([
             'ok' => true,
             'error' => null,
+            'effective_origin_server' => 'origin-www-example-com-12345678.verifysky.com',
         ]);
         $edge->shouldReceive('queryD1')->once()->with(Mockery::on(
             fn (string $sql): bool => str_contains($sql, "origin_server = '192.0.2.10'")
@@ -72,6 +73,10 @@ class UpdateDomainOriginActionTest extends TestCase
 
         $this->assertTrue($result['ok']);
         $this->assertSame('192.0.2.10', TenantDomain::query()->where('hostname', 'www.example.com')->value('origin_server'));
+        $this->assertSame(
+            'origin-www-example-com-12345678.verifysky.com',
+            TenantDomain::query()->where('hostname', 'www.example.com')->value('cloudflare_origin_server')
+        );
     }
 
     public function test_origin_update_rejects_unreachable_origin_before_edge_changes(): void

@@ -38,6 +38,7 @@ class UpdateDomainOriginAction
 
         $domainConfig = $hasDomainConfig ? $config['config'] : [];
         $customHostnameId = trim((string) ($domainConfig['custom_hostname_id'] ?? ($tenantDomain->cloudflare_custom_hostname_id ?? '')));
+        $effectiveOriginServer = '';
 
         $originValidation = $this->edgeShield->validateOriginServerForHostname($normalizedDomain, $originServer);
         if (! ($originValidation['ok'] ?? false)) {
@@ -52,10 +53,15 @@ class UpdateDomainOriginAction
             if (! $update['ok']) {
                 return ['ok' => false, 'error' => 'Failed to route traffic through VerifySky edge: '.$update['error']];
             }
+
+            $effectiveOriginServer = (string) ($update['effective_origin_server'] ?? '');
         }
 
         if ($tenantDomain) {
-            $tenantDomain->update(['origin_server' => $originServer]);
+            $tenantDomain->update([
+                'origin_server' => $originServer,
+                'cloudflare_origin_server' => $effectiveOriginServer,
+            ]);
         }
 
         if (! $hasDomainConfig) {
@@ -105,6 +111,7 @@ class UpdateDomainOriginAction
             'hostname_status' => 'pending',
             'ssl_status' => 'pending_validation',
             'ownership_verification' => null,
+            'cloudflare_origin_server' => null,
             'provisioning_payload' => null,
             'provisioning_status' => TenantDomain::PROVISIONING_PENDING,
             'provisioning_error' => null,

@@ -192,6 +192,7 @@ class ProvisionTenantDomainAction
             'hostname' => $hostname,
             'cname_target' => (string) config('edgeshield.saas_cname_target', 'customers.verifysky.com'),
             'origin_server' => $originServer,
+            'cloudflare_origin_server' => null,
             'cloudflare_custom_hostname_id' => null,
             'hostname_status' => 'pending',
             'ssl_status' => 'pending_validation',

@@ -10,6 +10,8 @@ use App\Jobs\Domains\SyncSaasSecurityArtifactsJob;
 use App\Jobs\Domains\ValidateOriginServerJob;
 use App\Models\Tenant;
 use App\Models\TenantDomain;
+use App\Services\Domains\DomainAssetPolicyService;
+use App\Services\Domains\DomainProvisioningService;
 use App\Services\EdgeShield\D1DatabaseClient;
 use App\Services\EdgeShieldService;
 use App\Services\Plans\PlanLimitsService;
@@ -135,6 +137,41 @@ class DomainProvisioningAsyncTest extends TestCase
         $this->assertSame(TenantDomain::PROVISIONING_FAILED, $domain->provisioning_status);
         $this->assertSame('Domain setup failed. Please try again or contact support.', $domain->provisioning_error);
         $this->assertNotNull($domain->provisioning_finished_at);
+    }
+
+    public function test_cloudflare_origin_alias_is_kept_internal_after_provisioning(): void
+    {
+        $tenant = $this->tenant();
+        $domain = TenantDomain::query()->create([
+            'tenant_id' => $tenant->id,
+            'hostname' => 'www.example.com',
+            'origin_server' => '192.0.2.10',
+            'provisioning_status' => TenantDomain::PROVISIONING_PROVISIONING,
+        ]);
+
+        $edgeShield = Mockery::mock(EdgeShieldService::class);
+        $edgeShield->shouldReceive('provisionSaasCustomHostname')->once()->with('www.example.com', '192.0.2.10')->andReturn([
+            'ok' => true,
+            'error' => null,
+            'domain_name' => 'www.example.com',
+            'zone_id' => 'zone-id',
+            'cname_target' => 'customers.verifysky.com',
+            'custom_hostname_id' => 'host-id',
+            'hostname_status' => 'active',
+            'ssl_status' => 'active',
+            'ownership_verification_json' => json_encode(['type' => 'txt']),
+            'effective_origin_server' => 'origin-www-example-com-12345678.verifysky.com',
+        ]);
+
+        $assets = Mockery::mock(DomainAssetPolicyService::class);
+        $assets->shouldReceive('grantTrialIfEligible')->once();
+
+        (new DomainProvisioningService($edgeShield, $assets))->provisionCloudflareHostname((int) $domain->id);
+
+        $domain->refresh();
+        $this->assertSame('192.0.2.10', $domain->origin_server);
+        $this->assertSame('origin-www-example-com-12345678.verifysky.com', $domain->cloudflare_origin_server);
+        $this->assertSame(TenantDomain::PROVISIONING_ACTIVE, $domain->provisioning_status);
     }
 
     private function tenant(): Tenant

@@ -92,7 +92,7 @@ trait SaasHostnameProvisioningConcern
         );
 
         return $update['ok']
-            ? ['ok' => true, 'result' => $update['result']]
+            ? ['ok' => true, 'result' => $update['result'], 'effective_origin_server' => $resolvedOrigin['target']]
             : ['ok' => false, 'error' => $update['error']];
     }
 

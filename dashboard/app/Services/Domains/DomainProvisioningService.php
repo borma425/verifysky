@@ -71,9 +71,10 @@ class DomainProvisioningService
     public function provisionCloudflareHostname(int $tenantDomainId): void
     {
         $domain = $this->domain($tenantDomainId);
+        $customerOriginServer = (string) $domain->origin_server;
         $result = $this->edgeShield->provisionSaasCustomHostname(
             (string) $domain->hostname,
-            (string) $domain->origin_server
+            $customerOriginServer
         );
 
         if (! ($result['ok'] ?? false)) {
@@ -85,7 +86,8 @@ class DomainProvisioningService
 
         $domain->forceFill([
             'cname_target' => (string) ($result['cname_target'] ?? config('edgeshield.saas_cname_target', 'customers.verifysky.com')),
-            'origin_server' => (string) ($result['effective_origin_server'] ?? $domain->origin_server),
+            'origin_server' => $customerOriginServer,
+            'cloudflare_origin_server' => (string) ($result['effective_origin_server'] ?? ''),
             'cloudflare_custom_hostname_id' => (string) ($result['custom_hostname_id'] ?? ''),
             'hostname_status' => $hostnameStatus,
             'ssl_status' => $sslStatus,

@@ -24,8 +24,11 @@ class TenantDomain extends Model
     public const REDIRECT_STATUS_FAILED = 'failed';
 
     public const PROVISIONING_PENDING = 'pending';
+
     public const PROVISIONING_PROVISIONING = 'provisioning';
+
     public const PROVISIONING_ACTIVE = 'active';
+
     public const PROVISIONING_FAILED = 'failed';
 
     protected $fillable = [
@@ -39,6 +42,7 @@ class TenantDomain extends Model
         'apex_redirect_checked_at',
         'cname_target',
         'origin_server',
+        'cloudflare_origin_server',
         'cloudflare_custom_hostname_id',
         'hostname_status',
         'ssl_status',
