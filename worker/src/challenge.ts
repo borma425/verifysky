@@ -2,14 +2,14 @@
 // Ultimate Edge Shield — Challenge Generation & Telemetry Validation
 //
 // This module handles the complete CAPTCHA challenge lifecycle:
-//   1. Challenge Generation: random target_x, nonce, D1 storage, signed payload
+//   1. Challenge Generation: signed stateless nonce, random target_x, signed payload
 //   2. Telemetry Validation: mouse/touch movement analysis
 //   3. Turnstile Verification: server-side token validation
 //   4. Session Issuance: cryptographic Human Session Token (JWT)
 //
 // Security Invariants:
 //   • target_x is NEVER sent to the client
-//   • Nonces are single-use (consumed in KV immediately)
+//   • Challenge issuance is zero-write; replay guard is applied on submission
 //   • Telemetry is analyzed for human behavioral patterns
 //   • Session tokens are bound to IP + fingerprint
 // ============================================================================
@@ -29,6 +29,7 @@ import {
   verifySignature,
   createClearanceContextHash,
   createSessionToken,
+  timeSafeEqual,
 } from "./crypto";
 import {
   createHtmlResponse,
@@ -38,6 +39,8 @@ import {
   extractDomainFromMeta,
   isIpAllowListed,
   isPrivateOrReservedIP,
+  shouldWriteSecurityLogToD1,
+  shouldRunIpFarmMutation,
 } from "./utils";
 import { SLIDER_RUNTIME_SCRIPT } from "./generated/slider-runtime";
 import { markUsageOutcome } from "./usage-meter";
@@ -60,6 +63,11 @@ const DEFAULT_X_TOLERANCE = 24;
 
 /** Challenge expiration time (seconds) */
 const CHALLENGE_TTL_SECONDS = 60;
+const STATELESS_CHALLENGE_VERSION = 1;
+const STATELESS_CHALLENGE_PAYLOAD_HEX_LENGTH = 30;
+const STATELESS_CHALLENGE_MAC_HEX_LENGTH = 34;
+const STATELESS_CHALLENGE_NONCE_HEX_LENGTH =
+  STATELESS_CHALLENGE_PAYLOAD_HEX_LENGTH + STATELESS_CHALLENGE_MAC_HEX_LENGTH;
 
 /** Fallback min solve time — overridden by thresholds.challenge_min_solve_ms */
 const DEFAULT_MIN_SOLVE_TIME_MS = 150;
@@ -98,6 +106,119 @@ const HISTORICAL_ATTACK_EVENTS = new Set([
 
 /** Pool of challenge icons (randomized per challenge page) */
 const CHALLENGE_ICONS = ["🍔", "🎧", "🧩", "📷", "⚽", "🎁", "🏍️"] as const;
+
+type StatelessChallengeValidation =
+  | { status: "valid"; challenge: ChallengeRecord }
+  | { status: "expired" }
+  | null;
+
+function fixedWidthHex(value: number, width: number): string {
+  return Math.max(0, value >>> 0).toString(16).padStart(width, "0").slice(-width);
+}
+
+function challengeDomain(meta: RequestMeta, domainConfig: DomainConfigRecord): string {
+  return (extractDomainFromMeta(meta) || domainConfig.domain_name || "").trim().toLowerCase();
+}
+
+function statelessChallengePayload(
+  expiresAtSeconds: number,
+  randomHex: string
+): string {
+  return [
+    fixedWidthHex(STATELESS_CHALLENGE_VERSION, 2),
+    fixedWidthHex(expiresAtSeconds, 8),
+    randomHex.toLowerCase().slice(0, 20).padEnd(20, "0"),
+  ].join("");
+}
+
+function statelessChallengeMacPayload(
+  payloadHex: string,
+  domainName: string,
+  meta: RequestMeta
+): string {
+  return [
+    "stateless-challenge",
+    payloadHex,
+    domainName.trim().toLowerCase(),
+    normalizeIpScope(meta.ip),
+  ].join(":");
+}
+
+function deriveStatelessTargetX(macHex: string): number {
+  const range = TARGET_X_MAX - TARGET_X_MIN + 1;
+  const seed = parseInt(macHex.slice(0, 8), 16);
+  return TARGET_X_MIN + (seed % range);
+}
+
+async function createStatelessChallengeNonce(
+  expiresAtSeconds: number,
+  domainName: string,
+  meta: RequestMeta,
+  secret: string
+): Promise<{ nonce: string; targetX: number }> {
+  const payloadHex = statelessChallengePayload(expiresAtSeconds, generateNonce(10));
+  const mac = await generateSignature(
+    statelessChallengeMacPayload(payloadHex, domainName, meta),
+    secret
+  );
+
+  return {
+    nonce: `${payloadHex}${mac.slice(0, STATELESS_CHALLENGE_MAC_HEX_LENGTH)}`,
+    targetX: deriveStatelessTargetX(mac),
+  };
+}
+
+async function verifyStatelessChallengeNonce(
+  nonce: string,
+  domainConfig: DomainConfigRecord,
+  meta: RequestMeta,
+  secret: string
+): Promise<StatelessChallengeValidation> {
+  const normalized = String(nonce || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) return null;
+  if (normalized.length !== STATELESS_CHALLENGE_NONCE_HEX_LENGTH) return null;
+
+  const payloadHex = normalized.slice(0, STATELESS_CHALLENGE_PAYLOAD_HEX_LENGTH);
+  const suppliedMac = normalized.slice(STATELESS_CHALLENGE_PAYLOAD_HEX_LENGTH);
+  const version = parseInt(payloadHex.slice(0, 2), 16);
+  if (version !== STATELESS_CHALLENGE_VERSION) return null;
+
+  const domainName = challengeDomain(meta, domainConfig);
+  const expectedMac = await generateSignature(
+    statelessChallengeMacPayload(payloadHex, domainName, meta),
+    secret
+  );
+  const macOk = await timeSafeEqual(
+    suppliedMac,
+    expectedMac.slice(0, STATELESS_CHALLENGE_MAC_HEX_LENGTH)
+  );
+  if (!macOk) return null;
+
+  const targetX = deriveStatelessTargetX(expectedMac);
+  const expiresAtSeconds = parseInt(payloadHex.slice(2, 10), 16);
+  if (!Number.isFinite(expiresAtSeconds)) return null;
+  if (expiresAtSeconds * 1000 < Date.now()) return { status: "expired" };
+
+  const createdAt = new Date((expiresAtSeconds - CHALLENGE_TTL_SECONDS) * 1000).toISOString();
+  const expiresAt = new Date(expiresAtSeconds * 1000).toISOString();
+
+  return {
+    status: "valid",
+    challenge: {
+      id: 0,
+      nonce: normalized,
+      target_x: targetX,
+      ip_address: meta.ip,
+      fingerprint_hash: null,
+      user_agent: sanitizeInput(meta.userAgent, 512),
+      status: "pending",
+      created_at: createdAt,
+      expires_at: expiresAt,
+      solved_at: null,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Challenge Generation
 // ---------------------------------------------------------------------------
@@ -107,12 +228,13 @@ const CHALLENGE_ICONS = ["🍔", "🎧", "🧩", "📷", "⚽", "🎁", "🏍️
  * Called by index.ts when a request is classified as SUSPICIOUS.
  *
  * Steps:
- *   1. Generate a cryptographic nonce (32 bytes)
- *   2. Generate a random target X position
- *   3. Store the challenge in D1 (nonce + target_x + IP)
- *   4. Mark the nonce as "issued" in KV (for fast one-time-use validation)
- *   5. Sign a dynamic submission path using the nonce
- *   6. Serve the HTML challenge page
+ *   1. Generate a signed stateless nonce carrying expiry; derive target_x from HMAC
+ *   2. Sign a dynamic submission path using the nonce
+ *   3. Serve the HTML challenge page
+ *
+ * This path intentionally performs zero D1/KV writes. State is only written
+ * when a client submits a solve, which prevents challenge-generation floods
+ * from turning into D1/KV write amplification.
  */
 export async function handleChallengeGeneration(
   meta: RequestMeta,
@@ -121,12 +243,18 @@ export async function handleChallengeGeneration(
 ): Promise<Response> {
   markUsageOutcome(env, "challenge_issued");
 
-  // Generate cryptographic nonce and random target position
-  const nonce = generateNonce(32);
-  const targetX = generateTargetX();
   const targetIcon = pickChallengeIcon();
   const now = Date.now();
-  const expiresAt = new Date(now + CHALLENGE_TTL_SECONDS * 1000).toISOString();
+  const expiresAt = now + CHALLENGE_TTL_SECONDS * 1000;
+  const domainName = extractDomainFromMeta(meta) || domainConfig.domain_name;
+  const challengeToken = await createStatelessChallengeNonce(
+    Math.floor(expiresAt / 1000),
+    domainName,
+    meta,
+    env.JWT_SECRET
+  );
+  const nonce = challengeToken.nonce;
+  const targetX = challengeToken.targetX;
 
   // Build the dynamic submission path (signed with nonce prefix)
   const submitPath = `/es-verify/${nonce.substring(0, 24)}`;
@@ -138,27 +266,6 @@ export async function handleChallengeGeneration(
   // secret; final trust comes from nonce/signature validation, telemetry,
   // Turnstile strict verification, replay checks, and session binding.
   const targetHint = encodeTargetHint(targetX, nonce, signature);
-
-  // Store challenge in D1
-  try {
-    await env.DB.prepare(
-      `INSERT INTO challenges (nonce, target_x, ip_address, fingerprint_hash, user_agent, status, expires_at)
-       VALUES (?, ?, ?, NULL, ?, 'pending', ?)`
-    )
-      .bind(nonce, targetX, meta.ip, sanitizeInput(meta.userAgent, 512), expiresAt)
-      .run();
-  } catch {
-    return createErrorResponse("CHALLENGE_ERROR", "Failed to generate challenge", 500);
-  }
-
-  // Store nonce in KV for fast single-use validation
-  try {
-    await env.SESSION_KV.put(`nonce:${nonce}`, "pending", {
-      expirationTtl: CHALLENGE_TTL_SECONDS,
-    });
-  } catch {
-    // KV failure — the D1 record still exists for fallback validation
-  }
 
   const urlObjInstance = new URL(meta.url);
   const fullOriginalPath = urlObjInstance.pathname + urlObjInstance.search;
@@ -173,7 +280,7 @@ export async function handleChallengeGeneration(
     targetHint,
     targetIcon,
     now,
-    now + CHALLENGE_TTL_SECONDS * 1000
+    expiresAt
   );
 
   const challengeCookie = await buildChallengeBindingCookie(
@@ -284,10 +391,20 @@ export async function handleChallengeSubmission(
       "Challenge cookie validation failed (soft-pass)"));
   }
 
-  // --- 3. Verify nonce is unused (KV fast check) ---
+  // --- 3. Verify nonce and consume it for replay protection ---
   const nonceKey = `nonce:${submission.nonce}`;
   let nonceStatus: string | null;
-  
+  const statelessChallenge = await verifyStatelessChallengeNonce(
+    submission.nonce,
+    domainConfig,
+    meta,
+    env.JWT_SECRET
+  );
+
+  if (statelessChallenge?.status === "expired") {
+    return failed("CHALLENGE_EXPIRED", "Challenge has expired", 403);
+  }
+
   try {
     nonceStatus = await env.SESSION_KV.get(nonceKey);
   } catch {
@@ -307,35 +424,48 @@ export async function handleChallengeSubmission(
   try {
     await env.SESSION_KV.put(nonceKey, "consumed", { expirationTtl: 120 });
   } catch {
-    // If KV write fails, the D1 status check below will catch replays
+    // Stateless issuance is intentionally zero-write. If this replay marker
+    // cannot be stored, Turnstile plus the signed short TTL still protect the
+    // solve path, and legacy D1 rows keep their existing replay guard.
   }
 
-  // --- 4. Retrieve challenge from D1 and verify ---
+  // --- 4. Resolve challenge state ---
   let challenge: ChallengeRecord | null;
-  try {
-    challenge = await env.DB.prepare(
-      "SELECT * FROM challenges WHERE nonce = ? AND status = 'pending'"
-    )
-      .bind(submission.nonce)
-      .first<ChallengeRecord>();
-  } catch {
-    return failed("CHALLENGE_ERROR", "Challenge verification failed", 500);
+  const isStatelessChallenge = statelessChallenge?.status === "valid";
+  if (isStatelessChallenge) {
+    challenge = statelessChallenge.challenge;
+  } else {
+    try {
+      challenge = await env.DB.prepare(
+        "SELECT * FROM challenges WHERE nonce = ? AND status = 'pending'"
+      )
+        .bind(submission.nonce)
+        .first<ChallengeRecord>();
+    } catch {
+      return failed("CHALLENGE_ERROR", "Challenge verification failed", 500);
+    }
   }
 
   if (!challenge) {
     return failed("CHALLENGE_EXPIRED", "Challenge not found or already used", 403);
   }
 
+  const markFailedChallenge = (reason: string): void => {
+    if (!isStatelessChallenge) {
+      ctx.waitUntil(markChallengeFailed(env, challenge.nonce, reason));
+    }
+  };
+
   // Check challenge expiration
   if (new Date(challenge.expires_at).getTime() < Date.now()) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "expired"));
+    markFailedChallenge("expired");
     return failed("CHALLENGE_EXPIRED", "Challenge has expired", 403);
   }
 
   // Verify IP matches the original challenge request
   if (challenge.ip_address !== meta.ip) {
     if (strictContextBinding) {
-      ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "ip_mismatch"));
+      markFailedChallenge("ip_mismatch");
       ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
         `IP mismatch: challenge issued to ${challenge.ip_address}`));
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "ip_mismatch", thresholds, meta));
@@ -355,7 +485,7 @@ export async function handleChallengeSubmission(
   // --- 5. Verify dynamic submit path + signed payload ---
   const expectedSubmitPath = `/es-verify/${submission.nonce.substring(0, 24)}`;
   if (meta.path !== expectedSubmitPath) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "path_mismatch"));
+    markFailedChallenge("path_mismatch");
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "path_mismatch", thresholds, meta));
     return failed("INVALID_PATH", "Invalid submission path", 403);
   }
@@ -367,7 +497,7 @@ export async function handleChallengeSubmission(
     env.JWT_SECRET
   );
   if (!signatureValid) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "signature_mismatch"));
+    markFailedChallenge("signature_mismatch");
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Challenge signature verification failed"));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "signature_mismatch", thresholds, meta));
@@ -377,7 +507,7 @@ export async function handleChallengeSubmission(
   const nonceHeader = (request.headers.get("X-ES-Nonce") || "").trim();
   const expectedNonceHeader = submission.nonce.substring(0, 16);
   if (nonceHeader !== expectedNonceHeader) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "nonce_header_mismatch"));
+    markFailedChallenge("nonce_header_mismatch");
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       "Nonce header mismatch"));
     ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "nonce_header_mismatch", thresholds, meta));
@@ -408,7 +538,7 @@ export async function handleChallengeSubmission(
     telemetryResult.humanScore = Math.max(40, telemetryResult.humanScore);
   }
   if (!telemetryResult.isHuman) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "telemetry_rejected"));
+    markFailedChallenge("telemetry_rejected");
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `Telemetry rejected: ${telemetryResult.reason}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
@@ -418,7 +548,7 @@ export async function handleChallengeSubmission(
 
   // --- 7. Verify slider X position matches target ---
   if (xDiff > effectiveXTolerance) {
-    ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "x_mismatch"));
+    markFailedChallenge("x_mismatch");
     ctx.waitUntil(logEvent(env, "challenge_failed", meta, submission.fingerprint,
       `X position mismatch: submitted ${submission.sliderX}, target ${challenge.target_x}, diff ${xDiff}`));
     ctx.waitUntil(updateFingerprintFailure(env, submission.fingerprint, meta));
@@ -439,7 +569,7 @@ export async function handleChallengeSubmission(
 
     if (!turnstileValid) {
       if (strictTurnstile) {
-        ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_failed"));
+        markFailedChallenge("turnstile_failed");
         ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
           "Turnstile verification failed (strict mode)"));
         ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_failed", thresholds, meta));
@@ -450,7 +580,7 @@ export async function handleChallengeSubmission(
     }
   } else {
     if (strictTurnstile) {
-      ctx.waitUntil(markChallengeFailed(env, challenge.nonce, "turnstile_missing"));
+      markFailedChallenge("turnstile_missing");
       ctx.waitUntil(logEvent(env, "turnstile_failed", meta, submission.fingerprint,
         "Turnstile token missing (strict mode)"));
       ctx.waitUntil(recordFailureAndMaybeBan(env, meta.ip, "turnstile_missing", thresholds, meta));
@@ -462,20 +592,23 @@ export async function handleChallengeSubmission(
 
   // ========= CHALLENGE PASSED — Issue Session Token =========
 
-  // Mark challenge as solved before issuing a session token. This is the
-  // replay guard when KV nonce writes are unavailable or eventually stale.
-  try {
-    const solved = await env.DB.prepare(
-      "UPDATE challenges SET status = 'solved', solved_at = CURRENT_TIMESTAMP WHERE nonce = ? AND status = 'pending'"
-    )
-      .bind(challenge.nonce)
-      .run();
-    const changes = (solved as { meta?: { changes?: number } })?.meta?.changes;
-    if (typeof changes === "number" && changes < 1) {
-      return failed("CHALLENGE_EXPIRED", "Challenge not found or already used", 403);
+  // Legacy D1-issued challenges still claim the pending row before issuing a
+  // session. Stateless challenges are replay-guarded by the consumed nonce KV
+  // marker written only on submission, never during challenge page generation.
+  if (!isStatelessChallenge) {
+    try {
+      const solved = await env.DB.prepare(
+        "UPDATE challenges SET status = 'solved', solved_at = CURRENT_TIMESTAMP WHERE nonce = ? AND status = 'pending'"
+      )
+        .bind(challenge.nonce)
+        .run();
+      const changes = (solved as { meta?: { changes?: number } })?.meta?.changes;
+      if (typeof changes === "number" && changes < 1) {
+        return failed("CHALLENGE_EXPIRED", "Challenge not found or already used", 403);
+      }
+    } catch {
+      return failed("CHALLENGE_ERROR", "Challenge verification failed", 500);
     }
-  } catch {
-    return failed("CHALLENGE_ERROR", "Challenge verification failed", 500);
   }
 
   // Update fingerprint record
@@ -872,17 +1005,6 @@ function validateSubmissionPayload(body: unknown): ChallengeSubmission {
 // Helper: Random Target X Generation
 // ---------------------------------------------------------------------------
 
-/**
- * Generates a random target X position within the valid slider range.
- * Uses crypto.getRandomValues for uniform distribution.
- */
-function generateTargetX(): number {
-  const range = TARGET_X_MAX - TARGET_X_MIN;
-  const randomBytes = new Uint32Array(1);
-  crypto.getRandomValues(randomBytes);
-  return TARGET_X_MIN + (randomBytes[0] % (range + 1));
-}
-
 function pickChallengeIcon(): string {
   const randomBytes = new Uint32Array(1);
   crypto.getRandomValues(randomBytes);
@@ -1116,6 +1238,10 @@ async function logEvent(
   details: string
 ): Promise<void> {
   const domainName = extractDomainFromMeta(meta);
+  if (!shouldWriteSecurityLogToD1(env, domainName, meta.ip, eventType, details)) {
+    return;
+  }
+
   try {
     await env.DB.prepare(
       `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
@@ -1245,16 +1371,19 @@ async function markIPTemporarilyBanned(
   try {
     // Always use domain-scoped key. If domain is unknown, use a generic marker
     // that the main handler's isTemporarilyBanned() will still check.
-    const effectiveDomain = domainName || "_unknown_";
-    const banKey = `ban:domainIP:${effectiveDomain}:${ip}`;
-    await env.SESSION_KV.put(banKey, "1", { expirationTtl: banTtl });
-    await env.DB.prepare(
-      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-       VALUES (?, 'hard_block', ?, NULL, NULL, ?, NULL, 100, ?)`
-    )
-      .bind(domainName, ip, targetPath, `Temporary IP ban (${banTtl}s): ${reason}`)
-      .run();
-    await incrementHistoricalAttackCounters(env, "hard_block", ip);
+	    const effectiveDomain = domainName || "_unknown_";
+	    const banKey = `ban:domainIP:${effectiveDomain}:${ip}`;
+	    await env.SESSION_KV.put(banKey, "1", { expirationTtl: banTtl });
+	    const details = `Temporary IP ban (${banTtl}s): ${reason}`;
+	    if (shouldWriteSecurityLogToD1(env, domainName, ip, "hard_block", details)) {
+	      await env.DB.prepare(
+	        `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+	         VALUES (?, 'hard_block', ?, NULL, NULL, ?, NULL, 100, ?)`
+	      )
+	        .bind(domainName, ip, targetPath, details)
+	        .run();
+	      await incrementHistoricalAttackCounters(env, "hard_block", ip);
+	    }
 
     // IP Farm: Challenge failure ban → permanent ban in graveyard
     try {
@@ -1278,6 +1407,7 @@ const IP_FARM_MAX_PER_RULE = 500;
 async function addToIpFarm(env: Env, ip: string, reason: string): Promise<void> {
   // Skip private/reserved IPs
   if (isPrivateOrReservedIP(ip)) return;
+  if (!shouldRunIpFarmMutation(null, ip)) return;
 
   // Check allow-list before permanent banning — prevents admin-allowed IPs
   // from being accidentally added to the permanent ban graveyard.
@@ -1358,14 +1488,17 @@ async function addToIpFarm(env: Env, ip: string, reason: string): Promise<void> 
   // Purge KV cache
   try { await env.SESSION_KV.delete("cfr:global"); } catch {}
 
-  // Log
-  await env.DB.prepare(
-    `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
-     VALUES (NULL, 'hard_block', ?, NULL, NULL, NULL, NULL, 100, ?)`
-  )
-    .bind(ip, `[IP-FARM] Permanent ban: ${reason}`)
-    .run();
-}
+	  // Log
+	  const details = `[IP-FARM] Permanent ban: ${reason}`;
+	  if (shouldWriteSecurityLogToD1(env, null, ip, "hard_block", details)) {
+	    await env.DB.prepare(
+	      `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
+	       VALUES (NULL, 'hard_block', ?, NULL, NULL, NULL, NULL, 100, ?)`
+	    )
+	      .bind(ip, details)
+	      .run();
+	  }
+	}
 
 // extractDomainFromMeta — imported from ./utils
 

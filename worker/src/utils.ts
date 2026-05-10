@@ -537,6 +537,106 @@ export function extractDomainFromMeta(meta: RequestMeta): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Shared: Security Log Dedupe
+// ---------------------------------------------------------------------------
+
+const SECURITY_LOG_DEDUPE_TTL_MS = 60 * 1000;
+const SECURITY_LOG_DEDUPE_MAX_KEYS = 10000;
+const securityLogDedupeCache = new Map<string, number>();
+const securityLogTenantContext = new WeakMap<object, string>();
+const IP_FARM_DEBOUNCE_TTL_MS = 120 * 1000;
+const IP_FARM_DEBOUNCE_MAX_KEYS = 10000;
+const ipFarmDebounceCache = new Map<string, number>();
+
+const NON_DEDUPED_SECURITY_EVENTS = new Set([
+  "session_created",
+  "challenge_solved",
+  "waf_rule_created",
+]);
+
+function normalizeSecurityLogDedupePart(value: string | null | undefined): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "#ip")
+    .replace(/\b[0-9a-f]{16,}\b/g, "#hex")
+    .replace(/\d+/g, "#")
+    .replace(/\s+/g, " ")
+    .slice(0, 180);
+}
+
+function pruneSecurityLogDedupeCache(now: number): void {
+  for (const [key, expiresAt] of securityLogDedupeCache) {
+    if (expiresAt <= now || securityLogDedupeCache.size > SECURITY_LOG_DEDUPE_MAX_KEYS) {
+      securityLogDedupeCache.delete(key);
+    }
+    if (securityLogDedupeCache.size <= SECURITY_LOG_DEDUPE_MAX_KEYS) break;
+  }
+}
+
+export function bindSecurityLogTenantContext(env: Env, tenantId?: string | null): void {
+  const normalized = String(tenantId || "").trim();
+  if (normalized !== "") {
+    securityLogTenantContext.set(env as unknown as object, normalized);
+  }
+}
+
+export function shouldWriteSecurityLogToD1(
+  env: Env,
+  domainName: string | null,
+  ip: string,
+  eventType: string,
+  details: string | null,
+  now: number = Date.now()
+): boolean {
+  if (NON_DEDUPED_SECURITY_EVENTS.has(eventType)) return true;
+
+  pruneSecurityLogDedupeCache(now);
+
+  const key = [
+    normalizeSecurityLogDedupePart(securityLogTenantContext.get(env as unknown as object) || domainName || "global"),
+    normalizeSecurityLogDedupePart(ip),
+    normalizeSecurityLogDedupePart(eventType),
+    normalizeSecurityLogDedupePart(details || ""),
+  ].join(":");
+
+  const expiresAt = securityLogDedupeCache.get(key) || 0;
+  if (expiresAt > now) return false;
+
+  securityLogDedupeCache.set(key, now + SECURITY_LOG_DEDUPE_TTL_MS);
+  return true;
+}
+
+function pruneIpFarmDebounceCache(now: number): void {
+  for (const [key, expiresAt] of ipFarmDebounceCache) {
+    if (expiresAt <= now || ipFarmDebounceCache.size > IP_FARM_DEBOUNCE_MAX_KEYS) {
+      ipFarmDebounceCache.delete(key);
+    }
+    if (ipFarmDebounceCache.size <= IP_FARM_DEBOUNCE_MAX_KEYS) break;
+  }
+}
+
+export function shouldRunIpFarmMutation(
+  domainName: string | null,
+  ip: string,
+  now: number = Date.now()
+): boolean {
+  pruneIpFarmDebounceCache(now);
+
+  const key = [
+    "farm_lock",
+    normalizeSecurityLogDedupePart(domainName || "global"),
+    normalizeSecurityLogDedupePart(ip),
+  ].join(":");
+
+  const expiresAt = ipFarmDebounceCache.get(key) || 0;
+  if (expiresAt > now) return false;
+
+  ipFarmDebounceCache.set(key, now + IP_FARM_DEBOUNCE_TTL_MS);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Shared: IP Allow-List Check (D1 Custom Firewall Rules)
 // Checks if an IP matches any 'allow' or 'bypass' rule.
 // Used by IP Farm pipelines in both index.ts and challenge.ts.

@@ -20,7 +20,7 @@
     "db:init:local:staging": "node scripts/db-init.mjs --env staging --local",
     "db:seed:local": "node scripts/seed-local-d1.mjs",
     "db:seed:local:staging": "node scripts/seed-local-d1.mjs --env staging",
-    "test:outcomes": "node --test tests/usage-outcomes.test.mjs tests/tenant-scope.test.mjs tests/challenge-kv-fallback.test.mjs tests/ip-verdict-cache.test.mjs",
+    "test:outcomes": "node --test tests/usage-outcomes.test.mjs tests/tenant-scope.test.mjs tests/challenge-kv-fallback.test.mjs tests/ip-verdict-cache.test.mjs tests/stateless-challenge-issuance.test.mjs tests/security-log-dedupe.test.mjs tests/ip-farm-debounce.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

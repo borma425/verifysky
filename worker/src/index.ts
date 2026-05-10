@@ -45,6 +45,9 @@ import {
   extractDomainFromMeta,
   isIpAllowListed,
   isPrivateOrReservedIP,
+  bindSecurityLogTenantContext,
+  shouldWriteSecurityLogToD1,
+  shouldRunIpFarmMutation,
 } from "./utils";
 import {
   evaluateRisk,
@@ -937,6 +940,10 @@ async function logSecurityEvent(
   if (!shouldWritePassState(env) && eventType === "session_created") return;
 
   const domainName = extractDomainFromMeta(meta);
+  if (!shouldWriteSecurityLogToD1(env, domainName, meta.ip, eventType, details)) {
+    return;
+  }
+
   try {
     await env.DB.prepare(
       `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
@@ -1882,14 +1889,16 @@ async function markForIpFarm(
     // Validate IP — skip private/reserved addresses
     if (isPrivateOrReservedIP(ip)) return;
 
-    // Check allow-list bypass
-    if (await isIpAllowListed(ip, env)) return;
-
     const lowerIp = ip.toLowerCase().trim();
     let requestDomain = "";
     try {
       requestDomain = normalizeDomainName(new URL(meta.url).hostname);
     } catch { }
+    if (!shouldRunIpFarmMutation(requestDomain || null, ip)) return;
+
+    // Check allow-list bypass
+    if (await isIpAllowListed(ip, env)) return;
+
     const domainConfig = requestDomain
       ? await queryDomainConfigFromD1(requestDomain, env)
       : null;
@@ -2434,6 +2443,7 @@ async function handleWorkerRequest(
     }
 
     bindUsageTenant(env, domainConfig.tenant_id, domainConfig.domain_name || domain);
+    bindSecurityLogTenantContext(env, domainConfig.tenant_id);
 
     // Allow-list crawlers for indexing (including Google/Amazon/Bing and peers).
     const crawlerDecision = await evaluateCrawlerAllowDecision(meta, env);
