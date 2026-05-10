@@ -31,6 +31,7 @@
             <option value="tenant">All domains</option>
             <option value="domain">Specific domain</option>
           </select>
+          <span class="mt-1 block text-xs leading-5 text-sky-100/60">All domains covers registered hostnames for this tenant only, including explicitly added subdomains.</span>
         </label>
         <label class="block text-sm text-sky-100">Domain
           <select class="es-input mt-1" name="domain_name">

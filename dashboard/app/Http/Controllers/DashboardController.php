@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Tenant;
 use App\Models\TenantDomain;
+use App\Services\Billing\CloudflareCostAttributionService;
 use App\Services\Billing\TenantBillingStatusService;
 use App\Services\EdgeShieldService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
@@ -13,18 +15,22 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly EdgeShieldService $edgeShield,
-        private readonly TenantBillingStatusService $tenantBillingStatus
+        private readonly TenantBillingStatusService $tenantBillingStatus,
+        private readonly CloudflareCostAttributionService $cloudflareCosts
     ) {}
 
     public function index(): View
     {
         $stats = Cache::remember($this->statsCacheKey(), 300, fn (): array => $this->fetchOverviewStats());
 
-        $billingStatus = $this->billingStatusForDashboard();
+        $tenant = $this->tenantForDashboard();
+        $billingStatus = $tenant instanceof Tenant ? $this->tenantBillingStatus->forTenant($tenant) : null;
+        $edgeEfficiency = $tenant instanceof Tenant ? $this->edgeEfficiencyForDashboard($tenant) : null;
 
         return view('dashboard.index', [
             'stats' => $stats,
             'billingStatus' => $billingStatus,
+            'edgeEfficiency' => $edgeEfficiency,
         ]);
     }
 
@@ -156,7 +162,7 @@ class DashboardController extends Controller
         ];
     }
 
-    private function billingStatusForDashboard(): ?array
+    private function tenantForDashboard(): ?Tenant
     {
         if ((bool) session('is_admin')) {
             return null;
@@ -169,6 +175,88 @@ class DashboardController extends Controller
 
         $tenant = Tenant::query()->find($tenantId);
 
-        return $tenant instanceof Tenant ? $this->tenantBillingStatus->forTenant($tenant) : null;
+        return $tenant instanceof Tenant ? $tenant : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function edgeEfficiencyForDashboard(Tenant $tenant): ?array
+    {
+        if (! $this->cloudflareCosts->storageReady()) {
+            return null;
+        }
+
+        $now = CarbonImmutable::now('UTC');
+        $summary = $this->cloudflareCosts->summaryForTenant(
+            $tenant,
+            $now->subDays(7)->startOfDay(),
+            $now->addDay()->startOfDay(),
+            'production'
+        );
+
+        $outcomes = collect($summary['outcomes'] ?? []);
+        $totalRequests = (int) ($summary['summary']['requests'] ?? 0);
+        if ($totalRequests <= 0) {
+            return null;
+        }
+
+        $rollup = fn (string $outcome): array => $this->rollupOutcome(
+            $outcomes->where('outcome', $outcome)->values()->all()
+        );
+
+        $pass = $rollup('pass');
+        $challenge = $rollup('challenge_issued');
+        $blocked = $rollup('blocked');
+        $legacy = $rollup('legacy');
+        $all = $this->rollupOutcome($outcomes->all());
+
+        $cacheTotal = $pass['pass_config_cache_hit'] + $pass['pass_config_cache_miss'];
+
+        return [
+            'total_requests' => $totalRequests,
+            'estimated_cost_usd' => (float) ($summary['summary']['estimated_cost_usd'] ?? 0.0),
+            'cost_per_million_requests_usd' => $totalRequests > 0
+                ? ((float) ($summary['summary']['estimated_cost_usd'] ?? 0.0) / $totalRequests) * 1_000_000
+                : 0.0,
+            'pass_kv_reads_per_request' => $pass['requests'] > 0 ? $pass['pass_kv_reads'] / $pass['requests'] : null,
+            'pass_cache_hit_rate' => $cacheTotal > 0 ? ($pass['pass_config_cache_hit'] / $cacheTotal) * 100 : null,
+            'd1_writes_per_1000_requests' => $all['requests'] > 0 ? ($all['d1_rows_written'] / $all['requests']) * 1000 : 0.0,
+            'last_synced_at' => $summary['last_synced_at'] ?? null,
+            'outcomes' => [
+                'pass' => $pass,
+                'challenge_issued' => $challenge,
+                'blocked' => $blocked,
+                'legacy' => $legacy,
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, int>
+     */
+    private function rollupOutcome(array $rows): array
+    {
+        $totals = [
+            'requests' => 0,
+            'd1_rows_read' => 0,
+            'd1_rows_written' => 0,
+            'kv_reads' => 0,
+            'kv_writes' => 0,
+            'pass_kv_reads' => 0,
+            'pass_kv_writes' => 0,
+            'pass_d1_writes' => 0,
+            'pass_config_cache_hit' => 0,
+            'pass_config_cache_miss' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            foreach ($totals as $key => $value) {
+                $totals[$key] = $value + (int) ($row[$key] ?? 0);
+            }
+        }
+
+        return $totals;
     }
 }

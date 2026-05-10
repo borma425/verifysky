@@ -29,6 +29,7 @@
               @endif
             @endforeach
           </select>
+          <p class="text-xs leading-5 text-[#AEB9CC]">All domains covers registered hostnames in this account only, including explicitly added subdomains.</p>
         </div>
         <div class="space-y-1 lg:col-span-2">
           <label class="vs-sp-label">Action</label>

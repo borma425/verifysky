@@ -42,6 +42,9 @@
                   <option value="{{ $domain['domain_name'] }}" @selected(!$showGlobalFirewallOption && $loop->first)>{{ $domain['domain_name'] }}</option>
                 @endforeach
               </select>
+              @if($showGlobalFirewallOption)
+                <p class="mt-2 text-xs leading-5 text-[#AEB9CC]">All domains covers registered hostnames in this account only, including explicitly added subdomains. It does not create wildcard coverage.</p>
+              @endif
             </div>
             <div class="vs-fw-field">
               <label>Action</label>
@@ -153,7 +156,7 @@
           </div>
           <div class="vs-fw-impact">
             <strong>Impact</strong>
-            <p>Matching visitors may be challenged or blocked. Use block only for traffic you trust is bad.</p>
+            <p>Matching visitors may be challenged or blocked. Account-wide rules apply only to registered hostnames.</p>
           </div>
         </div>
       </aside>

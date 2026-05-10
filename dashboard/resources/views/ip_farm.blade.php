@@ -73,6 +73,7 @@
                 <option value="{{ $domain['domain_name'] }}">{{ $domain['domain_name'] }}</option>
               @endforeach
             </select>
+            <small>All domains covers registered hostnames in this account only.</small>
           </label>
           <label>
             <span>List name</span>
@@ -165,6 +166,7 @@
                           <option value="{{ $domain['domain_name'] }}" @selected($scope === 'domain' && ($rule['domain_name'] ?? '') === $domain['domain_name'])>{{ $domain['domain_name'] }}</option>
                         @endforeach
                       </select>
+                      <small>All domains covers registered hostnames in this account only.</small>
                     </label>
                     <label>
                       <span>List name</span>

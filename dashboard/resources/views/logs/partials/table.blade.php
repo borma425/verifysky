@@ -3,7 +3,7 @@
     <div>
       <h3 id="logs-table-title">{{ $isTenantScoped ? 'Recent Security Events' : 'Recent Security Log Events' }}</h3>
       <p>
-        {{ $isTenantScoped ? 'Only events for the domains assigned to your account are shown here.' : 'Grouped by IP and domain to help with investigation and enforcement.' }}
+        {{ $isTenantScoped ? 'Representative events for your assigned domains. Request totals come from edge counters.' : 'Representative events grouped by IP and domain. Request totals come from edge counters.' }}
       </p>
     </div>
   </div>

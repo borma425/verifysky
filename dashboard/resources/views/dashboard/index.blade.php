@@ -66,6 +66,15 @@
         'points' => '0,22 20,22 40,22 60,22 80,22 100,22',
       ],
     ];
+
+    $edgeOutcomeRows = [];
+    if (!empty($edgeEfficiency)) {
+      $edgeOutcomeRows = [
+        ['label' => 'Pass', 'key' => 'pass', 'tone' => 'text-[#6EE7B7]'],
+        ['label' => 'Challenge', 'key' => 'challenge_issued', 'tone' => 'text-[#FCB900]'],
+        ['label' => 'Blocked', 'key' => 'blocked', 'tone' => 'text-[#FFB4AB]'],
+      ];
+    }
   @endphp
 
   <section class="es-overview-page es-animate">
@@ -239,6 +248,76 @@
           @endforeach
         </div>
       </div>
+
+      @if(!empty($edgeEfficiency))
+        <div class="mt-6 es-card p-5">
+          <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-[#FCB900]">Edge efficiency</p>
+              <h2 class="mt-1 text-xl font-bold tracking-normal text-white">Cost guardrails</h2>
+              <p class="mt-1 max-w-2xl text-sm leading-6 text-[#AEB9CC]">WAE counters show request volume. Security log rows are deduplicated samples for investigation.</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-[#0E131D] px-3 py-2 text-xs text-[#AEB9CC]">
+              Last sync:
+              <span class="font-mono text-[#D7E1F5]">
+                {{ $edgeEfficiency['last_synced_at'] ? $edgeEfficiency['last_synced_at']->format('Y-m-d H:i') . ' UTC' : 'Not synced' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-lg border border-white/10 bg-[#111722] p-4">
+              <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[#959BA7]">Requests</div>
+              <div class="mt-2 text-2xl font-bold text-white">{{ number_format($edgeEfficiency['total_requests'] ?? 0) }}</div>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-[#111722] p-4">
+              <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[#959BA7]">Estimated cost</div>
+              <div class="mt-2 text-2xl font-bold text-white">${{ number_format($edgeEfficiency['estimated_cost_usd'] ?? 0, 4) }}</div>
+              <div class="mt-1 text-xs text-[#AEB9CC]">${{ number_format($edgeEfficiency['cost_per_million_requests_usd'] ?? 0, 2) }} / 1M requests</div>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-[#111722] p-4">
+              <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[#959BA7]">Pass KV reads</div>
+              <div class="mt-2 text-2xl font-bold text-white">
+                {{ $edgeEfficiency['pass_kv_reads_per_request'] === null ? '-' : number_format($edgeEfficiency['pass_kv_reads_per_request'], 2) }}
+              </div>
+              <div class="mt-1 text-xs text-[#AEB9CC]">
+                Cache hit {{ $edgeEfficiency['pass_cache_hit_rate'] === null ? '-' : number_format($edgeEfficiency['pass_cache_hit_rate'], 1) . '%' }}
+              </div>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-[#111722] p-4">
+              <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[#959BA7]">D1 writes</div>
+              <div class="mt-2 text-2xl font-bold text-white">{{ number_format($edgeEfficiency['d1_writes_per_1000_requests'] ?? 0, 2) }}</div>
+              <div class="mt-1 text-xs text-[#AEB9CC]">per 1K requests</div>
+            </div>
+          </div>
+
+          <div class="mt-5 overflow-x-auto">
+            <table class="es-table min-w-full">
+              <thead>
+                <tr>
+                  <th>Outcome</th>
+                  <th>Requests</th>
+                  <th>KV reads</th>
+                  <th>KV writes</th>
+                  <th>D1 writes</th>
+                </tr>
+              </thead>
+              <tbody>
+                @foreach($edgeOutcomeRows as $outcomeRow)
+                  @php($outcome = $edgeEfficiency['outcomes'][$outcomeRow['key']] ?? [])
+                  <tr>
+                    <td><span class="font-semibold {{ $outcomeRow['tone'] }}">{{ $outcomeRow['label'] }}</span></td>
+                    <td>{{ number_format($outcome['requests'] ?? 0) }}</td>
+                    <td>{{ number_format($outcome['kv_reads'] ?? 0) }}</td>
+                    <td>{{ number_format($outcome['kv_writes'] ?? 0) }}</td>
+                    <td>{{ number_format($outcome['d1_rows_written'] ?? 0) }}</td>
+                  </tr>
+                @endforeach
+              </tbody>
+            </table>
+          </div>
+        </div>
+      @endif
     </div>
   </section>
 
