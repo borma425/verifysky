@@ -97,6 +97,26 @@ const MEMORY_RUNTIME_BUNDLE_TTL_MS = 60 * 1000;
 const MEMORY_RUNTIME_BUNDLE_NEGATIVE_TTL_MS = 5 * 1000;
 const MEMORY_RUNTIME_BUNDLE_MAX_KEYS = 5000;
 const PASS_CLEARANCE_TTL_SECONDS = 120;
+const IP_VERDICT_CACHE_TTL_MS = 30 * 1000;
+const IP_VERDICT_CACHE_MAX_KEYS = 10000;
+
+const COMMON_TWO_PART_PUBLIC_SUFFIXES = new Set([
+  "ac.uk",
+  "co.jp",
+  "co.uk",
+  "com.au",
+  "com.br",
+  "com.mx",
+  "com.tr",
+  "com.cn",
+  "com.sg",
+  "com.sa",
+  "co.nz",
+  "co.za",
+  "net.au",
+  "org.au",
+  "org.uk",
+]);
 
 interface RuntimeBundleCacheEntry {
   bundle: RuntimeBundle;
@@ -105,19 +125,44 @@ interface RuntimeBundleCacheEntry {
 
 const runtimeBundleMemoryCache = new Map<string, RuntimeBundleCacheEntry>();
 
+interface IpVerdictCacheEntry {
+  value: boolean;
+  expiresAt: number;
+}
+
+const ipVerdictCache = new Map<string, IpVerdictCacheEntry>();
+
 // Domain-scoped KV Key Helpers
 function getTempBanKey(domain: string, ip: string) { return `ban:domainIP:${domain}:${ip}`; }
 function getAdminAllowKey(domain: string, ip: string) { return `allow:domainIP:${domain}:${ip}`; }
 function getTrustedIpKey(domain: string, ip: string) { return `trust:domainIP:${domain}:${ip}`; }
 function getDailyVisitKey(domain: string, ip: string) { return `daily_visit:domainIP:${domain}:${ip}`; }
+function looksLikeApexHostname(domain: string): boolean {
+  const labels = domain
+    .trim()
+    .toLowerCase()
+    .split(".")
+    .filter(Boolean);
+
+  if (labels.length === 2) return true;
+  if (labels.length === 3) {
+    return COMMON_TWO_PART_PUBLIC_SUFFIXES.has(`${labels[1]}.${labels[2]}`);
+  }
+
+  return false;
+}
+
 function getDomainKeyVariants(domain: string): string[] {
   const normalized = domain.trim().toLowerCase();
   if (!normalized) return [];
 
   const variants = new Set<string>([normalized]);
   if (normalized.startsWith("www.") && normalized.length > 4) {
-    variants.add(normalized.slice(4));
-  } else if (normalized.includes(".")) {
+    const baseDomain = normalized.slice(4);
+    if (looksLikeApexHostname(baseDomain)) {
+      variants.add(baseDomain);
+    }
+  } else if (looksLikeApexHostname(normalized)) {
     variants.add(`www.${normalized}`);
   }
   return Array.from(variants);
@@ -1136,27 +1181,65 @@ async function checkAndIncrementASNVisitCounter(
  * Returns true when ban marker is present.
  */
 async function isTemporarilyBanned(ip: string, domain: string, env: Env): Promise<boolean> {
-  try {
-    const domains = getDomainKeyVariants(domain);
-    const values = await Promise.all(
-      domains.map((name) => env.SESSION_KV.get(getTempBanKey(name, ip)))
-    );
-    return values.some((ban) => ban === "1");
-  } catch {
-    return false;
-  }
+  return cachedIpVerdict("ban", ip, domain, env, async (name) => {
+    return (await env.SESSION_KV.get(getTempBanKey(name, ip))) === "1";
+  });
 }
 
 async function isAdminAllowedIP(ip: string, domain: string, env: Env): Promise<boolean> {
-  try {
-    const domains = getDomainKeyVariants(domain);
-    const values = await Promise.all(
-      domains.map((name) => env.SESSION_KV.get(getAdminAllowKey(name, ip)))
-    );
-    return values.some((allow) => allow !== null);
-  } catch {
-    return false;
+  return cachedIpVerdict("allow", ip, domain, env, async (name) => {
+    return (await env.SESSION_KV.get(getAdminAllowKey(name, ip))) !== null;
+  });
+}
+
+async function cachedIpVerdict(
+  kind: "allow" | "ban",
+  ip: string,
+  domain: string,
+  env: Env,
+  readVariant: (domainVariant: string) => Promise<boolean>
+): Promise<boolean> {
+  const variants = getDomainKeyVariants(domain);
+  if (variants.length === 0 || !ip) return false;
+
+  const cacheKey = ipVerdictCacheKey(kind, domain, ip, env);
+  const now = Date.now();
+  const cached = ipVerdictCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
   }
+  if (cached) {
+    ipVerdictCache.delete(cacheKey);
+  }
+
+  let verdict = false;
+  try {
+    const values = await Promise.all(
+      variants.map((name) => readVariant(name))
+    );
+    verdict = values.some(Boolean);
+  } catch {
+    verdict = false;
+  }
+
+  setIpVerdictCache(cacheKey, verdict);
+
+  return verdict;
+}
+
+function ipVerdictCacheKey(kind: "allow" | "ban", domain: string, ip: string, env: Env): string {
+  const runtimeVersion = String(env.ES_RUNTIME_CONFIG_VERSION || "v1").trim() || "v1";
+  return `${environmentName(env)}|${runtimeVersion}|${kind}|${normalizeDomainName(domain)}|${ip}`;
+}
+
+function setIpVerdictCache(key: string, value: boolean): void {
+  if (ipVerdictCache.size >= IP_VERDICT_CACHE_MAX_KEYS && !ipVerdictCache.has(key)) {
+    ipVerdictCache.clear();
+  }
+  ipVerdictCache.set(key, {
+    value,
+    expiresAt: Date.now() + IP_VERDICT_CACHE_TTL_MS,
+  });
 }
 
 /**
