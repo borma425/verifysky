@@ -44,3 +44,12 @@ test("challenge security logging and direct ban logs are deduped without skippin
     /if \(shouldWriteSecurityLogToD1\(env, domainName, ip, "hard_block", details\)\) {\s*await env\.DB\.prepare\(\s*`INSERT INTO security_logs/s
   );
 });
+
+test("temporary ban repeats are excluded from historical attack counters", () => {
+  assert.match(index, /normalizedDetails\.includes\("temporarily banned ip"\)/);
+  assert.match(index, /normalizedDetails\.includes\("static asset"\)/);
+  assert.match(challenge, /normalizedDetails\.includes\("temporarily banned ip"\)/);
+  assert.match(challenge, /normalizedDetails\.includes\("static asset"\)/);
+  assert.match(index, /attack:ip:day:/);
+  assert.match(index, /\$\{IP_ATTACK_DAY_PREFIX\}\$\{utcDayKey\(\)\}:\$\{domain\}:\$\{ip\}/);
+});

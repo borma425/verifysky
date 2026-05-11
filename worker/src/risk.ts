@@ -90,13 +90,14 @@ export async function evaluateRisk(
   meta: RequestMeta,
   env: Env,
   fingerprintHash?: string | null,
-  options: { readVolatileSignals?: boolean; writeSignals?: boolean } = {}
+  options: { readVolatileSignals?: boolean; writeSignals?: boolean; domain?: string | null } = {}
 ): Promise<RiskAssessment> {
   let score = 0;
   const factors: string[] = [];
   let strongBotSignal = false;
   const readVolatileSignals = options.readVolatileSignals !== false;
   const writeSignals = options.writeSignals !== false;
+  const domain = normalizeDomainForKey(options.domain || domainFromMeta(meta));
 
   // --- Factor 1: Cloudflare Bot Management Score ---
   // CF provides a 1-99 score where 1 = definitely bot, 99 = definitely human.
@@ -279,7 +280,7 @@ export async function evaluateRisk(
   if (readVolatileSignals) {
     // --- Factor 8: IP-based Rate Signal (KV fast lookup) ---
     try {
-      const ipRequestKey = `rate:${meta.ip}`;
+      const ipRequestKey = ipRateKey(domain, meta.ip);
       const rateData = await env.SESSION_KV.get(ipRequestKey);
       if (rateData) {
         const count = parseInt(rateData, 10);
@@ -299,7 +300,7 @@ export async function evaluateRisk(
     // Helps detect distributed traffic from rotating IPs inside one ASN.
     if (meta.asn) {
       try {
-        const asnRequestKey = `rate:asn:${meta.asn}`;
+        const asnRequestKey = asnRateKey(domain, meta.asn);
         const asnRateData = await env.SESSION_KV.get(asnRequestKey);
         if (asnRateData) {
           const asnCount = parseInt(asnRateData, 10);
@@ -322,8 +323,8 @@ export async function evaluateRisk(
     try {
       const v4 = extractIPv4Subnets(meta.ip);
       if (v4) {
-        const subnet24Key = `rate:subnet4:${v4.subnet24}`;
-        const subnet16Key = `rate:subnet4:${v4.subnet16}`;
+        const subnet24Key = subnetRateKey(domain, v4.subnet24);
+        const subnet16Key = subnetRateKey(domain, v4.subnet16);
         const subnet24Count = parseInt((await env.SESSION_KV.get(subnet24Key)) || "0", 10) || 0;
         const subnet16Count = parseInt((await env.SESSION_KV.get(subnet16Key)) || "0", 10) || 0;
 
@@ -358,7 +359,7 @@ export async function evaluateRisk(
     // Detects concentrated pressure on a specific endpoint globally and per-ASN.
     try {
       const pathBucket = normalizePathForRate(meta.path);
-      const pathKey = `rate:path:${pathBucket}`;
+      const pathKey = pathRateKey(domain, pathBucket);
       const pathCount = parseInt((await env.SESSION_KV.get(pathKey)) || "0", 10) || 0;
 
       if (pathCount > PATH_BURST_HIGH) {
@@ -370,7 +371,7 @@ export async function evaluateRisk(
       }
 
       if (meta.asn) {
-        const asnPathKey = `rate:asnpath:${meta.asn}:${pathBucket}`;
+        const asnPathKey = asnPathRateKey(domain, meta.asn, pathBucket);
         const asnPathCount = parseInt((await env.SESSION_KV.get(asnPathKey)) || "0", 10) || 0;
         if (asnPathCount > ASN_PATH_BURST_HIGH) {
           score += 18;
@@ -393,12 +394,12 @@ export async function evaluateRisk(
     // Lightweight KV-only lookups (UTC buckets), no per-request D1 query.
     // Applied conservatively to avoid hurting normal users.
     try {
-      const todayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${meta.ip}`;
+      const todayKey = attackDayKey(domain, utcDayKey(), meta.ip);
       const todayCount = parseInt((await env.SESSION_KV.get(todayKey)) || "0", 10) || 0;
 
       if (todayCount > 0) {
-        const yesterdayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey(-1)}:${meta.ip}`;
-        const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${meta.ip}`;
+        const yesterdayKey = attackDayKey(domain, utcDayKey(-1), meta.ip);
+        const monthKey = attackMonthKey(domain, utcMonthKey(), meta.ip);
         const yesterdayCount = parseInt((await env.SESSION_KV.get(yesterdayKey)) || "0", 10) || 0;
         const monthCount = parseInt((await env.SESSION_KV.get(monthKey)) || "0", 10) || 0;
 
@@ -524,6 +525,47 @@ function utcMonthKey(): string {
 const RATE_WRITE_SAMPLE = 0.2;
 const RATE_WRITE_BOOST = Math.round(1 / RATE_WRITE_SAMPLE); // = 5
 
+function domainFromMeta(meta: RequestMeta): string {
+  try {
+    return new URL(meta.url).hostname;
+  } catch {
+    return "unknown";
+  }
+}
+
+function normalizeDomainForKey(domain: string | null | undefined): string {
+  const normalized = String(domain || "").trim().toLowerCase();
+  return normalized || "unknown";
+}
+
+function ipRateKey(domain: string, ip: string): string {
+  return `rate:domainIP:${domain}:${ip}`;
+}
+
+function asnRateKey(domain: string, asn: string): string {
+  return `rate:domainASN:${domain}:${asn}`;
+}
+
+function subnetRateKey(domain: string, subnet: string): string {
+  return `rate:domainSubnet4:${domain}:${subnet}`;
+}
+
+function pathRateKey(domain: string, pathBucket: string): string {
+  return `rate:domainPath:${domain}:${pathBucket}`;
+}
+
+function asnPathRateKey(domain: string, asn: string, pathBucket: string): string {
+  return `rate:domainASNPath:${domain}:${asn}:${pathBucket}`;
+}
+
+function attackDayKey(domain: string, day: string, ip: string): string {
+  return `${IP_ATTACK_DAY_PREFIX}${day}:${domain}:${ip}`;
+}
+
+function attackMonthKey(domain: string, month: string, ip: string): string {
+  return `${IP_ATTACK_MONTH_PREFIX}${month}:${domain}:${ip}`;
+}
+
 /**
  * Increments the request counter for an IP address in KV.
  * The counter auto-expires after 60 seconds (sliding window).
@@ -531,10 +573,11 @@ const RATE_WRITE_BOOST = Math.round(1 / RATE_WRITE_SAMPLE); // = 5
  */
 export async function incrementIPRate(
   ip: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  domain: string = "unknown"
 ): Promise<void> {
   if (Math.random() >= RATE_WRITE_SAMPLE) return; // Probabilistic skip
-  const key = `rate:${ip}`;
+  const key = ipRateKey(normalizeDomainForKey(domain), ip);
   const current = await kv.get(key);
   const count = current ? parseInt(current, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(key, String(count), { expirationTtl: 60 });
@@ -545,9 +588,10 @@ export async function incrementIPRate(
  */
 export async function getIPRateCount(
   ip: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  domain: string = "unknown"
 ): Promise<number> {
-  const key = `rate:${ip}`;
+  const key = ipRateKey(normalizeDomainForKey(domain), ip);
   const current = await kv.get(key);
   if (!current) return 0;
   const parsed = parseInt(current, 10);
@@ -560,10 +604,11 @@ export async function getIPRateCount(
  */
 export async function incrementASNRate(
   asn: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  domain: string = "unknown"
 ): Promise<void> {
   if (Math.random() >= RATE_WRITE_SAMPLE) return;
-  const key = `rate:asn:${asn}`;
+  const key = asnRateKey(normalizeDomainForKey(domain), asn);
   const current = await kv.get(key);
   const count = current ? parseInt(current, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(key, String(count), { expirationTtl: 60 });
@@ -575,14 +620,16 @@ export async function incrementASNRate(
  */
 export async function incrementSubnetRate(
   ip: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  domain: string = "unknown"
 ): Promise<void> {
   if (Math.random() >= RATE_WRITE_SAMPLE) return;
   const v4 = extractIPv4Subnets(ip);
   if (!v4) return;
 
-  const key24 = `rate:subnet4:${v4.subnet24}`;
-  const key16 = `rate:subnet4:${v4.subnet16}`;
+  const domainKey = normalizeDomainForKey(domain);
+  const key24 = subnetRateKey(domainKey, v4.subnet24);
+  const key16 = subnetRateKey(domainKey, v4.subnet16);
 
   const current24 = await kv.get(key24);
   const count24 = current24 ? parseInt(current24, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
@@ -600,17 +647,19 @@ export async function incrementSubnetRate(
 export async function incrementPathRate(
   path: string,
   asn: string | null,
-  kv: KVNamespace
+  kv: KVNamespace,
+  domain: string = "unknown"
 ): Promise<void> {
   if (Math.random() >= RATE_WRITE_SAMPLE) return;
   const bucket = normalizePathForRate(path);
-  const globalKey = `rate:path:${bucket}`;
+  const domainKey = normalizeDomainForKey(domain);
+  const globalKey = pathRateKey(domainKey, bucket);
   const globalCurrent = await kv.get(globalKey);
   const globalCount = globalCurrent ? parseInt(globalCurrent, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(globalKey, String(globalCount), { expirationTtl: 60 });
 
   if (!asn) return;
-  const asnKey = `rate:asnpath:${asn}:${bucket}`;
+  const asnKey = asnPathRateKey(domainKey, asn, bucket);
   const asnCurrent = await kv.get(asnKey);
   const asnCount = asnCurrent ? parseInt(asnCurrent, 10) + RATE_WRITE_BOOST : RATE_WRITE_BOOST;
   await kv.put(asnKey, String(asnCount), { expirationTtl: 60 });
@@ -715,10 +764,12 @@ async function sha256Short(str: string): Promise<string> {
 export async function incrementFloodCounters(
   ip: string,
   userAgent: string,
-  kv: KVNamespace
+  kv: KVNamespace,
+  domain: string = "unknown"
 ): Promise<void> {
   const uaHash = await sha256Short(userAgent || "unknown");
-  const composite = `${ip}:${uaHash}`;
+  const domainKey = normalizeDomainForKey(domain);
+  const composite = `${domainKey}:${ip}:${uaHash}`;
 
   // Fire all increments in parallel for max throughput
   const ops: Promise<void>[] = [];
@@ -728,11 +779,11 @@ export async function incrementFloodCounters(
   ops.push(kvIncrement(kv, `flood:s:${composite}`, FLOOD_SUSTAINED_WINDOW_SECONDS));
 
   // 2. IP-only counters (fallback layer)
-  ops.push(kvIncrement(kv, `flood:ib:${ip}`, FLOOD_BURST_WINDOW_SECONDS));
-  ops.push(kvIncrement(kv, `flood:is:${ip}`, FLOOD_SUSTAINED_WINDOW_SECONDS));
+  ops.push(kvIncrement(kv, `flood:ib:${domainKey}:${ip}`, FLOOD_BURST_WINDOW_SECONDS));
+  ops.push(kvIncrement(kv, `flood:is:${domainKey}:${ip}`, FLOOD_SUSTAINED_WINDOW_SECONDS));
 
   // 3. UA diversity tracking per IP
-  const uaSeenKey = `flood:uas:${ip}:${uaHash}`;
+  const uaSeenKey = `flood:uas:${domainKey}:${ip}:${uaHash}`;
   ops.push(
     (async () => {
       try {
@@ -741,7 +792,7 @@ export async function incrementFloodCounters(
           await kv.put(uaSeenKey, "1", {
             expirationTtl: FLOOD_SUSTAINED_WINDOW_SECONDS,
           });
-          await kvIncrement(kv, `flood:uac:${ip}`, FLOOD_SUSTAINED_WINDOW_SECONDS);
+          await kvIncrement(kv, `flood:uac:${domainKey}:${ip}`, FLOOD_SUSTAINED_WINDOW_SECONDS);
         }
       } catch {
         // Non-fatal
@@ -760,19 +811,21 @@ export async function getFloodStatus(
   ip: string,
   userAgent: string,
   kv: KVNamespace,
-  thresholds: DomainThresholds
+  thresholds: DomainThresholds,
+  domain: string = "unknown"
 ): Promise<FloodStatus> {
   const uaHash = await sha256Short(userAgent || "unknown");
-  const composite = `${ip}:${uaHash}`;
+  const domainKey = normalizeDomainForKey(domain);
+  const composite = `${domainKey}:${ip}:${uaHash}`;
 
   // Single parallel batch — 5 KV reads simultaneously
   const [burstStr, sustainedStr, ipBurstStr, ipSustainedStr, uaCountStr] =
     await Promise.all([
       kv.get(`flood:b:${composite}`).catch(() => null),
       kv.get(`flood:s:${composite}`).catch(() => null),
-      kv.get(`flood:ib:${ip}`).catch(() => null),
-      kv.get(`flood:is:${ip}`).catch(() => null),
-      kv.get(`flood:uac:${ip}`).catch(() => null),
+      kv.get(`flood:ib:${domainKey}:${ip}`).catch(() => null),
+      kv.get(`flood:is:${domainKey}:${ip}`).catch(() => null),
+      kv.get(`flood:uac:${domainKey}:${ip}`).catch(() => null),
     ]);
 
   const burst = safeParseInt(burstStr);

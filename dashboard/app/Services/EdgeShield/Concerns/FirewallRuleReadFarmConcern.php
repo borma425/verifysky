@@ -208,9 +208,52 @@ trait FirewallRuleReadFarmConcern
 
         if ($totalRemoved > 0) {
             $this->purgeCache('global');
+            $this->cleanupRemovedFarmIpsAcrossDomains($ipsToRemove, $tenantId);
         }
 
         return ['ok' => true, 'removed' => $totalRemoved];
+    }
+
+    private function cleanupRemovedFarmIpsAcrossDomains(array $ips, ?string $tenantId = null): void
+    {
+        $ips = array_values(array_filter(
+            $ips,
+            static fn (string $ip): bool => filter_var($ip, FILTER_VALIDATE_IP) !== false
+        ));
+        if ($ips === []) {
+            return;
+        }
+
+        $domains = $this->activeDomainsForRuntimeCleanup($tenantId);
+        foreach ($domains as $domain) {
+            $this->purgeCache($domain);
+            foreach ($ips as $ip) {
+                $this->workerAdmin->cleanupIp($domain, $ip);
+            }
+        }
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function activeDomainsForRuntimeCleanup(?string $tenantId = null): array
+    {
+        $tenantSql = '';
+        if ($tenantId !== null && trim($tenantId) !== '') {
+            $tenantSql = " AND tenant_id = '".str_replace("'", "''", trim($tenantId))."'";
+        }
+
+        $result = $this->d1->query("SELECT domain_name FROM domain_configs WHERE status = 'active'{$tenantSql} ORDER BY domain_name");
+        if (! ($result['ok'] ?? false)) {
+            return [];
+        }
+
+        $rows = $this->d1->parseWranglerJson((string) ($result['output'] ?? ''))[0]['results'] ?? [];
+
+        return array_values(array_filter(array_map(
+            static fn (array $row): string => strtolower(trim((string) ($row['domain_name'] ?? ''))),
+            is_array($rows) ? $rows : []
+        )));
     }
 
     public function createIpFarmRule(
@@ -398,6 +441,10 @@ trait FirewallRuleReadFarmConcern
         $description = $this->ipFarmDescription((string) ($rule['description'] ?? ''), count($remaining));
         $update = $this->updateFarmRow($ruleId, (string) ($rule['domain_name'] ?? 'global'), $description, $this->ipFarmExpression($remaining), (bool) ($rule['paused'] ?? false), trim((string) ($rule['tenant_id'] ?? '')) ?: null, (string) ($rule['scope'] ?? 'domain'));
 
+        if (($update['ok'] ?? false) === true) {
+            $this->cleanupRemovedFarmIpsAcrossDomains($normalized['valid'], $tenantId);
+        }
+
         return ['ok' => (bool) ($update['ok'] ?? false), 'removed' => $removed, 'error' => $update['error'] ?? null];
     }
 
@@ -408,7 +455,13 @@ trait FirewallRuleReadFarmConcern
             return ['ok' => false, 'error' => 'Blocked IP rule not found.'];
         }
 
-        return $this->delete((string) ($rule['domain_name'] ?? 'global'), $ruleId);
+        $targets = $this->targetsFromFarmRule($rule);
+        $delete = $this->delete((string) ($rule['domain_name'] ?? 'global'), $ruleId);
+        if (($delete['ok'] ?? false) === true) {
+            $this->cleanupRemovedFarmIpsAcrossDomains($targets, $tenantId);
+        }
+
+        return $delete;
     }
 
     public function deleteBulkIpFarmRules(array $ruleIds, ?string $tenantId = null): array
@@ -419,9 +472,12 @@ trait FirewallRuleReadFarmConcern
         }
 
         $safeIds = [];
+        $targets = [];
         foreach ($ids as $id) {
-            if ($this->getIpFarmRuleOrNull($id, $tenantId)) {
+            $rule = $this->getIpFarmRuleOrNull($id, $tenantId);
+            if ($rule) {
                 $safeIds[] = $id;
+                $targets = array_merge($targets, $this->targetsFromFarmRule($rule));
             }
         }
         if ($safeIds === []) {
@@ -429,6 +485,9 @@ trait FirewallRuleReadFarmConcern
         }
 
         $delete = $this->deleteBulk($safeIds);
+        if (($delete['ok'] ?? false) === true) {
+            $this->cleanupRemovedFarmIpsAcrossDomains($targets, $tenantId);
+        }
 
         return ['ok' => (bool) ($delete['ok'] ?? false), 'deleted' => count($safeIds), 'error' => $delete['error'] ?? null];
     }

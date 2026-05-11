@@ -110,7 +110,7 @@ class AdminTenantFirewallController extends Controller
         return [
             'description' => ['nullable', 'string', 'max:255'],
             'action' => ['required', 'in:block,challenge,managed_challenge,js_challenge,allow,block_ip_farm'],
-            'field' => ['required', 'string', 'in:ip.src,ip.src.country,ip.src.asnum,http.request.uri.path,http.request.method,http.user_agent'],
+            'field' => ['required', 'string', 'in:ip.src,ip.src.country,ip.src.asnum,http.request.uri.path,http.request.method,http.user_agent,client.device_type'],
             'operator' => ['required', 'string', 'in:eq,ne,in,not_in,contains,not_contains,starts_with'],
             'value' => ['required', 'string', 'max:3000'],
             'duration' => ['nullable', 'string', 'in:forever,1h,6h,24h,7d,30d'],

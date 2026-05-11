@@ -96,6 +96,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
   
   const purpose = request.headers.get("Purpose") || request.headers.get("X-Purpose") || request.headers.get("Sec-Purpose");
   const isPrefetch = purpose === "prefetch" || purpose === "preview";
+  const deviceType = detectDeviceType(request, userAgent);
 
   // Safely extract the cf object — may be undefined in local dev
   const cf = (request as unknown as { cf?: CfProperties }).cf;
@@ -124,6 +125,7 @@ export function extractRequestMeta(request: Request): RequestMeta {
       secFetchSite,
       secFetchMode,
       isPrefetch,
+      device_type: deviceType,
     };
   }
 
@@ -150,7 +152,39 @@ export function extractRequestMeta(request: Request): RequestMeta {
     secFetchSite,
     secFetchMode,
     isPrefetch,
+    device_type: deviceType,
   };
+}
+
+function detectDeviceType(
+  request: Request,
+  userAgent: string
+): RequestMeta["device_type"] {
+  const ua = (userAgent || "").toLowerCase();
+  if (/(bot|crawler|spider|slurp|headless|phantom|selenium|puppeteer|playwright)/i.test(userAgent)) {
+    return "bot";
+  }
+
+  const chMobile = (request.headers.get("Sec-CH-UA-Mobile") || "").trim();
+  if (chMobile === "?1") return "mobile";
+  if (chMobile === "?0") {
+    if (/ipad|tablet|kindle|silk|playbook|android(?!.*mobile)/i.test(userAgent)) {
+      return "tablet";
+    }
+    return "desktop";
+  }
+
+  if (/ipad|tablet|kindle|silk|playbook|android(?!.*mobile)/.test(ua)) {
+    return "tablet";
+  }
+  if (/mobi|iphone|ipod|android|blackberry|iemobile|opera mini/.test(ua)) {
+    return "mobile";
+  }
+  if (userAgent && userAgent !== "unknown") {
+    return "desktop";
+  }
+
+  return "unknown";
 }
 
 // ---------------------------------------------------------------------------

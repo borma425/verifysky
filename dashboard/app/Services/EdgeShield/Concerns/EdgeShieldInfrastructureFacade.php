@@ -56,4 +56,9 @@ trait EdgeShieldInfrastructureFacade
     {
         return $this->workerAdmin->unbanIp($domain, $ip);
     }
+
+    public function cleanupIpViaWorkerAdmin(string $domain, string $ip): array
+    {
+        return $this->workerAdmin->cleanupIp($domain, $ip);
+    }
 }

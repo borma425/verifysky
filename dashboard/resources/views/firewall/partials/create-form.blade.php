@@ -86,6 +86,7 @@
                 <option value="http.request.uri.path">URI Path (e.g., /wp-login.php)</option>
                 <option value="http.request.method">HTTP Method (e.g., POST)</option>
                 <option value="http.user_agent">User Agent (e.g., python-requests)</option>
+                <option value="client.device_type">Device Type (desktop, mobile, tablet)</option>
               </select>
             </div>
             <div class="vs-fw-field">

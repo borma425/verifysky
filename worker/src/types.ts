@@ -356,4 +356,5 @@ export interface RequestMeta {
   secFetchSite: string | null;
   secFetchMode: string | null;
   isPrefetch: boolean;
+  device_type: "desktop" | "mobile" | "tablet" | "bot" | "unknown";
 }

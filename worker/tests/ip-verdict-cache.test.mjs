@@ -49,3 +49,19 @@ test("allow and ban checks use the shared in-memory ip verdict cache", () => {
   assert.match(cacheBody, /setIpVerdictCache\(cacheKey, verdict\)/);
   assert.match(cacheBody, /variants\.map\(\(name\) => readVariant\(name\)\)/);
 });
+
+test("admin cleanup removes domain-scoped and legacy IP state", () => {
+  const cleanupBody = asyncFunctionBody("cleanupIpRuntimeState");
+  const adminBody = asyncFunctionBody("handleAdminIPRoute");
+
+  assert.match(cleanupBody, /getTempBanKey\(name, ip\)/);
+  assert.match(cleanupBody, /getTrustedIpKey\(name, ip\)/);
+  assert.match(cleanupBody, /getFailureRateKey\(name, ip\)/);
+  assert.match(cleanupBody, /getDailyVisitKey\(name, ip\)/);
+  assert.match(cleanupBody, /`vc:\$\{name\}:\$\{ip\}:`/);
+  assert.match(cleanupBody, /IP_ATTACK_DAY_PREFIX/);
+  assert.match(cleanupBody, /IP_ATTACK_MONTH_PREFIX/);
+  assert.match(cleanupBody, /ipVerdictCache\.clear\(\)/);
+  assert.match(adminBody, /path === "\/es-admin\/ip\/cleanup"/);
+  assert.match(adminBody, /cleanupIpRuntimeState\(env, ip, domains, \{ removeAllow: true \}\)/);
+});

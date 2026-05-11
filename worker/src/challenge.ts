@@ -353,7 +353,8 @@ export async function handleChallengeSubmission(
   }
 
   // Per-IP submission rate limit (protect challenge endpoint from flooding)
-  const rateLimited = await isSubmissionRateLimited(meta.ip, env);
+  const domainName = challengeDomain(meta, domainConfig);
+  const rateLimited = await isSubmissionRateLimited(meta.ip, env, domainName);
   if (rateLimited) {
     ctx.waitUntil(markIPTemporarilyBanned(env, meta.ip, "submission_rate_limit", thresholds, meta));
     markUsageOutcome(env, "blocked");
@@ -618,7 +619,7 @@ export async function handleChallengeSubmission(
   // This must be awaited (not ctx.waitUntil) to ensure the counter is deleted
   // before the client redirects. Without this, KV eventual consistency causes
   // the redirected request to read the old high counter value.
-  await resetVisitCounter(meta, env);
+  await resetVisitCounter(meta, env, domainName);
 
   // Set a post-solve grace marker (2 minutes). Even after the delete above,
   // KV eventual consistency may cause the counter read to return a stale value.
@@ -631,14 +632,13 @@ export async function handleChallengeSubmission(
     for (let i = 0; i < 4; i++) {
       uaHex += uaHashArray[i].toString(16).padStart(2, "0");
     }
-    await env.SESSION_KV.put(`vc_grace:${meta.ip}:${uaHex}`, "1", {
+    await env.SESSION_KV.put(`vc_grace:${domainName}:${meta.ip}:${uaHex}`, "1", {
       expirationTtl: 120,
     });
   } catch {}
 
   // Generate session token (JWT bound to IP + fingerprint)
   const now = Math.floor(Date.now() / 1000);
-  const domainName = extractDomainFromMeta(meta) || domainConfig.domain_name;
   const contextHash = await createClearanceContextHash(meta.ip, meta.userAgent, domainName);
   const claims: SessionTokenClaims = {
     sub: submission.fingerprint,
@@ -659,7 +659,7 @@ export async function handleChallengeSubmission(
   // Log successful challenge
   ctx.waitUntil(logEvent(env, "challenge_solved", meta, submission.fingerprint,
     `Solved in ${telemetryResult.solveTimeMs}ms, human score: ${telemetryResult.humanScore}, mode=normal`));
-  ctx.waitUntil(clearFailureCounter(env, meta.ip));
+  ctx.waitUntil(clearFailureCounter(env, meta.ip, domainName));
 
   // Return success with session cookie
   const cookieHeader = buildSessionCookie(sessionToken, thresholds.session_ttl_seconds);
@@ -1249,7 +1249,7 @@ async function logEvent(
     )
       .bind(domainName, eventType, meta.ip, meta.asn, meta.country, meta.path, fingerprintHash, details)
       .run();
-    await incrementHistoricalAttackCounters(env, eventType, meta.ip);
+    await incrementHistoricalAttackCounters(env, eventType, meta.ip, domainName, details);
   } catch {
     // Non-fatal
   }
@@ -1266,12 +1266,19 @@ function utcMonthKey(now: Date = new Date()): string {
 async function incrementHistoricalAttackCounters(
   env: Env,
   eventType: string,
-  ip: string
+  ip: string,
+  domainName: string | null,
+  details: string | null
 ): Promise<void> {
   if (!ip || !HISTORICAL_ATTACK_EVENTS.has(eventType)) return;
+  const normalizedDetails = String(details || "").toLowerCase();
+  if (normalizedDetails.includes("temporarily banned ip") || normalizedDetails.includes("static asset")) {
+    return;
+  }
 
-  const dayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${ip}`;
-  const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${ip}`;
+  const domain = String(domainName || "unknown").trim().toLowerCase() || "unknown";
+  const dayKey = `${IP_ATTACK_DAY_PREFIX}${utcDayKey()}:${domain}:${ip}`;
+  const monthKey = `${IP_ATTACK_MONTH_PREFIX}${utcMonthKey()}:${domain}:${ip}`;
 
   try {
     const currentDay = await env.SESSION_KV.get(dayKey);
@@ -1298,7 +1305,7 @@ async function incrementHistoricalAttackCounters(
  * Resets the visit counter for an IP+UA composite key after successful CAPTCHA solve.
  * This prevents the counter from persisting and re-triggering CAPTCHA on the redirect.
  */
-async function resetVisitCounter(meta: RequestMeta, env: Env): Promise<void> {
+async function resetVisitCounter(meta: RequestMeta, env: Env, domainName: string): Promise<void> {
   try {
     const data = new TextEncoder().encode(meta.userAgent || "unknown");
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
@@ -1307,15 +1314,16 @@ async function resetVisitCounter(meta: RequestMeta, env: Env): Promise<void> {
     for (let i = 0; i < 4; i++) {
       hex += hashArray[i].toString(16).padStart(2, "0");
     }
-    const key = `vc:${meta.ip}:${hex}`;
+    const key = `vc:${domainName}:${meta.ip}:${hex}`;
     await env.SESSION_KV.delete(key);
+    await env.SESSION_KV.delete(`vc:${meta.ip}:${hex}`);
   } catch {
     // Non-fatal — the session age fallback in index.ts will catch this
   }
 }
 
-async function isSubmissionRateLimited(ip: string, env: Env): Promise<boolean> {
-  const key = `submitrate:${ip}`;
+async function isSubmissionRateLimited(ip: string, env: Env, domainName: string): Promise<boolean> {
+  const key = `submitrate:${domainName}:${ip}`;
   try {
     const current = await env.SESSION_KV.get(key);
     const count = current ? parseInt(current, 10) + 1 : 1;
@@ -1333,7 +1341,8 @@ async function recordFailureAndMaybeBan(
   thresholds?: DomainThresholds,
   meta?: RequestMeta
 ): Promise<void> {
-  const key = `failrate:${ip}`;
+  const domainName = meta ? extractDomainFromMeta(meta) || "unknown" : "unknown";
+  const key = `failrate:${domainName}:${ip}`;
   try {
     const current = await env.SESSION_KV.get(key);
     const count = current ? parseInt(current, 10) + 1 : 1;
@@ -1350,8 +1359,9 @@ async function recordFailureAndMaybeBan(
   }
 }
 
-async function clearFailureCounter(env: Env, ip: string): Promise<void> {
+async function clearFailureCounter(env: Env, ip: string, domainName: string): Promise<void> {
   try {
+    await env.SESSION_KV.delete(`failrate:${domainName}:${ip}`);
     await env.SESSION_KV.delete(`failrate:${ip}`);
   } catch {
     // Non-fatal
@@ -1374,7 +1384,7 @@ async function markIPTemporarilyBanned(
 	    const effectiveDomain = domainName || "_unknown_";
 	    const banKey = `ban:domainIP:${effectiveDomain}:${ip}`;
 	    await env.SESSION_KV.put(banKey, "1", { expirationTtl: banTtl });
-	    const details = `Temporary IP ban (${banTtl}s): ${reason}`;
+	    const details = `challenge_failed: Temporary IP ban (${banTtl}s): ${reason}`;
 	    if (shouldWriteSecurityLogToD1(env, domainName, ip, "hard_block", details)) {
 	      await env.DB.prepare(
 	        `INSERT INTO security_logs (domain_name, event_type, ip_address, asn, country, target_path, fingerprint_hash, risk_score, details)
@@ -1382,7 +1392,7 @@ async function markIPTemporarilyBanned(
 	      )
 	        .bind(domainName, ip, targetPath, details)
 	        .run();
-	      await incrementHistoricalAttackCounters(env, "hard_block", ip);
+	      await incrementHistoricalAttackCounters(env, "hard_block", ip, domainName, details);
 	    }
 
     // IP Farm: Challenge failure ban → permanent ban in graveyard

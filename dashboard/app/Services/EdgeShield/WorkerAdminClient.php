@@ -136,6 +136,12 @@ class WorkerAdminClient
                 'ip' => (string) ($payload['ip'] ?? $ip),
                 'banned' => (bool) ($payload['banned'] ?? false),
                 'allowed' => (bool) ($payload['allowed'] ?? false),
+                'effective_allowed' => (bool) ($payload['effective_allowed'] ?? false),
+                'effective_blocked' => (bool) ($payload['effective_blocked'] ?? false),
+                'custom_firewall_allowed' => (bool) ($payload['custom_firewall_allowed'] ?? false),
+                'ip_farm_blocked' => (bool) ($payload['ip_farm_blocked'] ?? false),
+                'ip_farm_rule_ids' => $payload['ip_farm_rule_ids'] ?? [],
+                'custom_firewall_matches' => $payload['custom_firewall_matches'] ?? [],
             ],
         ];
     }
@@ -215,6 +221,11 @@ class WorkerAdminClient
     public function unbanIp(string $domain, string $ip): array
     {
         return $this->post($domain, '/es-admin/ip/unban', ['ip' => $ip]);
+    }
+
+    public function cleanupIp(string $domain, string $ip): array
+    {
+        return $this->post($domain, '/es-admin/ip/cleanup', ['ip' => $ip]);
     }
 
     private function post(string $domain, string $path, array $payload): array

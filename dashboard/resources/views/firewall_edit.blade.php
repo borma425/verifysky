@@ -72,6 +72,7 @@
             <option value="http.request.uri.path" {{ $field === 'http.request.uri.path' ? 'selected' : '' }}>URI Path (e.g., /wp-login.php)</option>
             <option value="http.request.method" {{ $field === 'http.request.method' ? 'selected' : '' }}>HTTP Method (e.g., POST)</option>
             <option value="http.user_agent" {{ $field === 'http.user_agent' ? 'selected' : '' }}>User Agent (e.g., python-requests)</option>
+            <option value="client.device_type" {{ $field === 'client.device_type' ? 'selected' : '' }}>Device Type (desktop, mobile, tablet)</option>
           </select>
         </div>
         <div>

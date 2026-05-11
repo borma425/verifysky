@@ -29,6 +29,7 @@
         <option value="http.request.uri.path">Path</option>
         <option value="http.request.method">Method</option>
         <option value="http.user_agent">User agent</option>
+        <option value="client.device_type">Device type</option>
       </select>
       <select class="es-input" name="operator">
         @foreach(['eq', 'ne', 'in', 'not_in', 'contains', 'not_contains', 'starts_with'] as $operator)
@@ -99,7 +100,7 @@
                     @endforeach
                   </select>
                   <select class="es-input h-9 text-xs" name="field">
-                    @foreach(['ip.src', 'ip.src.country', 'ip.src.asnum', 'http.request.uri.path', 'http.request.method', 'http.user_agent'] as $field)
+                    @foreach(['ip.src', 'ip.src.country', 'ip.src.asnum', 'http.request.uri.path', 'http.request.method', 'http.user_agent', 'client.device_type'] as $field)
                       <option value="{{ $field }}" @selected(($expr['field'] ?? '') === $field)>{{ $field }}</option>
                     @endforeach
                   </select>

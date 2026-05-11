@@ -39,6 +39,15 @@ class AllowIpFromLogsAction
         $deleteResult = $this->logs->deleteLogsByIp($ip, $domain);
         $this->logs->deleteIpAccessRulesByIp($ip);
         $this->edgeShield->removeIpsFromFarm([$ip], $tenantId ?: null);
+        $domainsResult = $this->edgeShield->listDomains($tenantId ?: null, (bool) session('is_admin'));
+        if (($domainsResult['ok'] ?? false) === true) {
+            foreach (($domainsResult['domains'] ?? []) as $row) {
+                $hostname = (string) ($row['domain_name'] ?? '');
+                if ($hostname !== '') {
+                    $this->edgeShield->cleanupIpViaWorkerAdmin($hostname, $ip);
+                }
+            }
+        }
         $this->logs->deleteCustomFirewallRulesByIp($ip, true, $tenantId ?: null);
         $this->edgeShield->createIpAccessRule($domain, $ip, 'allow', 'Manually allow-listed from security logs page');
         $this->edgeShield->createCustomFirewallRule(
